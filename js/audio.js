@@ -174,6 +174,13 @@ export const sfx = {
     noise({ type: 'highpass', freq: 7000, vol: 0.05, dur: 0.7, attack: 0.03, when: 0.3 });
   },
   click() { play('click', { vol: 0.5, jitter: 0.05 }); },
+  // idle fog horn collected: a long low war-horn blow rising a fifth, with breath noise
+  horn() {
+    note({ freq: 110, type: 'sawtooth', vol: 0.1, dur: 0.5, attack: 0.08, cutoff: 900 });
+    note({ freq: 165, type: 'sawtooth', vol: 0.12, dur: 0.9, attack: 0.1, when: 0.35, cutoff: 1100 });
+    note({ freq: 82.5, type: 'triangle', vol: 0.1, dur: 1.2, attack: 0.1, when: 0.05 });
+    noise({ type: 'bandpass', freq: 600, vol: 0.05, dur: 1.1, attack: 0.15 });
+  },
 };
 
 // ---------- music ----------

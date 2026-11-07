@@ -1,37 +1,43 @@
 // idle mode: endless zoom-out on top of the conquest battle sim. no drawing and no dom here, so the
 // same code runs in the game and in the headless balance sim (tools/idle_sim.py).
 //
-// loop: every stage is one battle. defeated enemy foglets give fogs (points), a stage win gives a
-// bonus, and fogs buy permanent upgrades in a tree (open it any time, a purchase applies at once).
-// losing a stage ends the run; fogs and upgrades are kept and the next run starts at stage 1
-// (later: further in, with the fog drift upgrade).
+// loop: every stage is one battle. defeated enemy foglets give Fog (the points), a stage win gives a
+// bonus, bosses drop Mist (the rare currency), and both buy permanent upgrades in a tree (open it any
+// time, a purchase applies at once). losing a stage ends the run; Fog, Mist and upgrades are kept and
+// the next run starts at stage 1 (later: further in, with the fog drift upgrade). the fog horn
+// gathers Fog in real time, played or not, to collect from the menu.
 //
 // numbers: the sim itself never changes scale (a tile still holds ~400 sim foglets). what grows is
 //   - the display scale: every number on screen = sim foglets x display^(stage-1), so troop counts
-//     and fogs climb to K, M, B... while the battles stay the same size
+//     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=85';
-import { rng, hops } from './mapgen.js?v=85';
+import { personalities, pickBuilding } from './ai.js?v=86';
+import { rng, hops } from './mapgen.js?v=86';
 
 export const idleCfg = {
-  display: 1.45,      // shown numbers (troops, fogs) grow x1.45 per stage
+  display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
   enemyBase: 0.75,    // stage 1 bots: attack / defense x0.75 (an easy first island)
   enemyAtk: 1.08,     // bot attack and defense x1.08 per stage
   enemyGrowth: 1.08,  // bot growth x1.08 per stage (growth decides attrition fights, so it must keep up)
   enemyGrowthBase: 0.85,   // stage 1 bots grow at x0.85
   neutralExp: 0.55,   // neutral garrisons x (enemy strength ^ 0.55), at most neutralMax
   neutralMax: 3,
-  fogPerKill: 1,      // fogs per defeated sim foglet (then x display scale x fog upgrades)
-  clearBonus: 20,     // stage win: 20 x stage x display scale fogs (boss x3)
-  bossEvery: 10,      // stage 10, 20, 30...: boss stage (one rival much stronger, bonus x3)
+  fogPerKill: 1,      // Fog per defeated sim foglet (then x display scale x fog upgrades)
+  clearBonus: 20,     // stage win: 20 x stage x display scale Fog (boss x3)
+  bossEvery: 10,      // stage 10, 20, 30...: boss stage (one rival much stronger, bonus x3, drops Mist)
   bossPower: 1.35,    // boss attack / defense on top of the stage's enemy strength
+  mistExp: 1.5,       // Mist per boss = round((stage / 10) ^ 1.5): 1, 3, 5, 8, 11 ... deeper bosses pay more
   ghostEvery: 10, ghostAt: 5,   // stage 5, 15, 25...: one rival plays another player's profile
   startTroops: 10,    // capital troops at the start of a stage (+ the camp upgrade)
   archerRate: 0.15,   // archers: sim foglets killed per second per level, per enemy tile next door
   botArchersEvery: 6, // idle bots get one archer level every 6 stages (max 5)
-  wellRate: 0.04,     // fog wells: sim-foglet fogs per owned tile per game second per level
+  wellRate: 0.04,     // fog wells: sim-foglet Fog per owned tile per game second per level
   autoEvery: 1,       // auto-battle checks your tiles every game second
+  deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
+  quietEnd: 30,       // nobody marching for 30 game s: the side with the most foglets wins the stage
+  hornRate: 0.15,     // fog horn: sim Fog per real second per level (x display scale of your best stage); level 5 ~ 40% of active play
+  hornHours: 8,       // the horn holds at most 8 hours of Fog
 };
 
 // stage n (1-based): map size, rivals, climate. something new every 10 stages (climate, a rival)
@@ -53,10 +59,12 @@ export function stageSpec(n) {
 export const displayScale = (n) => idleCfg.display ** (n - 1);
 export const enemyPower = (n) => idleCfg.enemyBase * idleCfg.enemyAtk ** (n - 1);
 const enemyGrowthAt = (n) => idleCfg.enemyGrowthBase * idleCfg.enemyGrowth ** (n - 1);
+export const bossMist = (n) => Math.max(1, Math.round((n / 10) ** idleCfg.mistExp));
 
 // upgrade tree: 5 branches (rows), depth = column. needs = [[id, level], ...]: a node opens once
-// every listed upgrade has that level (some need two branches). cost = base x grow^level fogs;
-// max = level cap (the root stats have none). value(l) = the effect at level l
+// every listed upgrade has that level (some need two branches). cost = base x grow^level in Fog, or
+// in Mist for the advanced nodes at the end of each branch (cur: 'mist'). max = level cap (the root
+// stats have none). value(l) = the effect at level l
 const pctUp = (v) => `+${Math.round((v - 1) * 100)}%`;
 const pctDown = (v) => `-${Math.round((1 - v) * 100)}%`;
 export const branches = [
@@ -67,30 +75,37 @@ export const branches = [
   { id: 'command', icon: '🤖', name: 'Command' },
 ];
 const autoTh = [1, 0.9, 0.8, 0.7, 0.6, 0.5];   // auto-attack: tile fullness that triggers an attack, by level
+const margins = [1.25, 1.18, 1.12, 1.06];       // auto-attack safety margin, by sharp eye level
 export const upgrades = [
-  // offense: attack -> march -> conscription -> archers (+ great walls) -> plunder
+  // offense: attack -> march -> conscription -> archers (+ great walls) -> plunder -> mist blades
   { id: 'atk', branch: 'offense', col: 0, icon: '🗡️', name: 'Sharper blades', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `attack ${pctUp(v)}` },
   { id: 'march', branch: 'offense', col: 1, needs: [['atk', 2]], icon: '🥾', name: 'Forced march', base: 120, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `armies move ${pctUp(v)}` },
   { id: 'conscription', branch: 'offense', col: 2, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
   { id: 'archers', branch: 'offense', col: 3, needs: [['conscription', 1], ['walls', 1]], icon: '🏹', name: 'Archers', base: 900, grow: 2.4, max: 5, value: (l) => idleCfg.archerRate * l, text: (v, sc) => (v ? `shoot ${fmtRate(v * sc)}/s into each enemy neighbour` : 'your tiles shoot enemy neighbours') },
   { id: 'plunder', branch: 'offense', col: 4, needs: [['archers', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
-  // defense: shield wall -> great walls -> bigger camp
+  { id: 'mistblades', branch: 'offense', col: 5, cur: 'mist', needs: [['plunder', 1], ['atk', 6]], icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
+  // defense: shield wall -> great walls -> bigger camp -> mist veil
   { id: 'def', branch: 'defense', col: 0, icon: '🛡️', name: 'Shield wall', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `defense ${pctUp(v)}` },
   { id: 'walls', branch: 'defense', col: 1, needs: [['def', 2]], icon: '🧱', name: 'Great walls', base: 150, grow: 2.3, max: 4, value: (l) => 0.12 * l, text: (v) => `capital defense +${Math.round(v * 100)}%` },
   { id: 'start', branch: 'defense', col: 2, needs: [['walls', 2]], icon: '🏕️', name: 'Bigger camp', base: 400, grow: 2.2, value: (l) => idleCfg.startTroops + 8 * l, text: (v, sc) => `start with ${fmtBig(v * sc)} foglets` },
-  // growth: fertile fog -> master builders -> engineers
+  { id: 'mistveil', branch: 'defense', col: 3, cur: 'mist', needs: [['start', 1], ['def', 6]], icon: '🌁', name: 'Mist veil', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
+  // growth: fertile fog -> master builders -> engineers -> deep roots
   { id: 'growth', branch: 'growth', col: 0, icon: '🌱', name: 'Fertile fog', base: 50, grow: 2, value: (l) => 1.04 ** l, text: (v) => `growth ${pctUp(v)}` },
   { id: 'granary', branch: 'growth', col: 1, needs: [['growth', 2]], icon: '🌾', name: 'Master builders', base: 160, grow: 2.2, max: 5, value: (l) => 1 + 0.06 * l, text: (v) => `farms, hospitals, labs ${pctUp(v)}` },
   { id: 'engineers', branch: 'growth', col: 2, needs: [['granary', 2]], icon: '🛠️', name: 'Engineers', base: 450, grow: 2.2, max: 5, value: (l) => 0.96 ** l, text: (v) => `buildings cost ${pctDown(v)}` },
-  // fog: harvest -> wells (fogs while you hold tiles) -> drift (start runs further in)
-  { id: 'fog', branch: 'fog', col: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `fogs ${pctUp(v)}` },
-  { id: 'wells', branch: 'fog', col: 1, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} fogs/s per tile held` : 'tiles you hold make fogs') },
-  { id: 'drift', branch: 'fog', col: 2, needs: [['wells', 2]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
-  // command (auto-battle): attack -> neutrals -> reinforce -> build (+ master builders)
+  { id: 'roots', branch: 'growth', col: 3, cur: 'mist', needs: [['engineers', 1]], icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
+  // fog: harvest -> wells (Fog while you hold tiles) -> horn (Fog in real time) -> drift -> mistborn
+  { id: 'fog', branch: 'fog', col: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Fog ${pctUp(v)}` },
+  { id: 'wells', branch: 'fog', col: 1, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Fog/s per tile held` : 'tiles you hold make Fog') },
+  { id: 'horn', branch: 'fog', col: 2, needs: [['wells', 1]], icon: '📯', name: 'Fog horn', base: 600, grow: 2.5, max: 5, value: (l) => idleCfg.hornRate * l, text: (v, sc, id) => (v ? `gathers ${fmtRate(v * displayScale(Math.max(1, id?.best ?? 1)) * (id?.fogMult ?? 1))} Fog/s, played or away (holds ${idleCfg.hornHours} h)` : 'gathers Fog in real time, even while away') },
+  { id: 'drift', branch: 'fog', col: 3, needs: [['horn', 1], ['wells', 2]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
+  { id: 'mistborn', branch: 'fog', col: 4, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
+  // command (auto-battle): attack -> neutrals -> reinforce -> build (+ master builders) -> sharp eye
   { id: 'auto', branch: 'command', col: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack enemies from ${Math.round(autoTh[v || 1] * 100)}% full tiles` },
   { id: 'autoneutral', branch: 'command', col: 1, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
   { id: 'reinforce', branch: 'command', col: 2, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front' },
   { id: 'autobuild', branch: 'command', col: 3, needs: [['reinforce', 1], ['granary', 1]], icon: '🏗️', name: 'Auto-build', base: 2500, grow: 1, max: 1, value: (l) => l, text: () => 'full tiles build what pays back fastest' },
+  { id: 'sharpeye', branch: 'command', col: 4, cur: 'mist', needs: [['autobuild', 1]], icon: '👁️', name: 'Sharp eye', base: 1, grow: 2, max: 3, value: (l) => margins[l], text: (v) => `auto-attack sends +${Math.round((v - 1) * 100)}% over what it needs` },
 ];
 export const upgradeById = Object.fromEntries(upgrades.map((u) => [u.id, u]));
 
@@ -113,13 +128,14 @@ export function fmtBig(v) {
   if (v >= 1000) { const e = Math.floor(Math.log10(v)) + (i + 1) * 3; return `${(v / 10 ** (e - (i + 1) * 3)).toFixed(1)}e${e}`; }
   return (v < 100 ? v.toFixed(1).replace(/\.0$/, '') : Math.floor(v)) + units[i];
 }
-// per-second rates: one decimal below 10 (0.15/s), else like fmtBig
+// per-second rates: two decimals below 10 (0.15/s), else like fmtBig
 const fmtRate = (v) => (v < 10 ? String(Math.round(v * 100) / 100) : fmtBig(v));
 
 const save_key = 'frontlines.idle';
-const blank = () => ({ fogs: 0, total: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0 });
+const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'hornAt', 'hornStored'];
+const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, hornAt: 0, hornStored: 0 });
 
-// the idle profile (kept between runs): fogs, upgrade levels, best stage, the run in progress
+// the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, horn, the run in progress
 export class Idle {
   constructor(data = {}) {
     Object.assign(this, blank(), data);
@@ -132,22 +148,24 @@ export class Idle {
   }
 
   save() {
-    const { fogs, total, levels, auto, stage, runFogs, runTime, best, fast10, runs } = this;
-    try { localStorage.setItem(save_key, JSON.stringify({ fogs, total, levels, auto, stage, runFogs, runTime, best, fast10, runs })); } catch { /* storage blocked */ }
+    try { localStorage.setItem(save_key, JSON.stringify(Object.fromEntries(fields.map((k) => [k, this[k]])))); } catch { /* storage blocked */ }
   }
 
   lvl(id) { return this.levels[id] ?? 0; }
   val(id) { return upgradeById[id].value(this.lvl(id)); }
+  cur(id) { return upgradeById[id].cur ?? 'fog'; }
   cost(id) { const u = upgradeById[id]; return Math.ceil(u.base * u.grow ** this.lvl(id)); }
+  wallet(id) { return this.cur(id) === 'mist' ? this.mist : this.fogs; }
   maxed(id) { const u = upgradeById[id]; return u.max !== undefined && this.lvl(id) >= u.max; }
   // the requirements still missing (empty = open)
   missing(id) { return (upgradeById[id].needs ?? []).filter(([n, l]) => this.lvl(n) < l); }
   locked(id) { return this.missing(id).length > 0; }
-  canBuy(id) { return !this.maxed(id) && !this.locked(id) && this.fogs >= this.cost(id); }
+  canBuy(id) { return !this.maxed(id) && !this.locked(id) && this.wallet(id) >= this.cost(id); }
 
-  buy(id) {
+  buy(id, now = Date.now()) {
     if (!this.canBuy(id)) return false;
-    this.fogs -= this.cost(id);
+    if (id === 'horn') this.settleHorn(now);   // what it gathered so far counts at the old rate
+    if (this.cur(id) === 'mist') this.mist -= this.cost(id); else this.fogs -= this.cost(id);
     this.levels[id] = this.lvl(id) + 1;
     return true;
   }
@@ -156,26 +174,45 @@ export class Idle {
   mods() {
     const g = this.val('granary');
     return {
-      atk: this.val('atk'), def: this.val('def'), growth: this.val('growth'), speed: this.val('march'),
+      atk: this.val('atk') * this.val('mistblades'), def: this.val('def') * this.val('mistveil'), growth: this.val('growth'), speed: this.val('march'),
       cost: this.val('engineers'), neutralDef: this.val('conscription'), loot: this.val('plunder'),
-      farm: g, hospital: g, lab: g, capitalDef: this.val('walls'), archers: this.val('archers'),
+      farm: g, hospital: g, lab: g, capitalDef: this.val('walls'), archers: this.val('archers'), land: this.val('roots'),
     };
   }
 
   get scale() { return displayScale(this.stage); }
+  get fogMult() { return this.val('fog') * this.val('mistborn'); }
   get autoOn() { return this.auto && this.lvl('auto') > 0; }
   // first stage of a new run: fog drift skips ahead, at most to half the best stage reached
   get startStage() { return Math.max(1, Math.min(1 + this.val('drift'), Math.floor(this.best / 2))); }
 
-  // fogs for sim foglets killed on the current stage (ghost stages pay double). divided by the
+  // Fog for sim foglets killed on the current stage (ghost stages pay double). divided by the
   // stage's enemy growth: stronger enemies field more foglets, each is worth less, so a stage pays
   // about the same share of its display scale however strong the rivals are
-  fogsFor(killed) { return (killed * idleCfg.fogPerKill * this.scale * this.val('fog') * (stageSpec(this.stage).ghost ? 2 : 1)) / enemyGrowthAt(this.stage); }
-  // fog wells: fogs for holding tiles over dt game seconds
-  wellFogs(tiles, dt) { return this.val('wells') * tiles * dt * this.scale * this.val('fog'); }
-  clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.val('fog') * (stageSpec(this.stage).boss ? 3 : 1); }
+  fogsFor(killed) { return (killed * idleCfg.fogPerKill * this.scale * this.fogMult * (stageSpec(this.stage).ghost ? 2 : 1)) / enemyGrowthAt(this.stage); }
+  // fog wells: Fog for holding tiles over dt game seconds
+  wellFogs(tiles, dt) { return this.val('wells') * tiles * dt * this.scale * this.fogMult; }
+  clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.fogMult * (stageSpec(this.stage).boss ? 3 : 1); }
 
   earn(f) { this.fogs += f; this.total += f; this.runFogs += f; }
+
+  // ---- fog horn: Fog in real time (ms timestamps), played or away, up to hornHours of it ----
+  get hornRate() { return this.val('horn') * displayScale(Math.max(1, this.best)) * this.fogMult; }   // Fog per real second
+  get hornCap() { return this.hornRate * idleCfg.hornHours * 3600; }
+  hornAmount(now = Date.now()) {
+    if (!this.lvl('horn')) return 0;
+    if (!this.hornAt) this.hornAt = now;
+    return Math.min(this.hornCap, this.hornStored + (this.hornRate * Math.max(0, now - this.hornAt)) / 1000);
+  }
+  // fix what the horn holds now (before its rate changes)
+  settleHorn(now = Date.now()) { this.hornStored = this.hornAmount(now); this.hornAt = now; }
+  // empty the horn into the bank; returns the amount
+  collectHorn(now = Date.now()) {
+    const a = this.hornAmount(now);
+    this.fogs += a; this.total += a;
+    this.hornStored = 0; this.hornAt = now;
+    return a;
+  }
 
   // auto-battle, run after every sim step while it is on. every autoEvery game seconds each of your
   // tiles that is full enough (90% at level 1 ... 50% at level 5) attacks the weakest enemy tile
@@ -187,7 +224,7 @@ export class Idle {
     b.autoT = (b.autoT ?? 0) + dt;
     if (b.autoT < idleCfg.autoEvery) return;
     b.autoT = 0;
-    const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0;
+    const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0, margin = this.val('sharpeye');
     const mine = b.segs.filter((s) => s.owner === 0);
     const busy = new Set(b.armies.filter((a) => a.owner === 0).map((a) => a.to));   // already under our attack
     const full = (s) => s.troops >= th * s.cap;
@@ -197,7 +234,7 @@ export class Idle {
       for (const id of s.adj) {
         const t = b.segs[id];
         if (t.owner === 0 || busy.has(id) || (t.owner < 0 && !neutral)) continue;
-        const need = (t.troops * b.fightDef(t, 0) * 1.25) / b.atkMult(s) + 2;   // 25% safety margin
+        const need = (t.troops * b.fightDef(t, 0) * margin) / b.atkMult(s) + 2;   // safety margin (sharp eye lowers it)
         if (need < s.troops - 1 && (!best || need < best.need)) best = { id, need };
       }
       if (best && b.send(0, s.id, best.id, Math.ceil(best.need), true)) busy.add(best.id);
@@ -238,23 +275,25 @@ export class Idle {
     return {
       seed, cells: st.cells, shape: st.shape, theme: st.theme, neutral: st.neutral, detail: st.detail, stamp,
       camps: n > 1 ? { mult: Math.max(1, nm), share: 0.2, boost: 1.3 } : undefined,
+      deplete: idleCfg.deplete, quietEnd: idleCfg.quietEnd,
       factions: [me, ...bots],
       ghost: ghost && { name: ghost.name }, boss: st.boss,
     };
   }
 
-  // a stage was won: bonus fogs, next stage. returns the bonus
+  // a stage was won: bonus Fog (and Mist from a boss), next stage. returns { bonus, mist }
   win(secs) {
-    const bonus = this.clearFogs();
+    const bonus = this.clearFogs(), mist = stageSpec(this.stage).boss ? bossMist(this.stage) : 0;
     this.earn(bonus);
+    this.mist += mist; this.mistTotal += mist;
     this.runTime += secs;
     if (this.stage === 10 && (!this.fast10 || this.runTime < this.fast10)) this.fast10 = Math.round(this.runTime);
     this.stage++;
     this.best = Math.max(this.best, this.stage);   // best = highest stage reached
-    return bonus;
+    return { bonus, mist };
   }
 
-  // the run ended (stage lost or withdrawn): reset the run, keep fogs and upgrades.
+  // the run ended (stage lost or withdrawn): reset the run, keep Fog, Mist and upgrades.
   // returns the run summary for the end card
   endRun(secs) {
     this.best = Math.max(this.best, this.stage);

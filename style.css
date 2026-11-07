@@ -489,10 +489,10 @@ html.compact #battle-quit { width: 44px; height: 44px; font-size: 20px; }
 .round.locked { filter: grayscale(1); opacity: 0.55; }
 /* shop: on top of the end card too (later in the page, same layer), lighter backdrop so the battle shows */
 #idle-shop { background: rgba(30, 45, 50, 0.3); backdrop-filter: none; z-index: 11; }
-.shop-card { max-width: 580px; max-height: 100%; display: flex; flex-direction: column; }
+.shop-card { max-width: 640px; max-height: 100%; display: flex; flex-direction: column; }
 .shop-fogs { margin: 2px 0 8px; font-size: 20px; font-weight: 800; color: #8a5208; font-variant-numeric: tabular-nums; }
 /* upgrade tree in the fog: the battle's cloud texture drifts behind it (--fog / --fog-bg set by js) */
-.shop-tree { position: relative; display: grid; grid-template-columns: 74px repeat(5, 66px); grid-auto-rows: 64px; gap: 8px 14px; padding: 10px 12px;
+.shop-tree { position: relative; display: grid; grid-template-columns: 74px repeat(6, 66px); grid-auto-rows: 64px; gap: 8px 12px; padding: 10px 12px;
   justify-content: center; border-radius: 16px; overflow: auto; overscroll-behavior: contain; min-height: 0; flex: 1 1 auto;
   background: var(--fog) 0 0 / 300px 300px repeat, var(--fog-bg, #c4cdcb); animation: fog-drift 60s linear infinite;
   box-shadow: inset 0 0 0 2px rgba(255,255,255,0.6), inset 0 0 30px rgba(40,60,70,0.25); }
@@ -536,7 +536,7 @@ html.compact #battle-quit { width: 44px; height: 44px; font-size: 20px; }
 .d-txt small { display: block; font-size: 12px; color: var(--muted); }
 .d-needs span { margin-right: 8px; color: #c4342e; font-weight: 700; }
 .d-needs span.ok { color: #23966a; }
-html.compact .shop-tree { grid-template-columns: 58px repeat(5, 54px); grid-auto-rows: 52px; gap: 6px 10px; padding: 6px 8px; }
+html.compact .shop-tree { grid-template-columns: 58px repeat(6, 54px); grid-auto-rows: 52px; gap: 6px 10px; padding: 6px 8px; }
 html.compact .node { width: 54px; height: 52px; border-radius: 18px; }
 html.compact .n-ico { font-size: 20px; }
 html.compact .shop-card { padding-top: 26px; }
@@ -549,3 +549,43 @@ html.compact #idle-shop .end-btns { margin-top: 6px; } html.compact #shop-close 
   background: linear-gradient(180deg, #ffd76a, #e0961a); box-shadow: 0 3px 0 #a3650a; cursor: pointer; }
 .up-buy:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 #a3650a; }
 .up-buy:disabled { background: #e3e7e6; color: #8a948f; box-shadow: 0 3px 0 #bfc6c3; cursor: default; }
+
+/* ---------- idle: Mist, menu hub, fog horn, fog puffs ---------- */
+/* Mist: the rare boss currency, cool violet-blue against Fog's gold */
+.mist-badge { background: linear-gradient(180deg, #e6ecff, #a9b8ff); color: #2b2f7a; box-shadow: 0 2px 0 #5560b8; font-variant-numeric: tabular-nums; }
+.node.mist { border-color: #a9b8ff; background: radial-gradient(circle at 40% 30%, #f4f6ff, #d6ddff); }
+.node.mist.buyable { border-color: #7d8cff; box-shadow: 0 3px 0 #4450b0, 0 0 16px rgba(130,150,255,0.95); }
+.node.mist .n-cost { color: #4450b0; }
+.up-buy.mist { background: linear-gradient(180deg, #c9d2ff, #7d8cff); color: #1d2160; box-shadow: 0 3px 0 #4450b0; }
+.up-buy.mist:disabled { background: #e3e7e6; color: #8a948f; box-shadow: 0 3px 0 #bfc6c3; }
+/* menu hub (top-left): horn, bank, upgrades button */
+.idle-hub { display: flex; align-items: center; gap: 8px; }
+.hub-bank { display: flex; flex-direction: column; gap: 2px; font-weight: 800; font-size: 14px; line-height: 1.1; background: rgba(255,255,255,0.85);
+  padding: 5px 11px; border-radius: 14px; box-shadow: 0 2px 0 rgba(30,50,55,0.2); font-variant-numeric: tabular-nums; }
+#hub-fog { color: #8a5208; } #hub-mist { color: #3a3f9a; }
+#hub-shop { background: linear-gradient(180deg, #ffd76a, #e0961a); box-shadow: 0 3px 0 #a3650a; }
+.gulp { animation: gulp 0.28s ease-out; }
+@keyframes gulp { 40% { transform: scale(1.22); filter: brightness(1.25); } }
+/* the horn: ivory and gold, a fog meter under it; wisps drift from the bell while it holds Fog */
+.hub-horn { position: relative; width: 92px; height: 58px; padding: 0 0 12px; border: 0; background: rgba(255,255,255,0.78); border-radius: 16px;
+  box-shadow: 0 3px 0 rgba(30,50,55,0.22); cursor: pointer; }
+.hub-horn svg { width: 74px; height: 46px; transform-origin: 20% 80%; transition: transform 0.2s; }
+.hub-horn.has svg { animation: horn-bob 2.4s ease-in-out infinite; }
+.hub-horn.full { box-shadow: 0 3px 0 #a3650a, 0 0 0 3px rgba(255,200,80,0.8), 0 0 18px rgba(255,200,80,0.8); }
+@keyframes horn-bob { 50% { transform: rotate(-6deg) translateY(-1px); } }
+.hub-horn.blow svg { animation: horn-blow 0.9s ease-out; }
+@keyframes horn-blow { 15% { transform: rotate(-16deg) scale(1.12); } 60% { transform: rotate(-12deg) scale(1.08); } }
+.horn-meter { position: absolute; left: 8px; right: 8px; bottom: 6px; height: 6px; border-radius: 3px; background: rgba(40,55,60,0.25); overflow: hidden; }
+.horn-meter i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #dfe6e8, #ffffff); box-shadow: 0 0 6px #fff; }
+#hub-horn-amt { position: absolute; right: -6px; top: -8px; padding: 1px 6px; border-radius: 10px; font-size: 11px; background: #ffd76a; color: #5a2d06;
+  box-shadow: 0 2px 0 #a3650a; font-variant-numeric: tabular-nums; }
+.horn-wisps { position: absolute; left: 66px; top: 4px; pointer-events: none; opacity: 0; transition: opacity 0.4s; }
+.hub-horn.has .horn-wisps { opacity: 1; }
+.horn-wisps i { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle, #fff, rgba(255,255,255,0)); animation: wisp 2.2s ease-out infinite; }
+.horn-wisps i:nth-child(2) { animation-delay: 0.7s; } .horn-wisps i:nth-child(3) { animation-delay: 1.4s; }
+@keyframes wisp { 0% { transform: translate(0, 0) scale(0.4); opacity: 0.9; } 100% { transform: translate(18px, -16px) scale(1.6); opacity: 0; } }
+html.compact .hub-horn { width: 78px; height: 48px; } html.compact .hub-horn svg { width: 62px; height: 38px; }
+/* flying fog puffs (main.js fogFlow): soft white clouds, Mist ones violet sparks */
+.fog-puff { position: absolute; z-index: 30; pointer-events: none; border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #ffffff 0%, rgba(240,246,248,0.95) 45%, rgba(220,230,235,0) 72%); filter: drop-shadow(0 0 4px rgba(255,255,255,0.9)); }
+.fog-puff.mist { background: radial-gradient(circle, #ffffff 0%, #b9c4ff 40%, rgba(125,140,255,0) 72%); filter: drop-shadow(0 0 6px #8c9bff); }

@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=85';
-import { generateMap, rng } from './mapgen.js?v=85';
-import { initAnalytics, track } from './analytics.js?v=85';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=85';
-import { Battle } from './battle.js?v=85';
-import { personalities } from './ai.js?v=85';
-import { Campaign } from './campaign.js?v=85';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=85';
-import { Idle, fmtBig, upgrades, upgradeById, branches } from './idle.js?v=85';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=85';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=85';
-import { previewBuildings } from './structures.js?v=85';
-import { initTune, tuneChanges } from './tune.js?v=85';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=86';
+import { generateMap, rng } from './mapgen.js?v=86';
+import { initAnalytics, track } from './analytics.js?v=86';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=86';
+import { Battle } from './battle.js?v=86';
+import { personalities } from './ai.js?v=86';
+import { Campaign } from './campaign.js?v=86';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=86';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=86';
+import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=86';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=86';
+import { previewBuildings } from './structures.js?v=86';
+import { initTune, tuneChanges } from './tune.js?v=86';
 
 const $ = (id) => document.getElementById(id);
 
@@ -204,6 +204,7 @@ function startBattle(setup, m, rid = -1) {
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
   if (m === 'idle') $('stage').textContent = `${setup.boss ? '👑 ' : setup.ghost ? '👤 ' : ''}Stage ${idle.stage}`;
   for (const id of ['idle-fogs', 'idle-shop-btn', 'idle-auto']) $(id).classList.toggle('hidden', m !== 'idle');
+  $('idle-mist').classList.toggle('hidden', m !== 'idle' || !idle?.mistTotal);
   if (m === 'idle') syncIdleButtons();
   wheelOn = false;
   setCam(1, 0, 0);
@@ -293,6 +294,15 @@ function drawUnits(ctx, v, b, ac, numbers) {
     }
     const own = s.owner >= 0 ? factionColors[b.factions[s.owner].color] : null;
     pill(ctx, num(s.troops), x, y, fs * 0.85, own ?? 'rgba(90,100,95,.55)', own ?? '#4b5552');
+    // idle: land left (green -> amber -> red; a red dot once dry)
+    if (b.deplete && s.owner >= 0) {
+      const k = b.landShare(s), w = fs * 1.5, h = Math.max(2.5, fs * 0.17), bx = x - w / 2, by = y + fs * 0.78;
+      ctx.fillStyle = 'rgba(20,30,35,0.45)';
+      ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
+      ctx.fillStyle = k > 0.5 ? '#5bd18f' : k > 0.2 ? '#f0b43c' : '#e0533f';
+      if (k > 0) ctx.fillRect(bx, by, w * k, h);
+      else { ctx.beginPath(); ctx.arc(x, by + h / 2, h, 0, Math.PI * 2); ctx.fill(); }
+    }
   }
   // sea routes (world-style maps): dashed lines between islands
   if (b.map.bridges?.length) {
@@ -756,6 +766,7 @@ function updatePanel() {
       s.building && !s.capital && `<span>${buildings[s.building].icon} ${buildings[s.building].name}: ${buildingEffect(s)}</span>`,
       relic && `<span class="gold">✨ ${relic.name}: ${relic.desc}</span>`,
       s.capital && s.owner === 0 && `<span class="gold">${capitalInfo(s)}</span>`,
+      battle.deplete && s.owner >= 0 && `<span>🌾 Land: ${battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'}</span>`,
     ].filter(Boolean).join('');
     $('seg-info').innerHTML = `<div class="who" style="background:${col}">${who}<small>${kind}</small></div>
       <div class="body"><div class="troops">${num(s.troops)} <small>/ ${num(s.owner < 0 ? s.garrison : s.cap)} · ${rate}</small></div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
@@ -1105,7 +1116,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   }, 0));
 }
 
-// ---------- idle mode (js/idle.js): endless zoom-out, fogs from defeated foglets buy upgrades ----------
+// ---------- idle mode (js/idle.js): endless zoom-out, Fog from defeated foglets buys upgrades ----------
 let idle = null, idleKilled = 0, idleSaveT = 0;
 const idleMilestones = new Set([2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200]);   // analytics: stage reached
 
@@ -1122,10 +1133,10 @@ function startIdle() {
 function idleIntro() {
   const f = battle.factions.find((x) => x.boss || x.ghost);
   if (f?.boss) flash('👑 Boss stage: one rival is much stronger · stage bonus x3', 2600);
-  else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · fogs x2 this stage`, 2600);
+  else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · Fog x2 this stage`, 2600);
 }
 
-// every frame of a running idle battle: fogs for newly defeated foglets (fights and arrows) and
+// every frame of a running idle battle: Fog for newly defeated foglets (fights and arrows) and
 // for tiles held (fog wells), a save every 5 s
 function idleTick(dt) {
   const k = battle.stats.killed;
@@ -1135,16 +1146,19 @@ function idleTick(dt) {
   if (idleSaveT <= 0) { idle.save(); idleSaveT = 5; }
 }
 
-// stage over: a win zooms straight out to the next stage; a loss ends the run (fogs, upgrades kept)
+// stage over: a win zooms straight out to the next stage; a loss ends the run (Fog, Mist, upgrades kept)
 function endIdleStage(won) {
   idleTick(0);
   const secs = battle.time / rules.timeScale;
   if (won) {
-    const bonus = idle.win(secs), stamp = islandShape(battle);
+    const { bonus, mist } = idle.win(secs), stamp = islandShape(battle);
     if (idleMilestones.has(idle.stage)) track(`idle-stage-${idle.stage}`);
+    if (mist) track(`idle-boss-${idle.stage - 1}`);
     idle.save();
-    flash(`🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, 2200);
+    const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
+    flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Fog` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
     sfx.perk();
+    fogFlow($('toast'), $('idle-shop-btn'), 10, mist ? 4 : 0);
     setTimeout(() => {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
       zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp), mode: 'idle' });
@@ -1156,10 +1170,12 @@ function endIdleStage(won) {
   idle.save();
   trackIdleRun(run);
   $('end-title').textContent = 'Run over';
-  $('end-stats').innerHTML = `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
-    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> fogs this run · <b>${fmtBig(idle.fogs)}</b> to spend</div></div>`
+  $('end-stats').innerHTML = (battle.closedIn ? '<p class="next-up">🌫️ The fog closed in: the bigger army took the island</p>' : '')
+    + `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
+    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Fog this run · <b>${fmtBig(idle.fogs)}</b> Fog`
+    + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend</div></div>`
     + statsHtml(battle);
-  $('end-perks').innerHTML = '<button id="end-shop" class="mode blue big-btn">⬆️ Spend fogs</button>';
+  $('end-perks').innerHTML = '<button id="end-shop" class="mode blue big-btn">⬆️ Spend Fog</button>';
   $('end-shop').onclick = openShop;
   $('end-retry').textContent = '▶ New run';
   $('end-retry').classList.remove('hidden');
@@ -1192,8 +1208,8 @@ function openShop() {
   renderShop();
 }
 function renderShop() {
-  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel;
-  $('shop-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)} fogs`;
+  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best;
+  $('shop-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)} Fog` + (idle.mistTotal ? ` · 💠 ${idle.mist} Mist` : '');
   if (key === shopKey) return;
   shopKey = key;
   const tree = $('shop-tree');
@@ -1202,11 +1218,11 @@ function renderShop() {
     h += `<div class="br-label" style="grid-row:${row + 1}"><span>${br.icon}</span>${br.name}</div>`;
     for (const u of upgrades.filter((x) => x.branch === br.id)) {
       const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id);
-      const cls = ['node', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
+      const cls = ['node', u.cur === 'mist' && 'mist', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
       const lv = u.max ? `${l}/${u.max}` : `${l}`;
       h += `<button class="${cls}" data-id="${u.id}" style="grid-row:${row + 1};grid-column:${u.col + 2}" title="${u.name}">`
         + `<span class="n-ico">${u.icon}</span><span class="n-lv">${maxed ? '★' : lv}</span>`
-        + (locked ? '<span class="n-fog">🔒</span>' : maxed ? '' : `<span class="n-cost">${fmtBig(idle.cost(u.id))}</span>`) + '</button>';
+        + (locked ? '<span class="n-fog">🔒</span>' : maxed ? '' : `<span class="n-cost">${u.cur === 'mist' ? '💠' : ''}${fmtBig(idle.cost(u.id))}</span>`) + '</button>';
     }
   });
   tree.innerHTML = h;
@@ -1231,12 +1247,13 @@ function drawShopLinks() {
 }
 // card under the tree: what the selected upgrade does now and next, what it needs, buy button
 function renderShopDetail() {
-  const u = upgradeById[shopSel], l = idle.lvl(u.id), sc = numScale, maxed = idle.maxed(u.id);
-  const now = l ? u.text(u.value(l), sc) : '', next = u.text(u.value(l + 1), sc);
+  // numbers at the running stage's scale (from the menu: the stage the next run starts at)
+  const u = upgradeById[shopSel], l = idle.lvl(u.id), sc = mode === 'idle' && screen === 'battle' ? numScale : displayScale(idle.stage), maxed = idle.maxed(u.id);
+  const now = l ? u.text(u.value(l), sc, idle) : '', next = u.text(u.value(l + 1), sc, idle);
   const needs = (u.needs ?? []).map(([n, lv]) => `<span class="${idle.lvl(n) >= lv ? 'ok' : ''}">${upgradeById[n].icon} ${upgradeById[n].name} ${lv}</span>`).join('');
   const what = maxed ? `${now} · <b>max</b>` : l ? `${now} → <b>${next}</b>` : `<b>${next}</b>`;
   const btn = maxed ? '<button class="up-buy" disabled>MAX</button>'
-    : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>${idle.locked(u.id) ? '🔒' : '🌫️'} ${fmtBig(idle.cost(u.id))}</button>`;
+    : `<button class="up-buy${u.cur === 'mist' ? ' mist' : ''}" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>${idle.locked(u.id) ? '🔒' : u.cur === 'mist' ? '💠' : '🌫️'} ${fmtBig(idle.cost(u.id))}</button>`;
   $('shop-detail').innerHTML = `<span class="d-ico">${u.icon}</span><span class="d-txt"><b>${u.name}</b> <em>Lv ${u.max ? `${l}/${u.max}` : l}</em>`
     + `<small>${what}</small>${needs ? `<small class="d-needs">Needs: ${needs}</small>` : ''}</span>${btn}`;
   if ($('shop-buy')) $('shop-buy').onclick = () => buyUpgrade(u.id);
@@ -1247,22 +1264,26 @@ function buyUpgrade(id) {
   sfx.build();
   if (idle.lvl(id) === 1) track(`idle-buy-${id}`);
   // live: the running battle gets the new modifiers straight away (auto-play reads the levels itself)
-  if (mode === 'idle' && battle) {
+  if (mode === 'idle' && battle && screen === 'battle') {
     battle.factions[0].mods = idle.mods();
     battle.updateGrowth();
   }
   if (id === 'auto' && idle.lvl('auto') === 1) flash('🤖 Auto-attack bought: full tiles attack on their own (🤖 button toggles it)', 3000);
   // upgrades this purchase opened: their fog clears with a pop
   const opened = upgrades.filter((u) => (u.needs ?? []).some(([n]) => n === id) && !idle.locked(u.id) && !idle.lvl(u.id)).map((u) => u.id);
+  if (id === 'horn' && idle.lvl('horn') === 1) flash('📯 Fog horn: it gathers Fog all the time, collect it in the menu', 3200);
   idle.save();
   syncIdleButtons();
   renderShop();
+  renderHub();
   for (const o of opened) $('shop-tree').querySelector(`.node[data-id="${o}"]`)?.classList.add('reveal');
 }
 
 // hud: fog counter, the shop button glows when something is affordable, auto-battle toggle
 function updateIdleHud() {
   $('idle-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)}`;
+  $('idle-mist').textContent = `💠 ${idle.mist}`;
+  $('idle-mist').classList.toggle('hidden', !idle.mistTotal);
   $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
   if (!$('idle-shop').classList.contains('hidden')) renderShop();
 }
@@ -1283,6 +1304,91 @@ $('idle-auto').onclick = () => {
   syncIdleButtons();
   flash(idle.autoOn ? '🤖 Auto-battle on' : '🖐️ You have control', 1400);
 };
+
+// ---------- idle hub on the menu: Fog / Mist bank, upgrade tree button, fog horn ----------
+// the horn gathers Fog in real time (played or away, up to its cap); tap it to blow: the Fog flies
+// out as puffs into the upgrade button and the bank counts up
+let hubTimer = 0, bankShown = null;
+function renderHub() {
+  const id = idle ?? Idle.load();
+  const seen = id.runs > 0 || id.total > 0;   // shown once idle has been played
+  $('idle-hub').classList.toggle('hidden', !seen);
+  if (!seen) return;
+  $('hub-horn').classList.toggle('hidden', !id.lvl('horn'));
+  $('hub-mist').classList.toggle('hidden', !id.mistTotal);
+  $('hub-mist').textContent = `💠 ${id.mist}`;
+  if (bankShown === null || !$('hub-fog').dataset.counting) { bankShown = id.fogs; $('hub-fog').textContent = `🌫️ ${fmtBig(id.fogs)}`; }
+  tickHub();
+}
+// live horn level (the menu calls this 4 times a second)
+function tickHub() {
+  const id = idle ?? (idle = Idle.load());
+  if ($('idle-hub').classList.contains('hidden') || !id.lvl('horn')) return;
+  const a = id.hornAmount(), k = id.hornCap ? a / id.hornCap : 0;
+  $('hub-horn-amt').textContent = fmtBig(a);
+  $('horn-fill').style.width = `${Math.round(k * 100)}%`;
+  $('hub-horn').classList.toggle('has', a >= 1);
+  $('hub-horn').classList.toggle('full', k >= 0.999);
+  $('hub-horn').title = `Fog horn: ${fmtBig(id.hornRate)} Fog/s, holds ${fmtBig(id.hornCap)} (${Math.round(k * 100)}% full). Tap to collect`;
+}
+$('hub-horn').onclick = () => {
+  idle = idle ?? Idle.load();
+  const before = idle.fogs, got = idle.collectHorn();
+  if (got < 1) { flash('📯 The horn is still gathering Fog', 1600); return; }
+  idle.save();
+  track('idle-horn-collect');
+  sfx.horn();
+  $('hub-horn').classList.remove('blow'); void $('hub-horn').offsetWidth; $('hub-horn').classList.add('blow');
+  flash(`📯 +${fmtBig(got)} 🌫️ Fog`, 1800);
+  fogFlow($('hub-horn'), $('hub-shop'), Math.min(18, 6 + Math.round(Math.log10(got + 1) * 2)), 0, () => countBank(before, idle.fogs));
+  tickHub();
+};
+$('hub-shop').onclick = () => { idle = idle ?? Idle.load(); openShop(); };
+// bank count-up after the puffs land
+function countBank(from, to) {
+  const el = $('hub-fog'), t0 = performance.now();
+  el.dataset.counting = '1';
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 700), v = from + (to - from) * (1 - (1 - k) ** 3);
+    el.textContent = `🌫️ ${fmtBig(v)}`;
+    if (k < 1) requestAnimationFrame(step); else { delete el.dataset.counting; bankShown = to; }
+  };
+  requestAnimationFrame(step);
+}
+// layout position of an element's centre in page (body) coordinates. offsets ignore transforms, so
+// this stays right when phones turn the whole page by css
+function layoutCenter(el) {
+  let x = el.offsetWidth / 2, y = el.offsetHeight / 2;
+  for (let e = el; e; e = e.offsetParent) { x += e.offsetLeft - (e.scrollLeft || 0); y += e.offsetTop - (e.scrollTop || 0); }
+  return { x, y };
+}
+// fog flow: n soft fog puffs (and m Mist sparks) fly on curved paths from one element into another;
+// the target gulps as each lands. done() runs when the last one arrives
+function fogFlow(from, to, n, m = 0, done = null) {
+  if (!from || !to || to.offsetParent === null) { done?.(); return; }
+  const a = layoutCenter(from), b = layoutCenter(to), t0 = performance.now(), total = n + m;
+  let left = total;
+  for (let i = 0; i < total; i++) {
+    const mist = i >= n, el = document.createElement('i');
+    el.className = mist ? 'fog-puff mist' : 'fog-puff';
+    document.body.appendChild(el);
+    const delay = i * 55, dur = 750 + Math.random() * 300;
+    const sx = a.x + (Math.random() - 0.5) * 40, sy = a.y + (Math.random() - 0.5) * 24;
+    const cx = (sx + b.x) / 2 + (Math.random() - 0.5) * 160, cy = Math.min(sy, b.y) - 60 - Math.random() * 80;   // arc up and over
+    const size = mist ? 14 : 18 + Math.random() * 16;
+    const tick = (now) => {
+      const k = Math.min(1, Math.max(0, (now - t0 - delay) / dur)), e = k * k * (3 - 2 * k), u = 1 - e;
+      const x = u * u * sx + 2 * u * e * cx + e * e * b.x, y = u * u * sy + 2 * u * e * cy + e * e * b.y;
+      const sc = (k < 0.15 ? k / 0.15 : 1) * (1 - 0.55 * e);
+      el.style.cssText = `left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;opacity:${k <= 0 ? 0 : 0.95 - 0.35 * e};transform:scale(${sc})`;
+      if (k < 1) { requestAnimationFrame(tick); return; }
+      el.remove();
+      to.classList.remove('gulp'); void to.offsetWidth; to.classList.add('gulp');
+      if (--left === 0) done?.();
+    };
+    requestAnimationFrame(tick);
+  }
+}
 
 let flashTimer = 0;
 function flash(msg, ms = 1200) {
@@ -1324,6 +1430,8 @@ function syncBands() {
 syncBands();
 function drawMenu(dt) {
   for (const b of bands) drawBand(b, performance.now() / 1000);
+  hubTimer -= dt;
+  if (hubTimer <= 0) { hubTimer = 0.25; tickHub(); }
   if (!demo || demo.state !== 'running' || demo.time > 240) newDemo();
   demoAcc += dt * rules.timeScale;
   while (demoAcc >= rules.step) { demo.step(rules.step); demoAcc -= rules.step; }
@@ -1344,6 +1452,7 @@ function renderMenuStats() {
   const run = Expedition.saved();
   $('m-expedition').textContent = run ? `Continue: stage ${run.stage + 1}/5` : best ? `Best: stage ${best.stage}/5` : 'Valley → World roguelite';
   const id = idle ?? Idle.load();
+  renderHub();
   $('m-idle').textContent = id.stage > 1 ? `Continue: stage ${id.stage} · 🌫️ ${fmtBig(id.fogs)}` : id.best ? `Best: stage ${id.best} · 🌫️ ${fmtBig(id.fogs)}` : 'Endless zoom-out · upgrades';
 }
 const wins_key = 'frontlines.quickwins';
@@ -1447,7 +1556,7 @@ $('test-win').onclick = () => {
 let pausedBeforeLeave = false;
 const leaveBattle = () => { $('leave').classList.add('hidden'); show(mode === 'campaign' ? 'campaign' : 'menu'); };
 // withdrawing from a running conquest battle ends the run (as the dialog says)
-// idle: withdrawing ends the run (fogs and upgrades are kept)
+// idle: withdrawing ends the run (Fog, Mist and upgrades are kept)
 const withdraw = () => {
   if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave();
   if (mode === 'idle' && battle.state === 'running') { idleTick(0); trackIdleRun(idle.endRun(battle.time / rules.timeScale)); idle.save(); }
@@ -1458,7 +1567,7 @@ $('battle-quit').onclick = () => {
   if (battle.state !== 'running') { $('idle-shop').classList.add('hidden'); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
-    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your fogs and upgrades are kept.`
+    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your Fog, Mist and upgrades are kept.`
     : 'Are you sure you want to withdraw? Your progress in this battle will not be saved.';
   pausedBeforeLeave = paused;
   setSpeed(0);

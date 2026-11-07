@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=85';
-import { perks, combineMods } from './expedition.js?v=85';
-import { hops } from './mapgen.js?v=85';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=85';
-import { think } from './ai.js?v=85';
+import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=86';
+import { perks, combineMods } from './expedition.js?v=86';
+import { hops } from './mapgen.js?v=86';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=86';
+import { think } from './ai.js?v=86';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -31,6 +31,14 @@ export class Battle {
     // auto-send routes: source segment id -> { to, keep }; keep = fraction of the source cap held back
     this.routes = new Map();
     this.routeTimer = rules.routeEvery;
+    // idle mode: land runs out. each tile can raise at most deplete x its cap foglets in total
+    // (times the owner's 'land' modifier), then it stops growing; the count stays with the tile when
+    // it changes hands. a battle where nobody marches for quietEnd game seconds ends: the side with
+    // the most foglets wins (the fog closes in). 0 = off (other modes)
+    this.deplete = opts.deplete ?? 0;
+    this.quietEnd = opts.quietEnd ?? 0;
+    this.quiet = 0;
+    this.closedIn = false;   // true when the quiet rule decided the battle
 
     // segments: cap from size (largest = capMax), growth = growthRate x cap,
     // neutral garrison = a random share of the cap (bigger tiles hold more)
@@ -310,11 +318,11 @@ export class Battle {
       if (sieged.has(s.id)) continue;
       if (s.owner < 0) {
         // neutrals regrow (slower than owned tiles) but only back to their starting garrison
-        if (s.troops < s.garrison) s.troops = Math.min(s.garrison, s.troops + s.baseGrowth * rules.neutralRegrow * dt);
+        if (s.troops < s.garrison) s.troops = Math.min(s.garrison, s.troops + this.landLeft(s, s.baseGrowth * rules.neutralRegrow * dt));
         continue;
       }
       if (s.troops < s.cap) {
-        const add = Math.min(s.cap - s.troops, s.growth * dt);
+        const add = this.landLeft(s, Math.min(s.cap - s.troops, s.growth * dt));
         s.troops += add;
         if (s.owner === 0) this.stats.made += add;
       }
@@ -349,6 +357,16 @@ export class Battle {
         f.timer = f.think * (0.8 + this.rand() * 0.4);
       }
     }
+    // quiet rule (idle): nobody marching for quietEnd seconds -> the side with the most foglets wins
+    if (this.quietEnd) {
+      this.quiet = this.armies.length ? 0 : this.quiet + dt;
+      if (this.quiet >= this.quietEnd) {
+        const total = this.factions.map((f) => this.segs.filter((s) => s.owner === f.id).reduce((v, s) => v + s.troops, 0) + f.reserve);
+        this.closedIn = true;
+        this.state = total[0] > Math.max(...total.slice(1)) ? 'won' : 'lost';
+        return;
+      }
+    }
     // end check: player gone = lost, every bot gone = won (neutral segments may remain)
     if (!this.alive(0)) this.state = 'lost';
     else if (this.factions.every((f) => f.id === 0 || !this.alive(f.id))) this.state = 'won';
@@ -373,6 +391,17 @@ export class Battle {
       }
     }
   }
+
+  // depletion: how much of 'add' new foglets the tile's land still allows (and count it as raised)
+  landLimit(s) { return this.deplete * s.cap * (this.mods(s.owner).land ?? 1); }
+  landLeft(s, add) {
+    if (!this.deplete || add <= 0) return add;
+    const ok = Math.max(0, Math.min(add, this.landLimit(s) - (s.raised ?? 0)));
+    s.raised = (s.raised ?? 0) + ok;
+    return ok;
+  }
+  // share of a tile's land still unused (1 = fresh, 0 = depleted)
+  landShare(s) { return this.deplete ? Math.max(0, 1 - (s.raised ?? 0) / this.landLimit(s)) : 1; }
 
   // run the sim without drawing (tests, fast-forward)
   simulate(seconds) {

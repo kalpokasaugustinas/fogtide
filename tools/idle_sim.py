@@ -71,7 +71,7 @@ async def main():
         print("runs:")
         for run in r["runs"]:
             lv = " ".join(f"{k}{v}" for k, v in run["levels"].items())
-            print(f"  run {run['run']}: reached stage {run['reached']}, {fmt(run['fogs'])} fogs, {run['realMin']} min real · {lv}")
+            print(f"  run {run['run']}: reached stage {run['reached']}, {fmt(run['fogs'])} Fog, Mist so far {run.get('mist', 0)}, {run['realMin']} min real · {lv}")
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=1), encoding="utf-8")
 

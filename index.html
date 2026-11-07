@@ -26,7 +26,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Luckiest+Guy&display=swap">
-  <link rel="stylesheet" href="style.css?v=85">
+  <link rel="stylesheet" href="style.css?v=86">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -109,6 +109,27 @@
     <div class="menu-fog"></div>
     <header class="menu-top">
       <span class="badge hidden" id="m-regions" title="Campaign regions">🏳️ 1/34</span>
+      <!-- idle hub: fog horn (gathers Fog in real time, tap to collect), Fog / Mist bank, upgrade tree -->
+      <div id="idle-hub" class="idle-hub hidden">
+        <button id="hub-horn" class="hub-horn hidden" title="Fog horn: tap to collect">
+          <svg viewBox="0 0 84 56" aria-hidden="true">
+            <defs>
+              <linearGradient id="horn-ivory" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff8e4"/><stop offset="1" stop-color="#d8b06a"/></linearGradient>
+              <linearGradient id="horn-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe9a0"/><stop offset="1" stop-color="#c98a14"/></linearGradient>
+            </defs>
+            <path d="M18 44 Q30 52 48 34" fill="none" stroke="#7a4a22" stroke-width="3" stroke-linecap="round"/>
+            <path d="M5 42 Q18 47 33 37 Q50 25 62 9 L76 23 Q60 33 45 45 Q27 56 6 48 Z" fill="url(#horn-ivory)" stroke="#6b4a1e" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M27 40 L33 49 M46 28 L54 38" stroke="url(#horn-gold)" stroke-width="5" stroke-linecap="round"/>
+            <ellipse cx="69" cy="16" rx="5" ry="10.5" transform="rotate(45 69 16)" fill="#5b3c18" stroke="url(#horn-gold)" stroke-width="3"/>
+            <circle cx="5" cy="45" r="3.5" fill="url(#horn-gold)" stroke="#6b4a1e" stroke-width="1.5"/>
+          </svg>
+          <span class="horn-wisps" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="horn-meter"><i id="horn-fill"></i></span>
+          <b id="hub-horn-amt">0</b>
+        </button>
+        <span class="hub-bank"><span id="hub-fog">🌫️ 0</span><span id="hub-mist" class="hidden">💠 0</span></span>
+        <button id="hub-shop" class="round" title="Idle upgrades">⬆️</button>
+      </div>
       <span class="spacer"></span>
       <button id="btn-install" class="round hidden" title="Install Fogtide as an app">📲</button>
       <button id="btn-profile" class="round" title="Commander: your colour, foglets and buildings">👤</button>
@@ -130,7 +151,7 @@
       <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 85 · 2026-11-07 19:15</span>
+    <span id="version">build 86 · 2026-11-07 19:40</span>
   </section>
 
   <!-- campaign world map -->
@@ -165,7 +186,8 @@
     <div id="perk-bar" class="hidden"></div>
     <div class="hud tr">
       <!-- idle mode: fogs, upgrade tree, auto-battle toggle -->
-      <span id="idle-fogs" class="badge fog-badge hidden" title="Fogs: spend them on upgrades">🌫️ 0</span>
+      <span id="idle-fogs" class="badge fog-badge hidden" title="Fog: spend it on upgrades">🌫️ 0</span>
+      <span id="idle-mist" class="badge mist-badge hidden" title="Mist: dropped by bosses, buys the advanced upgrades">💠 0</span>
       <button id="idle-shop-btn" class="round hidden" title="Upgrades">⬆️</button>
       <button id="idle-auto" class="round hidden" title="Auto-battle">🤖</button>
       <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
@@ -284,7 +306,7 @@
       </ul>
       <ul id="help-buildings"></ul>
       <p><b>🧭 Conquest</b> (roguelite): 5 stages from a valley to the whole world. Win a stage and everything you hold collapses into one capital on a bigger map: all your people come along (the capital fills up, the rest waits in a 🏕️ reserve), and each building type becomes a capital bonus = its effect × the share of your segments that had it (4 farms of 10 segments → +60% × 40% = +24% growth). Nothing can be built in a capital. Bots start with part of your strength and their own capitals. Pick a perk at every zoom-out. Lose once and the run ends.</p>
-      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ fogs, every stage won a bonus. Spend fogs in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, and each one opens the next (locked ones hide in the fog). Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Every 10th stage is a 👑 boss, stages 5, 15, 25... bring 👤 another commander's army (double fogs). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own (toggle it any time); later upgrades take neutrals, feed the front and build. Lose a stage and the run ends; your fogs and upgrades stay.</p>
+      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
       <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect.</p>
@@ -295,6 +317,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=85"></script>
+  <script type="module" src="js/main.js?v=86"></script>
 </body>
 </html>

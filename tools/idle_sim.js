@@ -66,7 +66,9 @@ export function career({ maxRuns = 8, target = 30, stageCap = 900, seed = 1 } = 
       const row = { run, stage: idle.stage, won, timeout: b.state === 'running', game: Math.round(t), real1x: Math.round(t / rules.timeScale), real: Math.round(real), fogs: Math.round(fogs), levels: Object.values(idle.levels).reduce((a, c) => a + c, 0) };
       runReal += real;
       if (won) {
-        row.bonus = Math.round(idle.win(t / rules.timeScale));
+        const w = idle.win(t / rules.timeScale);
+        row.bonus = Math.round(w.bonus);
+        row.mist = w.mist;
         stamp = islandShape(b);
         shop(idle);
       }
@@ -74,7 +76,7 @@ export function career({ maxRuns = 8, target = 30, stageCap = 900, seed = 1 } = 
       rows.push(row);
       if (!won || idle.stage > target) {
         const out = idle.endRun(0);
-        runs.push({ run, reached: out.reached, fogs: Math.round(out.fogs), realMin: +(runReal / 60).toFixed(1), levels: { ...idle.levels } });
+        runs.push({ run, reached: out.reached, fogs: Math.round(out.fogs), realMin: +(runReal / 60).toFixed(1), mist: idle.mistTotal, levels: { ...idle.levels } });
         break;
       }
     }
