@@ -77,6 +77,10 @@ def main():
     with zipfile.ZipFile(electron_zip()) as z:
         z.extractall(out_dir)
     (out_dir / "resources" / "default_app.asar").unlink(missing_ok=True)   # electron's demo app
+    # chromium ui translations (~40 MB): the game is english-only, so keep just en-US
+    for pak in (out_dir / "locales").glob("*.pak"):
+        if pak.name != "en-US.pak":
+            pak.unlink()
     exe = out_dir / "Fogtide.exe"
     (out_dir / "electron.exe").rename(exe)
 

@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=87';
-import { generateMap, rng } from './mapgen.js?v=87';
-import { initAnalytics, track } from './analytics.js?v=87';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=87';
-import { Battle } from './battle.js?v=87';
-import { personalities } from './ai.js?v=87';
-import { Campaign } from './campaign.js?v=87';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=87';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=87';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=87';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=87';
-import { previewBuildings } from './structures.js?v=87';
-import { initTune, tuneChanges } from './tune.js?v=87';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=88';
+import { generateMap, rng } from './mapgen.js?v=88';
+import { initAnalytics, track } from './analytics.js?v=88';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=88';
+import { Battle } from './battle.js?v=88';
+import { personalities } from './ai.js?v=88';
+import { Campaign } from './campaign.js?v=88';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=88';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=88';
+import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=88';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=88';
+import { previewBuildings } from './structures.js?v=88';
+import { initTune, tuneChanges } from './tune.js?v=88';
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,6 +42,8 @@ if (!desktop && !hostOk(location.hostname) || (framedBy !== null && !hostOk(fram
 }
 
 const params = new URLSearchParams(location.search);
+// ui zoom (1 = designed size 1280x720, 1.5 at 1080p), kept in sync by syncRotation; map labels use it
+let uiK = 1;
 const autoplay = params.has('autoplay');   // test mode: the player side is played by a bot too
 
 const colors = factionColors.map(hexToRgb);
@@ -250,7 +252,7 @@ function paintBattle() {
 // big conquest maps (continent, world): badges, labels and figures shrink by mapScale (render.js)
 // and the camera glides in by 1 / mapScale after the zoom-out
 function drawUnits(ctx, v, b, ac, numbers) {
-  const fs = Math.max(11, Math.min(18, v.size / 30)) * mapScale(b.map);
+  const fs = Math.max(11, Math.min(18 * uiK, v.size / 30)) * mapScale(b.map);
   // troop figures: one soldier per troopsPerDot troops (battalions of x5 on zoomed-out maps)
   const z = Math.max(1, Math.min(1.9, v.size / 480)) * mapScale(b.map), dpr = v.dpr;   // figure scale: small but visible
   const kind = (b.map.detail ?? 1) < 0.7 ? 'battalion' : 'soldier';
@@ -402,7 +404,7 @@ function drawBattle() {
   // highlight: the tile you're dragging from (with its neighbours), else the selected tile
   const hl = drag ? drag.from : selected;
   if (hl >= 0) bv.highlight(ctx, hl, colors[battle.factions[0].color], battle.segs[hl].adj, performance.now() / 1000);
-  const fs = Math.max(11, Math.min(18, bv.size / 30)) * mapScale(battle.map);
+  const fs = Math.max(11, Math.min(18 * uiK, bv.size / 30)) * mapScale(battle.map);
   drawUnits(ctx, bv, battle, acc, true);
   drawFx(ctx, fs);
   drawTutor(ctx, fs);
@@ -1585,11 +1587,25 @@ for (const [id, btn] of [['help', 'help-close'], ['board', 'board-close'], ['pro
 }
 $('help-buildings').innerHTML = Object.values(buildings).map((b) => `<li>${b.icon} <b>${b.name}</b> (cost ${b.cost}): ${b.desc}</li>`).join('');
 
+// cards that esc closes, each with the button that closes it (same as clicking it)
+const escClose = { 'idle-shop': 'shop-close', help: 'help-close', board: 'board-close', profile: 'pf-done', leave: 'leave-stay' };
+const shown = (id) => !$(id).classList.contains('hidden');
 addEventListener('keydown', (e) => {
+  if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+  // esc: close the top card first, anywhere
+  if (e.key === 'Escape') {
+    const open = Object.keys(escClose).find(shown);
+    if (open) { $(escClose[open]).click(); return; }
+  }
   if (screen !== 'battle') return;
   if (e.key === ' ') { setSpeed(paused ? speed : 0); e.preventDefault(); }
   if (['1', '2', '3', '4'].includes(e.key)) setPct(+e.key * 0.25);
-  if (e.key === 'Escape') selected = -1;
+  // esc in battle: deselect, or with nothing selected open the leave card (like the back button)
+  if (e.key === 'Escape') { if (selected >= 0) selected = -1; else if (!shown('end')) $('battle-quit').click(); }
+  // idle mode: u = upgrade tree (open/close), a = auto-battle on/off
+  const k = e.key.toLowerCase();
+  if (k === 'u' && shown('idle-shop-btn')) $(shown('idle-shop') ? 'shop-close' : 'idle-shop-btn').click();
+  if (k === 'a' && shown('idle-auto')) $('idle-auto').click();
 });
 addEventListener('resize', () => { if (screen === 'battle' && bv) { bv.resize(); key = ''; } if (screen === 'campaign') cv.resize(), paintCampaign(); });
 
@@ -1966,6 +1982,14 @@ function syncRotation() {
   root.style.setProperty('--sh', innerHeight + 'px');
   root.classList.toggle('rotated', upright);
   root.classList.toggle('compact', (upright ? innerWidth : innerHeight) < 500);   // short landscape: compact hud
+  // pc first: the html ui (menu, hud, cards) is laid out for 1280x720 and zoomed up on bigger
+  // windows (1920x1080 -> 1.5), so it keeps the same share of the screen. phones stay at 1
+  uiK = +uiScale(upright);
+  root.style.setProperty('--ui', uiK);
+}
+function uiScale(upright) {
+  const w = upright ? innerHeight : innerWidth, h = upright ? innerWidth : innerHeight;
+  return Math.min(3, Math.max(1, Math.min(w / 1280, h / 720))).toFixed(3);
 }
 syncRotation();
 addEventListener('resize', syncRotation);

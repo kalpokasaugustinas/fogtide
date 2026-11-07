@@ -1,6 +1,11 @@
 /* dark game theme, phone-first. layout: map on top + panel below (portrait),
    map left + panel right (landscape) */
+/* bundled fonts (latin subset): fredoka is one variable file for weights 300-700 (sil ofl 1.1),
+   luckiest guy is the logo/button lettering (apache 2.0). licences in fonts/ */
+@font-face { font-family: 'Fredoka'; font-style: normal; font-weight: 300 700; font-display: swap; src: url(fonts/fredoka.woff2) format('woff2'); }
+@font-face { font-family: 'Luckiest Guy'; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/luckiest-guy.woff2) format('woff2'); }
 :root {
+  --ui: 1;   /* ui zoom, set from the window size (main.js uiScale) */
   --bg: #a9bcbc;
   --card: rgba(255, 255, 255, 0.82);
   --line: rgba(30, 50, 55, 0.16);
@@ -589,3 +594,10 @@ html.compact .hub-horn { width: 78px; height: 48px; } html.compact .hub-horn svg
 .fog-puff { position: absolute; z-index: 30; pointer-events: none; border-radius: 50%;
   background: radial-gradient(circle at 40% 40%, #ffffff 0%, rgba(240,246,248,0.95) 45%, rgba(220,230,235,0) 72%); filter: drop-shadow(0 0 4px rgba(255,255,255,0.9)); }
 .fog-puff.mist { background: radial-gradient(circle, #ffffff 0%, #b9c4ff 40%, rgba(125,140,255,0) 72%); filter: drop-shadow(0 0 6px #8c9bff); }
+
+/* ---------- pc first: ui zoom ----------
+   every html ui layer is designed at 1280x720 and zoomed by --ui on bigger windows, so menus, hud
+   and cards keep the same share of a 1080p / 1440p / 4k screen. canvases (map, menu demo, foglet
+   bands) size themselves and are not zoomed */
+.menu-top, .logo, .modes, #version, .hud, #perk-bar, #tutor, .overlay, #toast, #loading > *,
+#campaign .bar, #campaign .panel { zoom: var(--ui); }

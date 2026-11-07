@@ -22,11 +22,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <!-- rounded game font (falls back to the system font offline) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Luckiest+Guy&display=swap">
-  <link rel="stylesheet" href="style.css?v=87">
+  <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
+  <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css?v=88">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -36,6 +35,8 @@
       root.style.setProperty('--sh', innerHeight + 'px');
       root.classList.toggle('rotated', upright);
       root.classList.toggle('compact', (upright ? innerWidth : innerHeight) < 500);
+      // ui zoom for big windows (same formula as uiScale in main.js)
+      root.style.setProperty('--ui', Math.min(3, Math.max(1, Math.min((upright ? innerHeight : innerWidth) / 1280, (upright ? innerWidth : innerHeight) / 720))).toFixed(3));
       root.classList.add('booting');   // loading screen until the menu's first frame is drawn (main.js)
     })();
   </script>
@@ -151,7 +152,7 @@
       <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 87 · 2026-11-07 20:00</span>
+    <span id="version">build 88 · 2026-11-07 20:59</span>
   </section>
 
   <!-- campaign world map -->
@@ -176,7 +177,7 @@
       <div id="wheel" class="hidden"></div>
     </div>
     <div class="hud tl">
-      <button id="battle-quit" class="round" title="Back">←</button>
+      <button id="battle-quit" class="round" title="Back (Esc)">←</button>
       <span id="stage" class="stage-badge hidden"></span>
       <span id="clock" class="badge">0:00</span>
       <button id="test-fill" class="round" title="Test: fill all my tiles to their cap">🧪</button>
@@ -188,8 +189,8 @@
       <!-- idle mode: fogs, upgrade tree, auto-battle toggle -->
       <span id="idle-fogs" class="badge fog-badge hidden" title="Fog: spend it on upgrades">🌫️ 0</span>
       <span id="idle-mist" class="badge mist-badge hidden" title="Mist: dropped by bosses, buys the advanced upgrades">💠 0</span>
-      <button id="idle-shop-btn" class="round hidden" title="Upgrades">⬆️</button>
-      <button id="idle-auto" class="round hidden" title="Auto-battle">🤖</button>
+      <button id="idle-shop-btn" class="round hidden" title="Upgrades (U)">⬆️</button>
+      <button id="idle-auto" class="round hidden" title="Auto-battle (A)">🤖</button>
       <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
     </div>
     <div class="hud bl">
@@ -309,7 +310,7 @@
       <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
-      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect.</p>
+      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect / close / leave, U = idle upgrades, A = auto-attack, F11 = fullscreen (desktop app).</p>
       <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
       <button id="help-feedback">💬 Send feedback</button>
       <button id="help-close" class="primary">Got it</button>
@@ -317,6 +318,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=87"></script>
+  <script type="module" src="js/main.js?v=88"></script>
 </body>
 </html>
