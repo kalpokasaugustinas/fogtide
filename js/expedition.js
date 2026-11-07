@@ -7,9 +7,9 @@
 //   - pick 1 of 3 perks
 // bots scale with you: base troops + 70% of your carried people, and capitals with the same
 // total bonus strength in a random mix. losing a stage ends the run.
-import { effects } from './config.js?v=83';
-import { personalities } from './ai.js?v=83';
-import { rng } from './mapgen.js?v=83';
+import { effects } from './config.js?v=84';
+import { personalities } from './ai.js?v=84';
+import { rng } from './mapgen.js?v=84';
 
 export const stages = [
   { name: 'Valley', detail: 1, cells: 12, bots: 1, shape: 'random', neutral: [0.12, 0.3] },
@@ -145,13 +145,7 @@ export class Expedition {
     const troops = Math.round(mine.reduce((v, s) => v + s.troops, 0)
       + battle.armies.filter((a) => a.owner === 0).reduce((v, a) => v + a.n, 0) + battle.factions[0].reserve);
     this.capital = { troops, bonus };
-    // the island's outline (land, mountains, lakes), downsampled to 64 x 64, becomes the next capital's shape
-    const g = battle.map.grid, N = 64, data = new Uint8Array(N * N);
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      const c = Math.floor(((y + 0.5) / N) * g) * g + Math.floor(((x + 0.5) / N) * g);
-      data[y * N + x] = battle.map.ids[c] >= 0 || battle.map.terrain[c] ? 1 : 0;
-    }
-    this.shape = { n: N, data: cropShape(data, N) };
+    this.shape = islandShape(battle);
     this.stage++;
     return { segments: mine.length, farms, hosp, labs, forts, barracks, troops, bonus };
   }
@@ -213,6 +207,17 @@ export class Expedition {
     }
     return false;
   }
+}
+
+// the island's outline (land, mountains, lakes), downsampled to 64 x 64: the next capital's shape
+// (conquest and idle zoom-outs)
+export function islandShape(battle) {
+  const g = battle.map.grid, N = 64, data = new Uint8Array(N * N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const c = Math.floor(((y + 0.5) / N) * g) * g + Math.floor(((x + 0.5) / N) * g);
+    data[y * N + x] = battle.map.ids[c] >= 0 || battle.map.terrain[c] ? 1 : 0;
+  }
+  return { n: N, data: cropShape(data, N) };
 }
 
 // crop an n x n outline to its bounding box and scale it back to n x n, so the stamp fills its square

@@ -1,16 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, traits } from './config.js?v=83';
-import { generateMap, rng } from './mapgen.js?v=83';
-import { initAnalytics, track } from './analytics.js?v=83';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=83';
-import { Battle } from './battle.js?v=83';
-import { personalities } from './ai.js?v=83';
-import { Campaign } from './campaign.js?v=83';
-import { Expedition, stages, perks, scoring } from './expedition.js?v=83';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=83';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect } from './render.js?v=83';
-import { previewBuildings } from './structures.js?v=83';
-import { initTune, tuneChanges } from './tune.js?v=83';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, traits } from './config.js?v=84';
+import { generateMap, rng } from './mapgen.js?v=84';
+import { initAnalytics, track } from './analytics.js?v=84';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=84';
+import { Battle } from './battle.js?v=84';
+import { personalities } from './ai.js?v=84';
+import { Campaign } from './campaign.js?v=84';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=84';
+import { Idle, stageSpec, fmtBig, upgrades, upgradeById } from './idle.js?v=84';
+import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=84';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect } from './render.js?v=84';
+import { previewBuildings } from './structures.js?v=84';
+import { initTune, tuneChanges } from './tune.js?v=84';
 
 const $ = (id) => document.getElementById(id);
 
@@ -131,6 +132,9 @@ let battle = null, bv = null, mode = 'skirmish', regionId = -1;
 let countdown = 0, goFlash = 0;   // 3-2-1 before a battle starts (s left), 'Conquer!' banner after
 let selected = -1, pct = 0.5, drag = null, hover = -1, speed = 1, paused = false, key = '';
 let userPaused = false;   // paused by the player (pause button, space, leave dialog), not by a transition
+// numbers on screen: sim foglets x numScale (idle mode grows it every stage: 1.2K, 3.4M ...; 1 elsewhere)
+let numScale = 1;
+const num = (v) => (numScale === 1 ? Math.floor(v) : fmtBig(v * numScale));
 
 // ---------- commander profile: your colour, troop style and building style ----------
 const profileKey = 'frontlines.profile';
@@ -185,16 +189,24 @@ function startBattle(setup, m, rid = -1) {
   if (autoplay) setup.factions[0] = { ai: true, color: 0, think: 1.5, personality: personalities.aggressive };
   dress(setup.factions, setup.seed);
   battle = new Battle(map, setup);
+  if (m === 'idle') idle.applyAuto(battle.factions[0]);   // after dress(): a bot-played side keeps your colours
   zoomMax = 5 / mapScale(map);
   mode = m; regionId = rid; selected = -1; hover = -1; drag = null; paused = false; userPaused = false; key = '';
   endTutor(false);
   tutorWanted = false;   // startTutorial sets it after this
-  countdown = autoplay ? 0 : 3; goFlash = 0;
+  // idle: only the first stage of a run counts down; later stages roll straight on after the zoom-out
+  countdown = autoplay || (m === 'idle' && idle.stage > 1) ? 0 : 3; goFlash = 0;
+  numScale = m === 'idle' ? idle.scale : 1;
+  idleKilled = 0;
   const theme = setup.theme ?? themeNames[setup.seed % themeNames.length];
   if (!bv) bv = new MapView($('battle-canvas'), map, theme); else bv.setMap(map, theme);
   bv.prewarm(battle.factions.map((f) => colors[f.color]), 0.16);
-  $('stage').classList.toggle('hidden', m !== 'expedition');
+  $('stage').classList.toggle('hidden', m !== 'expedition' && m !== 'idle');
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
+  if (m === 'idle') $('stage').textContent = `${setup.boss ? '👑 ' : setup.ghost ? '👤 ' : ''}Stage ${idle.stage}`;
+  for (const id of ['idle-fogs', 'idle-shop-btn', 'idle-auto', 'idle-speed']) $(id).classList.toggle('hidden', m !== 'idle');
+  if (m === 'idle') { setSpeed(Math.min(speed, idle.maxSpeed)); syncIdleButtons(); }
+  else if (speed > 1) setSpeed(1);
   wheelOn = false;
   setCam(1, 0, 0);
   $('end').classList.add('hidden');
@@ -282,7 +294,7 @@ function drawUnits(ctx, v, b, ac, numbers) {
       label(ctx, perks.find((p) => p.id === s.relic).icon, x, y - fs * 1.35, fs * 0.9);
     }
     const own = s.owner >= 0 ? factionColors[b.factions[s.owner].color] : null;
-    pill(ctx, Math.floor(s.troops), x, y, fs * 0.85, own ?? 'rgba(90,100,95,.55)', own ?? '#4b5552');
+    pill(ctx, num(s.troops), x, y, fs * 0.85, own ?? 'rgba(90,100,95,.55)', own ?? '#4b5552');
   }
   // sea routes (world-style maps): dashed lines between islands
   if (b.map.bridges?.length) {
@@ -329,7 +341,7 @@ function drawUnits(ctx, v, b, ac, numbers) {
       }
     }
     // small number above the formation (gold rim = barracks bonus)
-    if (numbers) pill(ctx, Math.floor(a.n), x, y - u.h - 7 * z, fs * 0.62, a.atk > 1 ? '#e0a020' : col, col);
+    if (numbers) pill(ctx, num(a.n), x, y - u.h - 7 * z, fs * 0.62, a.atk > 1 ? '#e0a020' : col, col);
   }
 }
 
@@ -374,7 +386,7 @@ function drawBattle() {
     ctx.lineWidth = 4; ctx.setLineDash([8, 6]);
     ctx.strokeStyle = ok ? '#fff' : 'rgba(255,255,255,.4)';
     ctx.stroke(); ctx.setLineDash([]);
-    if (ok) label(ctx, '→ ' + Math.floor(battle.segs[drag.from].troops * pct), (fx + tx) / 2, (fy + ty) / 2 - fs, fs * 0.8, '#ffd76a');
+    if (ok) label(ctx, '→ ' + num(battle.segs[drag.from].troops * pct), (fx + tx) / 2, (fy + ty) / 2 - fs, fs * 0.8, '#ffd76a');
   }
   if ((countdown > 0 && (!paused || userPaused)) || goFlash > 0) drawCountdown(ctx);
 }
@@ -639,7 +651,7 @@ function renderWheel() {
     const [ix, iy] = pt(72, am);
     svg += `<g class="sector" data-type="${t}"><path class="bg" d="${d}"/>
       <g class="ico" transform="translate(${ix},${iy - 7}) scale(1.3) translate(-12,-12)">${wheelIcons[t]}</g>
-      <text class="cost" x="${ix}" y="${+iy + 17}">${battle.costOf(0, t)}</text></g>`;
+      <text class="cost" x="${ix}" y="${+iy + 17}">${num(battle.costOf(0, t))}</text></g>`;
   });
   svg += `<circle class="rim" r="${R}"/><circle class="rim inner" r="${r0}"/></svg>`;
   box.innerHTML = svg;
@@ -651,7 +663,7 @@ function renderWheel() {
     g.addEventListener('pointerdown', (e) => e.stopPropagation());
     g.addEventListener('click', () => {
       if (battle.build(0, selected, g.dataset.type)) { sfx.build(); tutorEvent('build'); }
-      else flash(`${buildings[g.dataset.type].name} needs ${battle.costOf(0, g.dataset.type)} foglets in this tile`);
+      else flash(`${buildings[g.dataset.type].name} needs ${num(battle.costOf(0, g.dataset.type))} foglets in this tile`);
     });
   }
   updateWheel();
@@ -693,12 +705,14 @@ function updatePanel() {
   // (a hover / selection from the previous map can point past this map's tiles: no card then)
   const sid = selected >= 0 ? selected : hover;
   if (sid >= 0 && battle.segs[sid]) {
-    const s = battle.segs[sid], who = s.owner < 0 ? 'Neutral' : s.owner === 0 ? 'You' : colorNames[battle.factions[s.owner].color];
+    // rivals are named after their colour (idle: a boss or another player's profile has its own name)
+    const s = battle.segs[sid], who = s.owner < 0 ? 'Neutral' : s.owner === 0 ? 'You' : battle.factions[s.owner].name ?? colorNames[battle.factions[s.owner].color];
     const col = s.owner < 0 ? neutralColor : factionColors[battle.factions[s.owner].color];
     // card: owner ribbon (+ tile kind), troops / cap and growth, then chips for terrain, structure, relic
     const relic = s.relic ? perks.find((p) => p.id === s.relic) : null;
     const kind = s.capital ? 'Capital' : s.home ? 'Homeland' : s.camp ? 'Camp' : s.owner < 0 ? 'Village' : 'Territory';
-    const rate = s.owner < 0 ? `regrows to ${s.garrison} · +${Math.round(s.baseGrowth * rules.neutralRegrow * 10) / 10}/s` : `+${s.growth}/s`;
+    const r1 = (v) => (numScale === 1 ? Math.round(v * 10) / 10 : fmtBig(v * numScale));   // per-second rates
+    const rate = s.owner < 0 ? `regrows to ${num(s.garrison)} · +${r1(s.baseGrowth * rules.neutralRegrow)}/s` : `+${r1(s.growth)}/s`;
     const chips = [
       s.trait && `<span>${traits[s.trait].name}: ${traits[s.trait].desc}</span>`,
       s.building && !s.capital && `<span>${buildings[s.building].icon} ${buildings[s.building].name}: ${buildingEffect(s)}</span>`,
@@ -706,16 +720,17 @@ function updatePanel() {
       s.capital && s.owner === 0 && `<span class="gold">${capitalInfo(s)}</span>`,
     ].filter(Boolean).join('');
     $('seg-info').innerHTML = `<div class="who" style="background:${col}">${who}<small>${kind}</small></div>
-      <div class="body"><div class="troops">${Math.floor(s.troops)} <small>/ ${s.owner < 0 ? s.garrison : s.cap} · ${rate}</small></div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
+      <div class="body"><div class="troops">${num(s.troops)} <small>/ ${num(s.owner < 0 ? s.garrison : s.cap)} · ${rate}</small></div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
   } else $('seg-info').textContent = '';
   // selected tile's route (if any) with a stop button
   const route = selected >= 0 ? battle.routes.get(selected) : null;
   $('route-info').classList.toggle('hidden', !route);
   if (route) $('route-info').firstElementChild.textContent = `🔁 Route active, keeps ${Math.round(route.keep * 100)}% of cap`;
   const res = battle.factions[0].reserve;
-  $('clock').textContent = fmtTime(battle.time) + (res >= 1 ? ` · 🏕️ ${Math.floor(res)}` : '');
+  $('clock').textContent = fmtTime(battle.time) + (res >= 1 ? ` · 🏕️ ${num(res)}` : '');
   $('clock').title = res >= 1 ? 'Reserve: flows into your capital when it has room' : '';
   renderPerks();
+  if (mode === 'idle') updateIdleHud();
 }
 
 // conquest perk column (left, under the top-left hud): the perks picked so far, then the relic
@@ -826,6 +841,7 @@ function withdrawLook() {
 function endBattle() {
   const won = battle.state === 'won';
   if (mode === 'expedition') return endStage(won);
+  if (mode === 'idle') return endIdleStage(won);
   // regular end card: undo the expedition variants
   $('end-perks').innerHTML = '';
   $('end-retry').textContent = '↻ Retry';
@@ -842,7 +858,7 @@ function endBattle() {
   $('end-retry').classList.toggle('hidden', won && mode !== 'skirmish');
   // quick battle: play again or withdraw to the menu (no 'continue': there is nothing to continue)
   $('end-continue').textContent = mode === 'skirmish' ? 'Withdraw' : won ? 'Continue' : 'Menu';
-  if (mode === 'tutorial') $('end-continue').textContent = afterTutor === startExpedition ? '▶ Conquest' : afterTutor ? '▶ Quick battle' : 'Menu';
+  if (mode === 'tutorial') $('end-continue').textContent = afterTutor === startExpedition ? '▶ Conquest' : afterTutor === startIdle ? '▶ Idle' : afterTutor ? '▶ Quick battle' : 'Menu';
   withdrawLook();
   showEnd(won, won ? battle : null);
   setTrack(won ? 'victory' : 'defeat');
@@ -855,6 +871,7 @@ $('end-continue').onclick = () => {
 $('end-retry').onclick = () => {
   if (mode === 'campaign') withLoading(() => startBattle(campaign.battleSetup(regionId), 'campaign', regionId));
   else if (mode === 'expedition') withLoading(startExpedition);
+  else if (mode === 'idle') { $('idle-shop').classList.add('hidden'); withLoading(startIdle); }
   else if (mode === 'tutorial') withLoading(() => startTutorial(afterTutor));
   else withLoading(startSkirmish);
 };
@@ -958,7 +975,8 @@ function endStage(won) {
 // 3. reveal: the new map grows outward from that tile in a widening circle, and the little island
 //    fades into the capital tile underneath
 const zoomSteps = { hold: 0.5, shrink: 2.2, glow: 0.7, reveal: 1.8 };   // seconds
-function zoomOut() {
+// next = the stage to zoom out to: conquest by default, idle passes its own setup / save
+function zoomOut(next = { save: () => expedition.save(), setup: () => expedition.setup(), mode: 'expedition' }) {
   const wrap = bv.canvas.parentElement, old = bv.canvas;
   // the player may be zoomed in / panned (pinch, drag) or mid-gesture: put the camera back to the
   // whole map first, so the snapshot and the new map line up. the render boost stays as it is (the
@@ -996,12 +1014,12 @@ function zoomOut() {
   // the snapshot goes on screen first; the heavy part (new battle, map view, first draw of every
   // layer, ~0.5-1 s on big maps) runs behind it and counts as the hold, instead of adding to it
   requestAnimationFrame(() => setTimeout(() => {
-    expedition.save();   // the new stage is where a reload picks up
-    const setup = expedition.setup();
+    next.save();   // the new stage is where a reload picks up
+    const setup = next.setup();
     // the new map renders straight away at the resolution of the zoom its camera glides to, so its
     // layers are built once (not again when the glide ends)
     bv.boost = boostFor(1 / mapScale({ detail: setup.detail }));
-    startBattle(setup, 'expedition');
+    startBattle(setup, next.mode);
     paused = true;
     old.style.opacity = '0';
     drawBattle();
@@ -1048,6 +1066,144 @@ function zoomOut() {
     requestAnimationFrame(tick);
   }, 0));
 }
+
+// ---------- idle mode (js/idle.js): endless zoom-out, fogs from defeated foglets buy upgrades ----------
+let idle = null, idleKilled = 0, idleSaveT = 0;
+const idleMilestones = new Set([2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200]);   // analytics: stage reached
+
+// menu / new run. a run saved mid-way (closed tab) picks up at the start of its stage
+function startIdle() {
+  track('play-idle');
+  idle = idle ?? Idle.load();
+  if (idle.stage > 1) flash(`🌫️ Resuming stage ${idle.stage}`, 1800);
+  startBattle(idle.setup(), 'idle');
+  idleIntro();
+}
+
+// boss / other player's army: say so when the stage starts
+function idleIntro() {
+  const f = battle.factions.find((x) => x.boss || x.ghost);
+  if (f?.boss) flash('👑 Boss stage: one rival is much stronger · stage bonus x3', 2600);
+  else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · fogs x2 this stage`, 2600);
+}
+
+// every frame of a running idle battle: fogs for newly defeated foglets, a save every 5 s
+function idleTick(dt) {
+  const k = battle.stats.killed;
+  if (k > idleKilled) { idle.earn(idle.fogsFor(k - idleKilled)); idleKilled = k; }
+  idleSaveT -= dt;
+  if (idleSaveT <= 0) { idle.save(); idleSaveT = 5; }
+}
+
+// stage over: a win zooms straight out to the next stage; a loss ends the run (fogs, upgrades kept)
+function endIdleStage(won) {
+  idleTick(0);
+  const secs = battle.time / rules.timeScale;
+  if (won) {
+    const bonus = idle.win(secs), stamp = islandShape(battle);
+    if (idleMilestones.has(idle.stage)) track(`idle-stage-${idle.stage}`);
+    idle.save();
+    flash(`🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, 2200);
+    sfx.perk();
+    setTimeout(() => {
+      if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
+      zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp), mode: 'idle' });
+      setTimeout(idleIntro, 5200);   // after the zoom-out
+    }, 1000);
+    return;
+  }
+  const prevBest = idle.best, run = idle.endRun(secs);
+  idle.save();
+  trackIdleRun(run);
+  $('end-title').textContent = 'Run over';
+  $('end-stats').innerHTML = `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
+    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> fogs this run · <b>${fmtBig(idle.fogs)}</b> to spend</div></div>`
+    + statsHtml(battle);
+  $('end-perks').innerHTML = '<button id="end-shop" class="mode blue big-btn">⬆️ Spend fogs</button>';
+  $('end-shop').onclick = openShop;
+  $('end-retry').textContent = '▶ New run';
+  $('end-retry').classList.remove('hidden');
+  $('end-continue').textContent = 'Menu';
+  $('end-continue').classList.remove('hidden');
+  withdrawLook();
+  showEnd(false, null);
+  setTrack('defeat');
+}
+
+// analytics for an ended run: how far (stage buckets) and how long (minute buckets)
+function trackIdleRun(run) {
+  const stage = [1, 2, 3, 5, 10, 15, 20, 30, 50, 100].filter((s) => run.reached >= s).pop();
+  const mins = [0, 1, 3, 5, 10, 20, 30, 60].filter((m) => run.secs / 60 >= m).pop();
+  track(`idle-run-stage-${stage}plus`);
+  track(`idle-run-${mins}min-plus`);
+}
+
+// upgrade shop: a flat list, opened at any time (the battle keeps running); purchases apply at once
+function openShop() { renderShop(); $('idle-shop').classList.remove('hidden'); }
+let shopKey = '';
+function renderShop() {
+  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage;
+  $('shop-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)} fogs`;
+  if (key === shopKey && $('shop-list').children.length) return;
+  shopKey = key;
+  const sc = numScale;
+  $('shop-list').innerHTML = upgrades.map((u) => {
+    const l = idle.lvl(u.id), maxed = idle.maxed(u.id), locked = idle.locked(u.id);
+    const now = u.text(u.value(l), sc), next = u.text(u.value(l + 1), sc);
+    const what = locked ? `needs ${upgradeById[u.needs].name}` : l === 0 ? next : maxed ? `${now} · max` : `${now} → ${next.replace(/^[a-z ]+(?=[+-])/i, '')}`;
+    const btn = maxed ? '<button class="up-buy" disabled>MAX</button>' : `<button class="up-buy" data-id="${u.id}" ${idle.canBuy(u.id) ? '' : 'disabled'}>🌫️ ${fmtBig(idle.cost(u.id))}</button>`;
+    return `<div class="up-row${locked ? ' locked' : ''}"><span class="up-ico">${u.icon}</span><span class="up-txt"><b>${u.name}</b>`
+      + `<em>${u.max ? `Lv ${l}/${u.max}` : `Lv ${l}`}</em><small>${what}</small></span>${btn}</div>`;
+  }).join('');
+  for (const b of $('shop-list').querySelectorAll('.up-buy[data-id]')) b.onclick = () => buyUpgrade(b.dataset.id);
+}
+
+function buyUpgrade(id) {
+  if (!idle.buy(id)) return;
+  sfx.build();
+  if (idle.lvl(id) === 1) track(`idle-buy-${id}`);
+  // live: the running battle gets the new modifiers / bot brain straight away
+  if (mode === 'idle' && battle) {
+    battle.factions[0].mods = idle.mods();
+    battle.updateGrowth();
+    idle.applyAuto(battle.factions[0]);
+  }
+  if (id === 'auto' && idle.lvl('auto') === 1) flash('🤖 Auto-battle bought: the bot plays your attacks (🤖 button toggles it)', 3000);
+  idle.save();
+  syncIdleButtons();
+  renderShop();
+}
+
+// hud: fog counter, shop button glows when something is affordable, auto + speed buttons
+function updateIdleHud() {
+  $('idle-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)}`;
+  $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
+  if (!$('idle-shop').classList.contains('hidden')) renderShop();
+}
+function syncIdleButtons() {
+  if (!idle) return;
+  $('idle-auto').classList.toggle('off', !idle.autoOn);
+  $('idle-auto').classList.toggle('locked', idle.lvl('auto') === 0);
+  $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy it in the upgrades';
+  $('idle-speed').textContent = `${speed}x`;
+  $('idle-speed').classList.toggle('locked', idle.maxSpeed <= 1);
+}
+$('idle-shop-btn').onclick = openShop;
+$('shop-close').onclick = () => $('idle-shop').classList.add('hidden');
+$('idle-shop').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('shop-close').click(); });
+$('idle-auto').onclick = () => {
+  if (!idle.lvl('auto')) { flash('🤖 Buy Auto-battle in ⬆️ upgrades first', 2200); return; }
+  idle.auto = !idle.auto;
+  idle.applyAuto(battle.factions[0]);
+  idle.save();
+  syncIdleButtons();
+  flash(idle.autoOn ? '🤖 Auto-battle on' : '🖐️ You have control', 1400);
+};
+$('idle-speed').onclick = () => {
+  if (idle.maxSpeed <= 1) { flash('⏩ Buy Time warp in ⬆️ upgrades for 2x-5x speed', 2200); return; }
+  setSpeed(speed >= idle.maxSpeed ? 1 : speed + 1);
+  syncIdleButtons();
+};
 
 let flashTimer = 0;
 function flash(msg, ms = 1200) {
@@ -1108,6 +1264,8 @@ function renderMenuStats() {
   $('m-campaign').textContent = `${campaign.owned.size}/${campaign.regions.length} regions conquered`;
   const run = Expedition.saved();
   $('m-expedition').textContent = run ? `Continue: stage ${run.stage + 1}/5` : best ? `Best: stage ${best.stage}/5` : 'Valley → World roguelite';
+  const id = idle ?? Idle.load();
+  $('m-idle').textContent = id.stage > 1 ? `Continue: stage ${id.stage} · 🌫️ ${fmtBig(id.fogs)}` : id.best ? `Best: stage ${id.best} · 🌫️ ${fmtBig(id.fogs)}` : 'Endless zoom-out · upgrades';
 }
 const wins_key = 'frontlines.quickwins';
 function quickWins() { try { return +localStorage.getItem(wins_key) || 0; } catch { return 0; } }
@@ -1151,6 +1309,7 @@ $('btn-install').onclick = () => {
 $('btn-campaign').onclick = () => show('campaign');
 $('btn-skirmish').onclick = viaTutor(startSkirmish);
 $('btn-expedition').onclick = conquestEntry;
+$('btn-idle').onclick = viaTutor(startIdle);
 $('btn-help').onclick = () => $('help').classList.remove('hidden');
 
 // commander panel: colour swatches, troop and building style cards with live previews
@@ -1209,11 +1368,18 @@ $('test-win').onclick = () => {
 let pausedBeforeLeave = false;
 const leaveBattle = () => { $('leave').classList.add('hidden'); show(mode === 'campaign' ? 'campaign' : 'menu'); };
 // withdrawing from a running conquest battle ends the run (as the dialog says)
-const withdraw = () => { if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave(); leaveBattle(); };
+// idle: withdrawing ends the run (fogs and upgrades are kept)
+const withdraw = () => {
+  if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave();
+  if (mode === 'idle' && battle.state === 'running') { idleTick(0); trackIdleRun(idle.endRun(battle.time / rules.timeScale)); idle.save(); }
+  $('idle-shop').classList.add('hidden');
+  leaveBattle();
+};
 $('battle-quit').onclick = () => {
-  if (battle.state !== 'running') { leaveBattle(); return; }
+  if (battle.state !== 'running') { $('idle-shop').classList.add('hidden'); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
+    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your fogs and upgrades are kept.`
     : 'Are you sure you want to withdraw? Your progress in this battle will not be saved.';
   pausedBeforeLeave = paused;
   setSpeed(0);
@@ -1580,6 +1746,7 @@ function frame(now) {
       goFlash = Math.max(0, goFlash - dt * 1.1);
       acc += dt * speed * rules.timeScale;
       while (acc >= rules.step) { battle.step(rules.step); acc -= rules.step; }
+      if (mode === 'idle') idleTick(dt);
     }
     // show the result card once, however the battle ended
     if (battle.state !== 'running' && !battle.endShown) { battle.endShown = true; endBattle(); }
@@ -1636,6 +1803,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { tuneChanges, setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { tuneChanges, setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

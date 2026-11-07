@@ -100,7 +100,7 @@ button { box-shadow: 0 1px 2px rgba(30, 50, 55, 0.12); }
 #menu .m-ico { background: rgba(0,0,0,0.16); box-shadow: inset 0 2px 0 rgba(0,0,0,0.12); }
 @keyframes pulse { 50% { box-shadow: 0 5px 0 var(--edge), 0 0 0 6px rgba(90,162,255,0.35), 0 10px 18px rgba(0,0,0,0.25), inset 0 2px 0 rgba(255,255,255,0.35); } }
 @media (min-aspect-ratio: 1/1) and (min-width: 760px) {
-  .modes { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); width: min(500px, 100%); }
+  .modes { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); width: min(600px, 100%); }   /* 3 modes in one row */
   .mode { flex-direction: column; text-align: center; padding: 12px 10px; }
   .m-txt { align-items: center; }
 }
@@ -480,3 +480,29 @@ html.compact #battle-quit { width: 44px; height: 44px; font-size: 20px; }
 .menu-btn.sky::before { background: linear-gradient(180deg, #5cc8ff, #2b8fe0); }
 .menu-btn:active { transform: translateY(4px); }
 .menu-btn:active::after { inset: 1px 0 -1px; }   /* edge shrinks as the button sinks */
+
+/* ---------- idle mode ---------- */
+/* hud: fog counter (gold pill), shop button pulses when something is affordable, locked buttons dim */
+.fog-badge { background: linear-gradient(180deg, #fff3c4, #ffd76a); color: #5a2d06; box-shadow: 0 2px 0 #a3650a; font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
+#idle-shop-btn.ready { background: linear-gradient(180deg, #ffd76a, #e0961a); animation: shop-pulse 1.2s ease-in-out infinite; }
+@keyframes shop-pulse { 50% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(255, 200, 80, 0.35); } }
+.round.locked { filter: grayscale(1); opacity: 0.55; }
+.speed-btn { font-weight: 900; font-size: 15px; font-variant-numeric: tabular-nums; }
+/* shop: on top of the end card too (later in the page, same layer), lighter backdrop so the battle shows */
+#idle-shop { background: rgba(30, 45, 50, 0.3); backdrop-filter: none; z-index: 11; }
+.shop-card { max-width: 520px; max-height: 100%; display: flex; flex-direction: column; }
+.shop-fogs { margin: 2px 0 8px; font-size: 20px; font-weight: 800; color: #8a5208; font-variant-numeric: tabular-nums; }
+.shop-list { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 2px; min-height: 0; }
+.up-row { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 14px; padding: 6px 8px 6px 10px; box-shadow: 0 2px 0 rgba(30, 50, 55, 0.15); }
+.up-row.locked { opacity: 0.5; }
+.up-ico { font-size: 24px; width: 32px; text-align: center; flex: none; }
+.up-txt { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; line-height: 1.25; }
+.up-txt b { font-size: 15px; }
+.up-txt em { font-style: normal; font-size: 12px; font-weight: 700; color: #23966a; }
+.up-txt small { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+.up-buy { flex: none; min-width: 86px; min-height: 44px; border-radius: 12px; border: 0; font-weight: 800; font-size: 14px; color: #5a2d06; font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #ffd76a, #e0961a); box-shadow: 0 3px 0 #a3650a; cursor: pointer; }
+.up-buy:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 #a3650a; }
+.up-buy:disabled { background: #e3e7e6; color: #8a948f; box-shadow: 0 3px 0 #bfc6c3; cursor: default; }
+html.compact .up-row { padding: 4px 6px 4px 8px; } html.compact .up-buy { min-height: 38px; }
+#end-shop { min-width: 180px; justify-content: center; font-size: 17px; }

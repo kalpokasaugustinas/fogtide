@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=83';
-import { perks, combineMods } from './expedition.js?v=83';
-import { hops } from './mapgen.js?v=83';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=83';
-import { think } from './ai.js?v=83';
+import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=84';
+import { perks, combineMods } from './expedition.js?v=84';
+import { hops } from './mapgen.js?v=84';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=84';
+import { think } from './ai.js?v=84';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -136,7 +136,7 @@ export class Battle {
     let d = s.building === 'fort' ? (m.fort ?? effects.fortDefense) : 1;
     if (s.capital) d += s.bonus.def + (m.capitalDef ?? 0);
     if (s.trait) d *= 1 + (traits[s.trait].def ?? 0);   // highland / forest
-    return d;
+    return d * (m.def ?? 1);   // idle mode: defense upgrades / stage strength (no perk sets it)
   }
 
   atkMult(s) {

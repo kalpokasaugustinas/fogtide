@@ -26,7 +26,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Luckiest+Guy&display=swap">
-  <link rel="stylesheet" href="style.css?v=83">
+  <link rel="stylesheet" href="style.css?v=84">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -127,9 +127,10 @@
     <div class="modes">
       <button id="btn-campaign" class="mode blue pulse hidden"><span class="m-ico">🗺️</span><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span><span class="play">PLAY</span></button>
       <button id="btn-expedition" class="mode sky"><span class="m-ico">🧭</span><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span><span class="play">GO</span></button>
+      <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 83 · 2026-11-05 11:33</span>
+    <span id="version">build 84 · 2026-11-07 18:36</span>
   </section>
 
   <!-- campaign world map -->
@@ -163,6 +164,11 @@
     <!-- conquest: your perks, under the top-left hud (tap one for what it does) -->
     <div id="perk-bar" class="hidden"></div>
     <div class="hud tr">
+      <!-- idle mode: fogs, upgrade shop, auto-battle toggle, game speed -->
+      <span id="idle-fogs" class="badge fog-badge hidden" title="Fogs: spend them on upgrades">🌫️ 0</span>
+      <button id="idle-shop-btn" class="round hidden" title="Upgrades">⬆️</button>
+      <button id="idle-auto" class="round hidden" title="Auto-battle">🤖</button>
+      <button id="idle-speed" class="round speed-btn hidden" title="Game speed">1x</button>
       <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
     </div>
     <div class="hud bl">
@@ -248,6 +254,16 @@
     </div>
   </div>
 
+  <!-- idle mode upgrade shop: opens over the running battle (it keeps going), buys apply at once -->
+  <div id="idle-shop" class="overlay hidden">
+    <div class="card end-card shop-card">
+      <div class="end-ribbon"><h2>Upgrades</h2></div>
+      <p id="shop-fogs" class="shop-fogs">🌫️ 0 fogs</p>
+      <div id="shop-list" class="shop-list"></div>
+      <div class="end-btns"><button id="shop-close" class="mode green big-btn">Back to battle</button></div>
+    </div>
+  </div>
+
   <!-- rules -->
   <div id="help" class="overlay hidden">
     <div class="card scroll">
@@ -268,6 +284,7 @@
       </ul>
       <ul id="help-buildings"></ul>
       <p><b>🧭 Conquest</b> (roguelite): 5 stages from a valley to the whole world. Win a stage and everything you hold collapses into one capital on a bigger map: all your people come along (the capital fills up, the rest waits in a 🏕️ reserve), and each building type becomes a capital bonus = its effect × the share of your segments that had it (4 farms of 10 segments → +60% × 40% = +24% growth). Nothing can be built in a capital. Bots start with part of your strength and their own capitals. Pick a perk at every zoom-out. Lose once and the run ends.</p>
+      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ fogs, every stage won a bonus. Spend fogs on upgrades with ⬆️ at any time; they apply at once and are kept forever. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Every 10th stage is a 👑 boss, stages 5, 15, 25... bring 👤 another commander's army (double fogs). Buy 🤖 Auto-battle to let a bot fight for you (toggle it any time) and ⏩ Time warp for up to 5x speed. Lose a stage and the run ends; your fogs and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
       <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect.</p>
@@ -278,6 +295,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=83"></script>
+  <script type="module" src="js/main.js?v=84"></script>
 </body>
 </html>
