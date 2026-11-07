@@ -1,0 +1,8 @@
+{
+  "name": "fogtide",
+  "productName": "Fogtide",
+  "version": "1.0.0",
+  "description": "Fogtide desktop app (Electron shell around the web game)",
+  "main": "main.js",
+  "private": true
+}

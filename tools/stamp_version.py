@@ -40,8 +40,9 @@ def stamp_js(src):
 
 
 rewrite(root / "index.html", stamp_html)
+skip = {"node_modules", "tools", "dist"}   # dist = build output (copies of the game), never stamped
 for js in root.rglob("*.js"):
-    if "node_modules" not in js.parts and "tools" not in js.parts:
+    if not skip & set(js.relative_to(root).parts):
         rewrite(js, stamp_js)
 
 if stage and changed:

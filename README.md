@@ -159,6 +159,19 @@ python tools/make_itch_zip.py
 ```
 Zips the committed game files (index.html at the zip root, no tools or docs) into `dist/fogtide-build<N>.zip` for itch.io (Kind: HTML, played in the browser). The sitelock already allows itch.io's hosting domains.
 
+## Windows desktop build (Steam)
+```
+python tools/build_desktop.py          # dist/desktop/Fogtide/Fogtide.exe + dist/fogtide-windows-build<N>.zip
+python tools/desktop_check.py          # run the app on this PC: errors, fps, screenshot
+```
+The same web files wrapped in [Electron](https://www.electronjs.org/) (prebuilt Windows zip, pinned version, checksum-verified; no Node/npm needed). `desktop/main.js` opens one window and serves the game from a private `app://` scheme (ES modules and module workers don't run on `file://`). Only committed files go in, like the itch zip. The web version on GitHub Pages is unchanged.
+
+- Keys: F11 or Alt+Enter toggles fullscreen. Starts fullscreen on first run, then remembers window/fullscreen.
+- Saves: the browser storage of the app, in `%APPDATA%ogtide`.
+- Debug against the working tree without rebuilding: `Fogtide.exe --game-dir=<repo folder> --dev --windowed` (`--dev` enables F12 devtools and F5 reload). `desktop_check.py` does this by default.
+- Testers: unzip `fogtide-windows-build<N>.zip`, run `Fogtide.exe` (Windows may warn about an unsigned app: More info > Run anyway).
+- Launched from a VS Code terminal, Electron runs as plain Node because VS Code sets `ELECTRON_RUN_AS_NODE`; the check tool clears it.
+
 ## Build number
 The menu shows `build N · date time`. A git pre-commit hook (`tools/pre-commit` → `.git/hooks/pre-commit`) runs `tools/stamp_version.py`, which stamps the label and adds `?v=N` to css/js files so browsers load the new version. After a fresh clone, install the hook with `cp tools/pre-commit .git/hooks/pre-commit`.
 

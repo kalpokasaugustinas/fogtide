@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=86';
-import { generateMap, rng } from './mapgen.js?v=86';
-import { initAnalytics, track } from './analytics.js?v=86';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=86';
-import { Battle } from './battle.js?v=86';
-import { personalities } from './ai.js?v=86';
-import { Campaign } from './campaign.js?v=86';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=86';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=86';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=86';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=86';
-import { previewBuildings } from './structures.js?v=86';
-import { initTune, tuneChanges } from './tune.js?v=86';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=87';
+import { generateMap, rng } from './mapgen.js?v=87';
+import { initAnalytics, track } from './analytics.js?v=87';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=87';
+import { Battle } from './battle.js?v=87';
+import { personalities } from './ai.js?v=87';
+import { Campaign } from './campaign.js?v=87';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=87';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=87';
+import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=87';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=87';
+import { previewBuildings } from './structures.js?v=87';
+import { initTune, tuneChanges } from './tune.js?v=87';
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,7 +29,9 @@ function parentHost() {
   try { return new URL(a).hostname; } catch { return ''; }
 }
 const framedBy = parentHost();
-if (!hostOk(location.hostname) || (framedBy !== null && !hostOk(framedBy))) {
+// windows desktop build (electron, desktop/main.js) serves the game from its own app:// scheme
+const desktop = location.protocol === 'app:';
+if (!desktop && !hostOk(location.hostname) || (framedBy !== null && !hostOk(framedBy))) {
   initAnalytics();
   track(`sitelock-${location.hostname}${framedBy ? '-in-' + framedBy : ''}`);
   document.documentElement.classList.remove('booting');
@@ -1464,7 +1466,8 @@ function addQuickWin() { try { localStorage.setItem(wins_key, quickWins() + 1); 
 // opened online. off on localhost (development would get stale files) unless the url has ?sw
 function initOffline() {
   const local = /^(localhost|127\.)/.test(location.hostname);
-  if (!('serviceWorker' in navigator) || (local && !/[?&]sw(=|&|$)/.test(location.search))) return;
+  // the desktop app ships every file, so it never needs the offline cache
+  if (desktop || !('serviceWorker' in navigator) || (local && !/[?&]sw(=|&|$)/.test(location.search))) return;
   const v = new URL(import.meta.url).search;   // same ?v=N build stamp as this module
   navigator.serviceWorker.register('sw.js' + v).then(() => navigator.serviceWorker.ready).then((reg) => {
     // everything this page loaded (modules, css, fonts, icons), the map worker and the sound
