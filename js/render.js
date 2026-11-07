@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes } from './config.js?v=84';
-import * as structures from './structures.js?v=84';
+import { themes } from './config.js?v=85';
+import * as structures from './structures.js?v=85';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -58,7 +58,7 @@ function pnoise(x, y, p, s) {
 // lighting = density minus density a little to the top-left, so puffs get bright rims and
 // shaded undersides
 const cloudCache = new Map();
-function cloudTexture(t) {
+export function cloudTexture(t) {
   const key = `${t.fogA}|${t.fogB}`;
   if (cloudCache.has(key)) return cloudCache.get(key);
   const n = 256, c = document.createElement('canvas');

@@ -1,7 +1,8 @@
 // idle mode balance sim: a bot plays whole idle careers headless (tools/idle_sim.py drives it).
-// the player side is the auto-battle bot (skill = its upgrade level, at least 2 as a stand-in for a
-// human before auto is bought). every 5 game seconds it buys the cheapest affordable upgrade, which
-// applies at once like in the game. a run ends on a lost stage; fogs and upgrades carry on.
+// the player side is a fixed bot standing in for an active human (the auto-battle upgrades only save
+// the human's time, so they are not simulated). every 5 game seconds it buys the cheapest affordable
+// open upgrade in the tree, which applies at once like in the game. a run ends on a lost stage;
+// fogs and upgrades carry on.
 // modules are imported with the game's own ?v= stamp so they share one copy of config.js
 const src = await (await fetch(new URL('../js/battle.js', import.meta.url))).text();
 const v = src.match(/config\.js\?v=(\d+)/)?.[1] ?? '';
@@ -11,24 +12,23 @@ const { generateMap } = await import(`../js/mapgen.js${q}`);
 const { rules } = await import(`../js/config.js${q}`);
 const { islandShape } = await import(`../js/expedition.js${q}`);
 const idleMod = await import(`../js/idle.js${q}`);
-const { Idle, upgrades, autoBrain, idleCfg } = idleMod;
+const { Idle, upgrades, idleCfg } = idleMod;
 
 // apply config overrides { display: 1.5, ... } to idleCfg (for tuning without editing the file)
 export function tune(o) { Object.assign(idleCfg, o); return { ...idleCfg }; }
 
-// player side: auto brain at max(2, level); a human stand-in builds sometimes even without auto-build
+// player side: an active human stand-in (thinks every 2.5 s, 2 moves, builds sometimes)
 function brain(idle, f) {
-  const b = autoBrain(Math.max(2, idle.lvl('auto')), idle.lvl('autobuild'));
   f.ai = true;
-  f.think = b.think;
-  f.personality = { ...b.personality, build: Math.max(0.35, b.personality.build) };
+  f.think = 2.5;
+  f.personality = { build: 0.4, risk: 1.3, actions: 2, grudge: 0 };
 }
 
-// cheapest affordable upgrade, bought repeatedly; returns how many were bought
+// cheapest affordable upgrade, bought repeatedly (not the command branch: auto-play only saves a human's time); returns how many were bought
 function shop(idle) {
   let n = 0;
   for (;;) {
-    const open = upgrades.filter((u) => idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) - idle.cost(b.id));
+    const open = upgrades.filter((u) => u.branch !== 'command' && idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) - idle.cost(b.id));
     if (!open.length) return n;
     idle.buy(open[0].id);
     n++;
@@ -54,14 +54,15 @@ export function career({ maxRuns = 8, target = 30, stageCap = 900, seed = 1 } = 
         t += rules.step;
         const f = idle.fogsFor(b.stats.killed - killed);
         killed = b.stats.killed;
-        idle.earn(f); fogs += f;
+        const w = idle.wellFogs(b.segs.filter((x) => x.owner === 0).length, rules.step);   // fog wells
+        idle.earn(f + w); fogs += f + w;
         if ((shopT -= rules.step) <= 0) {
           shopT = 5;
           if (shop(idle)) { b.factions[0].mods = idle.mods(); b.updateGrowth(); brain(idle, b.factions[0]); }
         }
       }
       const won = b.state === 'won';
-      const real = t / rules.timeScale / idle.maxSpeed;   // real seconds at the best owned speed
+      const real = t / rules.timeScale;   // real seconds (the game runs at x1 only)
       const row = { run, stage: idle.stage, won, timeout: b.state === 'running', game: Math.round(t), real1x: Math.round(t / rules.timeScale), real: Math.round(real), fogs: Math.round(fogs), levels: Object.values(idle.levels).reduce((a, c) => a + c, 0) };
       runReal += real;
       if (won) {

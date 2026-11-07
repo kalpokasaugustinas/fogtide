@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, traits } from './config.js?v=84';
-import { generateMap, rng } from './mapgen.js?v=84';
-import { initAnalytics, track } from './analytics.js?v=84';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=84';
-import { Battle } from './battle.js?v=84';
-import { personalities } from './ai.js?v=84';
-import { Campaign } from './campaign.js?v=84';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=84';
-import { Idle, stageSpec, fmtBig, upgrades, upgradeById } from './idle.js?v=84';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=84';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect } from './render.js?v=84';
-import { previewBuildings } from './structures.js?v=84';
-import { initTune, tuneChanges } from './tune.js?v=84';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=85';
+import { generateMap, rng } from './mapgen.js?v=85';
+import { initAnalytics, track } from './analytics.js?v=85';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=85';
+import { Battle } from './battle.js?v=85';
+import { personalities } from './ai.js?v=85';
+import { Campaign } from './campaign.js?v=85';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=85';
+import { Idle, fmtBig, upgrades, upgradeById, branches } from './idle.js?v=85';
+import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=85';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=85';
+import { previewBuildings } from './structures.js?v=85';
+import { initTune, tuneChanges } from './tune.js?v=85';
 
 const $ = (id) => document.getElementById(id);
 
@@ -189,7 +189,6 @@ function startBattle(setup, m, rid = -1) {
   if (autoplay) setup.factions[0] = { ai: true, color: 0, think: 1.5, personality: personalities.aggressive };
   dress(setup.factions, setup.seed);
   battle = new Battle(map, setup);
-  if (m === 'idle') idle.applyAuto(battle.factions[0]);   // after dress(): a bot-played side keeps your colours
   zoomMax = 5 / mapScale(map);
   mode = m; regionId = rid; selected = -1; hover = -1; drag = null; paused = false; userPaused = false; key = '';
   endTutor(false);
@@ -204,9 +203,8 @@ function startBattle(setup, m, rid = -1) {
   $('stage').classList.toggle('hidden', m !== 'expedition' && m !== 'idle');
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
   if (m === 'idle') $('stage').textContent = `${setup.boss ? '👑 ' : setup.ghost ? '👤 ' : ''}Stage ${idle.stage}`;
-  for (const id of ['idle-fogs', 'idle-shop-btn', 'idle-auto', 'idle-speed']) $(id).classList.toggle('hidden', m !== 'idle');
-  if (m === 'idle') { setSpeed(Math.min(speed, idle.maxSpeed)); syncIdleButtons(); }
-  else if (speed > 1) setSpeed(1);
+  for (const id of ['idle-fogs', 'idle-shop-btn', 'idle-auto']) $(id).classList.toggle('hidden', m !== 'idle');
+  if (m === 'idle') syncIdleButtons();
   wheelOn = false;
   setCam(1, 0, 0);
   $('end').classList.add('hidden');
@@ -306,6 +304,46 @@ function drawUnits(ctx, v, b, ac, numbers) {
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo((x1 + x2) / 2, (y1 + y2) / 2 + 10, x2, y2);
       ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(60,80,90,0.25)'; ctx.stroke();
       ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // archers (idle): one arrow at a time arcs from each tile of a side with archers into every enemy
+  // tile next to it, in the shooter's colour; each pair has its own timing so volleys don't sync
+  if (numbers) {
+    const tnow = (b.time + ac) / rules.timeScale;   // battle time: arrows stop while paused, smooth between steps
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const s of b.segs) {
+      if (s.owner < 0 || !b.mods(s.owner).archers) continue;
+      const col = factionColors[b.factions[s.owner].color];
+      for (const id of s.adj) {
+        const t = b.segs[id];
+        if (t.owner < 0 || t.owner === s.owner) continue;
+        for (const off of [0, 0.5]) {   // two arrows per pair, half a flight apart, side by side
+          const k = (tnow * 0.8 + off + ((s.id * 7 + id * 13) % 10) / 10) % 1;   // flight progress 0..1
+          const x1 = v.sx(s.x), y1 = v.sy(s.y), x2 = v.sx(t.x), y2 = v.sy(t.y), hgt = fs * 1.8, along = 0.2 + 0.6 * k;
+          const side = (off ? 1 : -1) * fs * 0.35, nx = -(y2 - y1), ny = x2 - x1, nl = Math.hypot(nx, ny) || 1;
+          const x = x1 + (x2 - x1) * along + (nx / nl) * side, y = y1 + (y2 - y1) * along + (ny / nl) * side - Math.sin(Math.PI * k) * hgt;
+          // flight direction = derivative of the arc, so the arrow tilts up, then down
+          const dx = (x2 - x1) * 0.6, dy = (y2 - y1) * 0.6 - Math.cos(Math.PI * k) * Math.PI * hgt, d = Math.hypot(dx, dy) || 1;
+          const ux = dx / d, uy = dy / d, len = fs * 1.1, w = fs * 0.22;
+          ctx.globalAlpha = Math.min(1, Math.sin(Math.PI * k) * 3);   // fades in / out at the ends
+          ctx.strokeStyle = 'rgba(255,255,255,0.75)';   // light rim so the shaft shows on dark ground
+          ctx.lineWidth = Math.max(2.4, fs * 0.2);
+          ctx.beginPath(); ctx.moveTo(x - ux * len, y - uy * len); ctx.lineTo(x, y); ctx.stroke();
+          ctx.strokeStyle = 'rgba(60,44,28,0.95)';
+          ctx.lineWidth = Math.max(1.4, fs * 0.11);
+          ctx.stroke();
+          ctx.fillStyle = col;   // head in the shooter's colour, fletching at the tail
+          ctx.beginPath();
+          ctx.moveTo(x + ux * w * 1.6, y + uy * w * 1.6);
+          ctx.lineTo(x - uy * w, y + ux * w);
+          ctx.lineTo(x + uy * w, y - ux * w);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.fillRect(x - ux * len - w * 0.4, y - uy * len - w * 0.4, w * 0.8, w * 0.8);
+        }
+      }
     }
     ctx.restore();
   }
@@ -1075,7 +1113,7 @@ const idleMilestones = new Set([2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 15
 function startIdle() {
   track('play-idle');
   idle = idle ?? Idle.load();
-  if (idle.stage > 1) flash(`🌫️ Resuming stage ${idle.stage}`, 1800);
+  if (idle.stage > 1) flash(`🌫️ Stage ${idle.stage}`, 1800);
   startBattle(idle.setup(), 'idle');
   idleIntro();
 }
@@ -1087,10 +1125,12 @@ function idleIntro() {
   else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · fogs x2 this stage`, 2600);
 }
 
-// every frame of a running idle battle: fogs for newly defeated foglets, a save every 5 s
+// every frame of a running idle battle: fogs for newly defeated foglets (fights and arrows) and
+// for tiles held (fog wells), a save every 5 s
 function idleTick(dt) {
   const k = battle.stats.killed;
   if (k > idleKilled) { idle.earn(idle.fogsFor(k - idleKilled)); idleKilled = k; }
+  if (dt > 0 && idle.lvl('wells')) idle.earn(idle.wellFogs(battle.segs.filter((s) => s.owner === 0).length, dt * rules.timeScale));
   idleSaveT -= dt;
   if (idleSaveT <= 0) { idle.save(); idleSaveT = 5; }
 }
@@ -1138,43 +1178,89 @@ function trackIdleRun(run) {
   track(`idle-run-${mins}min-plus`);
 }
 
-// upgrade shop: a flat list, opened at any time (the battle keeps running); purchases apply at once
-function openShop() { renderShop(); $('idle-shop').classList.remove('hidden'); }
-let shopKey = '';
+// upgrade tree (shop): branches as rows, deeper upgrades to the right. opened at any time (the battle
+// keeps running), purchases apply at once. the tree sits in the battle's own fog: locked upgrades are
+// hidden under drifting clouds until their requirements are met. tap a node for its card below
+let shopKey = '', shopSel = 'atk';
+function openShop() {
+  // fog sky behind the tree: the current battle's cloud texture and fog colour
+  const t = bv?.theme ?? themes.summer;
+  $('shop-tree').style.setProperty('--fog', `url(${cloudTexture(t)})`);
+  $('shop-tree').style.setProperty('--fog-bg', `rgb(${t.fogB})`);
+  shopKey = '';
+  $('idle-shop').classList.remove('hidden');
+  renderShop();
+}
 function renderShop() {
-  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage;
+  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel;
   $('shop-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)} fogs`;
-  if (key === shopKey && $('shop-list').children.length) return;
+  if (key === shopKey) return;
   shopKey = key;
-  const sc = numScale;
-  $('shop-list').innerHTML = upgrades.map((u) => {
-    const l = idle.lvl(u.id), maxed = idle.maxed(u.id), locked = idle.locked(u.id);
-    const now = u.text(u.value(l), sc), next = u.text(u.value(l + 1), sc);
-    const what = locked ? `needs ${upgradeById[u.needs].name}` : l === 0 ? next : maxed ? `${now} · max` : `${now} → ${next.replace(/^[a-z ]+(?=[+-])/i, '')}`;
-    const btn = maxed ? '<button class="up-buy" disabled>MAX</button>' : `<button class="up-buy" data-id="${u.id}" ${idle.canBuy(u.id) ? '' : 'disabled'}>🌫️ ${fmtBig(idle.cost(u.id))}</button>`;
-    return `<div class="up-row${locked ? ' locked' : ''}"><span class="up-ico">${u.icon}</span><span class="up-txt"><b>${u.name}</b>`
-      + `<em>${u.max ? `Lv ${l}/${u.max}` : `Lv ${l}`}</em><small>${what}</small></span>${btn}</div>`;
-  }).join('');
-  for (const b of $('shop-list').querySelectorAll('.up-buy[data-id]')) b.onclick = () => buyUpgrade(b.dataset.id);
+  const tree = $('shop-tree');
+  let h = '<svg class="shop-links"></svg>';
+  branches.forEach((br, row) => {
+    h += `<div class="br-label" style="grid-row:${row + 1}"><span>${br.icon}</span>${br.name}</div>`;
+    for (const u of upgrades.filter((x) => x.branch === br.id)) {
+      const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id);
+      const cls = ['node', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
+      const lv = u.max ? `${l}/${u.max}` : `${l}`;
+      h += `<button class="${cls}" data-id="${u.id}" style="grid-row:${row + 1};grid-column:${u.col + 2}" title="${u.name}">`
+        + `<span class="n-ico">${u.icon}</span><span class="n-lv">${maxed ? '★' : lv}</span>`
+        + (locked ? '<span class="n-fog">🔒</span>' : maxed ? '' : `<span class="n-cost">${fmtBig(idle.cost(u.id))}</span>`) + '</button>';
+    }
+  });
+  tree.innerHTML = h;
+  for (const b of tree.querySelectorAll('.node')) b.onclick = () => { shopSel = b.dataset.id; sfx.click(); renderShop(); };
+  renderShopDetail();
+  drawShopLinks();
+}
+// connector lines: requirement -> upgrade, bright when met, faint dashes while still unmet.
+// positions come from the layout (offsetLeft/Top: unaffected by the css page rotation on phones)
+function drawShopLinks() {
+  const tree = $('shop-tree'), svg = tree.querySelector('.shop-links');
+  if (!svg || $('idle-shop').classList.contains('hidden')) return;
+  const at = (id) => { const n = tree.querySelector(`.node[data-id="${id}"]`); return [n.offsetLeft + n.offsetWidth / 2, n.offsetTop + n.offsetHeight / 2]; };
+  svg.setAttribute('width', tree.scrollWidth);
+  svg.setAttribute('height', tree.scrollHeight);
+  let h = '';
+  for (const u of upgrades) for (const [n, l] of u.needs ?? []) {
+    const [x1, y1] = at(n), [x2, y2] = at(u.id), mx = (x1 + x2) / 2;
+    h += `<path class="${idle.lvl(n) >= l ? 'met' : ''}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+  }
+  svg.innerHTML = h;
+}
+// card under the tree: what the selected upgrade does now and next, what it needs, buy button
+function renderShopDetail() {
+  const u = upgradeById[shopSel], l = idle.lvl(u.id), sc = numScale, maxed = idle.maxed(u.id);
+  const now = l ? u.text(u.value(l), sc) : '', next = u.text(u.value(l + 1), sc);
+  const needs = (u.needs ?? []).map(([n, lv]) => `<span class="${idle.lvl(n) >= lv ? 'ok' : ''}">${upgradeById[n].icon} ${upgradeById[n].name} ${lv}</span>`).join('');
+  const what = maxed ? `${now} · <b>max</b>` : l ? `${now} → <b>${next}</b>` : `<b>${next}</b>`;
+  const btn = maxed ? '<button class="up-buy" disabled>MAX</button>'
+    : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>${idle.locked(u.id) ? '🔒' : '🌫️'} ${fmtBig(idle.cost(u.id))}</button>`;
+  $('shop-detail').innerHTML = `<span class="d-ico">${u.icon}</span><span class="d-txt"><b>${u.name}</b> <em>Lv ${u.max ? `${l}/${u.max}` : l}</em>`
+    + `<small>${what}</small>${needs ? `<small class="d-needs">Needs: ${needs}</small>` : ''}</span>${btn}`;
+  if ($('shop-buy')) $('shop-buy').onclick = () => buyUpgrade(u.id);
 }
 
 function buyUpgrade(id) {
   if (!idle.buy(id)) return;
   sfx.build();
   if (idle.lvl(id) === 1) track(`idle-buy-${id}`);
-  // live: the running battle gets the new modifiers / bot brain straight away
+  // live: the running battle gets the new modifiers straight away (auto-play reads the levels itself)
   if (mode === 'idle' && battle) {
     battle.factions[0].mods = idle.mods();
     battle.updateGrowth();
-    idle.applyAuto(battle.factions[0]);
   }
-  if (id === 'auto' && idle.lvl('auto') === 1) flash('🤖 Auto-battle bought: the bot plays your attacks (🤖 button toggles it)', 3000);
+  if (id === 'auto' && idle.lvl('auto') === 1) flash('🤖 Auto-attack bought: full tiles attack on their own (🤖 button toggles it)', 3000);
+  // upgrades this purchase opened: their fog clears with a pop
+  const opened = upgrades.filter((u) => (u.needs ?? []).some(([n]) => n === id) && !idle.locked(u.id) && !idle.lvl(u.id)).map((u) => u.id);
   idle.save();
   syncIdleButtons();
   renderShop();
+  for (const o of opened) $('shop-tree').querySelector(`.node[data-id="${o}"]`)?.classList.add('reveal');
 }
 
-// hud: fog counter, shop button glows when something is affordable, auto + speed buttons
+// hud: fog counter, the shop button glows when something is affordable, auto-battle toggle
 function updateIdleHud() {
   $('idle-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)}`;
   $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
@@ -1184,25 +1270,18 @@ function syncIdleButtons() {
   if (!idle) return;
   $('idle-auto').classList.toggle('off', !idle.autoOn);
   $('idle-auto').classList.toggle('locked', idle.lvl('auto') === 0);
-  $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy it in the upgrades';
-  $('idle-speed').textContent = `${speed}x`;
-  $('idle-speed').classList.toggle('locked', idle.maxSpeed <= 1);
+  $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy Auto-attack in the upgrades';
 }
 $('idle-shop-btn').onclick = openShop;
 $('shop-close').onclick = () => $('idle-shop').classList.add('hidden');
 $('idle-shop').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('shop-close').click(); });
+addEventListener('resize', () => requestAnimationFrame(drawShopLinks));
 $('idle-auto').onclick = () => {
-  if (!idle.lvl('auto')) { flash('🤖 Buy Auto-battle in ⬆️ upgrades first', 2200); return; }
+  if (!idle.lvl('auto')) { flash('🤖 Buy Auto-attack in ⬆️ upgrades first', 2200); return; }
   idle.auto = !idle.auto;
-  idle.applyAuto(battle.factions[0]);
   idle.save();
   syncIdleButtons();
   flash(idle.autoOn ? '🤖 Auto-battle on' : '🖐️ You have control', 1400);
-};
-$('idle-speed').onclick = () => {
-  if (idle.maxSpeed <= 1) { flash('⏩ Buy Time warp in ⬆️ upgrades for 2x-5x speed', 2200); return; }
-  setSpeed(speed >= idle.maxSpeed ? 1 : speed + 1);
-  syncIdleButtons();
 };
 
 let flashTimer = 0;
@@ -1745,7 +1824,7 @@ function frame(now) {
     } else if (!paused && battle.state === 'running' && !tutorHold()) {
       goFlash = Math.max(0, goFlash - dt * 1.1);
       acc += dt * speed * rules.timeScale;
-      while (acc >= rules.step) { battle.step(rules.step); acc -= rules.step; }
+      while (acc >= rules.step) { battle.step(rules.step); if (mode === 'idle') idle.autoTick(battle, rules.step); acc -= rules.step; }
       if (mode === 'idle') idleTick(dt);
     }
     // show the result card once, however the battle ended

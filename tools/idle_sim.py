@@ -1,5 +1,5 @@
 # idle mode balance sim: plays whole idle careers headless (tools/idle_sim.js) and prints, per stage,
-# game time, real time at the owned speed, fogs earned and bank, plus a summary per run.
+# game time, real time, fogs earned and bank, plus a summary per run.
 # use it to check pacing (stage 1 ~30 s, stage 20 ~3 min real at x1) and a smooth fog curve.
 # usage: python tools/idle_sim.py [--careers 2] [--runs 8] [--target 30] [--set display=1.5 enemyAtk=1.08]
 import argparse

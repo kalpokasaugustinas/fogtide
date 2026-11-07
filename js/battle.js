@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=84';
-import { perks, combineMods } from './expedition.js?v=84';
-import { hops } from './mapgen.js?v=84';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=84';
-import { think } from './ai.js?v=84';
+import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=85';
+import { perks, combineMods } from './expedition.js?v=85';
+import { hops } from './mapgen.js?v=85';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=85';
+import { think } from './ai.js?v=85';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -337,6 +337,8 @@ export class Battle {
       if (a.t >= a.stopAt) this.arrive(a);
     }
     this.armies = this.armies.filter((a) => !a.done);
+    this.archerT = (this.archerT ?? 0) + dt;
+    if (this.archerT >= 0.5) { this.shoot(this.archerT); this.archerT = 0; }
     this.routeTimer -= dt;
     if (this.routeTimer <= 0) { this.routeTimer += rules.routeEvery; this.runRoutes(); }
     for (const f of this.factions) {
@@ -350,6 +352,26 @@ export class Battle {
     // end check: player gone = lost, every bot gone = won (neutral segments may remain)
     if (!this.alive(0)) this.state = 'lost';
     else if (this.factions.every((f) => f.id === 0 || !this.alive(f.id))) this.state = 'won';
+  }
+
+  // archers (idle mode: upgrade for the player, by stage for bots; mods.archers = foglets per second):
+  // every tile of a side with archers shoots each enemy tile next to it, killing archers x attack /
+  // target defense foglets per second. nobody is lost on the shooting side, a tile is never taken by
+  // arrows (it can drop to 0). neutrals are not shot. runs every 0.5 s (dt = time since the last volley)
+  shoot(dt) {
+    for (const s of this.segs) {
+      if (s.owner < 0) continue;
+      const m = this.mods(s.owner);
+      if (!m.archers) continue;
+      for (const id of s.adj) {
+        const t = this.segs[id];
+        if (t.owner < 0 || t.owner === s.owner || t.troops <= 0) continue;
+        const k = Math.min(t.troops, (m.archers * dt * (m.atk ?? 1)) / this.defMult(t));
+        t.troops -= k;
+        if (s.owner === 0) this.stats.killed += k;
+        else if (t.owner === 0) this.stats.deaths += k;
+      }
+    }
   }
 
   // run the sim without drawing (tests, fast-forward)

@@ -52,19 +52,39 @@ try:
             page.wait_for_timeout(4000)
             fogs = page.evaluate("__fl.idle.fogs")
             print(f"     fogs after ~4 s: {fogs:.1f}")
-            # shop: give fogs, buy attack + auto, check the battle got the new mods and the bot brain
+            # tree: march is veiled until blades reach 2; buy blades x2 (tap node, buy), march opens;
+            # buy auto-attack; the battle gets the new mods at once
             page.evaluate("__fl.idle.fogs = 1e4")
             page.click("#idle-shop-btn", force=True)   # it pulses when affordable (never "stable")
             page.wait_for_timeout(300)
+            check(page.evaluate("document.querySelector('.node[data-id=march]').classList.contains('veiled')"), f"{name}: forced march veiled at the start")
             page.screenshot(path=str(out / f"idle-{name}-shop.png"))
-            page.click(".up-buy[data-id='atk']")
-            page.click(".up-buy[data-id='auto']")
-            st = page.evaluate("({ atk: __fl.battle.factions[0].mods.atk, ai: __fl.battle.factions[0].ai, lvl: __fl.idle.levels })")
-            check(abs(st["atk"] - 1.1) < 1e-9 and st["ai"], f"{name}: purchase applies live (atk {st['atk']}, auto {st['ai']})")
+            page.click(".node[data-id='atk']")
+            page.click("#shop-buy")
+            page.click("#shop-buy")
+            check(not page.evaluate("document.querySelector('.node[data-id=march]').classList.contains('veiled')"), f"{name}: blades 2 opens forced march")
+            page.click(".node[data-id='auto']")
+            page.click("#shop-buy")
+            page.wait_for_timeout(300)
+            page.screenshot(path=str(out / f"idle-{name}-shop-bought.png"))
+            st = page.evaluate("({ atk: __fl.battle.factions[0].mods.atk, auto: __fl.idle.autoOn, links: document.querySelectorAll('.shop-links path').length })")
+            check(abs(st["atk"] - 1.05 ** 2) < 1e-9 and st["auto"] and st["links"] > 10, f"{name}: purchases apply live ({st})")
             page.click("#shop-close")
             page.click("#idle-auto")
-            check(not page.evaluate("__fl.battle.factions[0].ai"), f"{name}: auto toggle off")
+            check(not page.evaluate("__fl.idle.autoOn"), f"{name}: auto toggle off")
             page.click("#idle-auto")
+            # auto-attack: fill the capital to 95% and let a few game seconds pass -> an army leaves
+            page.evaluate("(() => { __fl.idle.levels.autoneutral = 1; const b = __fl.battle, s = b.segs[b.factions[0].capitalSeg]; s.troops = s.cap * 0.95; })()")   # expand: neutral neighbours count (an enemy may not touch the capital)
+            page.wait_for_timeout(2500)
+            sent = page.evaluate("__fl.battle.armies.some((a) => a.owner === 0) || __fl.battle.segs.filter((s) => s.owner === 0).length > 1")
+            check(sent, f"{name}: auto-attack sends from a 95% full tile")
+            # archers: give both sides archers and check enemy troops fall next to ours (no army needed)
+            arch = page.evaluate("""(() => { const b = __fl.battle; b.factions[0].mods = { ...b.factions[0].mods, archers: 5 }; b.updateGrowth();
+              const k0 = b.stats.killed; b.armies = []; for (let i = 0; i < 20; i++) b.shoot(0.5);
+              return { killed: b.stats.killed - k0, pairs: b.segs.filter((s) => s.owner === 0).some((s) => s.adj.some((a) => b.segs[a].owner > 0)) }; })()""")
+            check(arch["killed"] > 0 or not arch["pairs"], f"{name}: archers shoot ({arch})")
+            page.wait_for_timeout(500)
+            page.screenshot(path=str(out / f"idle-{name}-archers.png"))
             # win the stage -> zoom-out -> stage 2, numbers x display
             bank = page.evaluate("__fl.idle.fogs")
             page.click("#test-win")
@@ -85,7 +105,7 @@ try:
             page.click("#btn-idle")
             page.wait_for_timeout(2500)
             st = page.evaluate("({ stage: __fl.idle.stage, atk: __fl.idle.lvl('atk') })")
-            check(st == {"stage": 2, "atk": 1}, f"{name}: resumed with upgrades ({st})")
+            check(st == {"stage": 2, "atk": 2}, f"{name}: resumed with upgrades ({st})")
             # lose: hand every player tile to bot 1 -> run over card
             page.evaluate("""(() => { const b = __fl.battle; for (const s of b.segs) if (s.owner === 0) s.owner = 1;
               b.armies = b.armies.filter((a) => a.owner !== 0); b.version++; b.updateGrowth(); b.step(0.1); })()""")

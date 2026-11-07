@@ -4,8 +4,8 @@
 //                so a big empire doesn't act faster than a small one),
 //                grudge: extra value for player segments,
 //                allow: optional list of building types (balance tests) }
-import { rules, buildings, effects } from './config.js?v=84';
-import { hops } from './mapgen.js?v=84';
+import { rules, buildings, effects } from './config.js?v=85';
+import { hops } from './mapgen.js?v=85';
 
 export const personalities = {
   aggressive: { build: 0.25, risk: 1.15, actions: 2, grudge: 0.3 },
@@ -129,7 +129,7 @@ export function think(b, f) {
 // choose the building that pays back fastest on this tile: extra foglets per second (or the
 // per-second worth of extra attack / defense) per foglet it costs. allow = optional list of
 // building types (balance tests); null = all
-function pickBuilding(b, s, frontDist, mine, allow) {
+export function pickBuilding(b, s, frontDist, mine, allow) {
   const me = s.owner, segs = b.segs, m = b.mods(me);
   const own = (a) => segs[a].owner === me;
   const value = {
