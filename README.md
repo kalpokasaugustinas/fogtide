@@ -79,6 +79,8 @@ Prototype stage.
 
 - **Bots** have personalities (aggressive, builder, turtle). They pick targets by value per troop needed, build what pays back fastest on that tile (foglets gained per second per foglet spent: farm on big tiles, hospital among owned neighbours, lab in a big empire, barracks on a front tile that attacks, fort on a threatened front tile), and push troops from the back to the front.
 
+⚙️ Settings (menu corner, battle top-right, or Esc on the menu): music and sound volume sliders (0 = off, same switch as the 🎵/🔊 buttons), interface size Small / Normal / Large (x0.85 / 1 / 1.2 on top of the window zoom), and in the desktop app Fullscreen / Window and Quit game (`desktop/preload.js` bridge). Saved in the browser (`frontlines.settings`, volumes in `frontlines.audio`).
+Mouse: the tile under the cursor lights up (white wash + outline); while dragging, the tile that would get the troops lights up brighter with a gold (attack) or white (move) rim. Cursor: grab hand over your tiles, pointer over others, grabbing while dragging/panning.
 Keys: space = pause, 1–4 = send %, Esc = close the open card, else deselect, else the leave card; idle: U = upgrade tree, A = auto-attack; desktop app: F11 / Alt+Enter = fullscreen.
 
 ## Menu

@@ -4,7 +4,7 @@
 // leaning in at the foe, shaking with rage, and now and then one blasting off like a rocket diagonally
 // across the menu while a new one hops in. each band draws on its own full-screen canvas (so rockets
 // can cross the screen); the band stands in its side strip
-import { drawFoglet, hexToRgb } from './render.js?v=88';
+import { drawFoglet, hexToRgb } from './render.js?v=89';
 
 // taunts: mostly plain war cries; now and then (refShare of the time) a short nod to a game or
 // film, so the jokes stay fresh. launch cries work the same way

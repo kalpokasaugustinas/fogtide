@@ -89,7 +89,7 @@ def main():
         dest = app_dir / f
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / f, dest)
-    for f in ("main.js", "package.json"):
+    for f in ("main.js", "preload.js", "package.json"):
         shutil.copy2(root / "desktop" / f, app_dir / f)
 
     # exe icon + file details (shown in explorer and task manager)

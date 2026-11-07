@@ -25,7 +25,7 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=88">
+  <link rel="stylesheet" href="style.css?v=89">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -36,7 +36,8 @@
       root.classList.toggle('rotated', upright);
       root.classList.toggle('compact', (upright ? innerWidth : innerHeight) < 500);
       // ui zoom for big windows (same formula as uiScale in main.js)
-      root.style.setProperty('--ui', Math.min(3, Math.max(1, Math.min((upright ? innerHeight : innerWidth) / 1280, (upright ? innerWidth : innerHeight) / 720))).toFixed(3));
+      var uiSize = 1; try { uiSize = JSON.parse(localStorage.getItem('frontlines.settings') || '{}').uiSize || 1; } catch (e) {}
+      root.style.setProperty('--ui', (Math.min(3, Math.max(1, Math.min((upright ? innerHeight : innerWidth) / 1280, (upright ? innerWidth : innerHeight) / 720))) * uiSize).toFixed(3));
       root.classList.add('booting');   // loading screen until the menu's first frame is drawn (main.js)
     })();
   </script>
@@ -138,6 +139,7 @@
       <button id="btn-music" class="round toggle" title="Music">🎵</button>
       <button id="btn-board" class="round" title="Conquest leaderboard">🏅</button>
       <button id="btn-help" class="round" title="How to play">❔</button>
+      <button id="btn-settings" class="round" title="Settings (Esc)">⚙️</button>
     </header>
     <!-- foglet bands shouting at each other across the menu (js/foglets.js) -->
     <canvas id="foglets-l" class="foglets left" aria-hidden="true"></canvas>
@@ -152,7 +154,7 @@
       <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 88 · 2026-11-07 20:59</span>
+    <span id="version">build 89 · 2026-11-07 22:15</span>
   </section>
 
   <!-- campaign world map -->
@@ -192,6 +194,7 @@
       <button id="idle-shop-btn" class="round hidden" title="Upgrades (U)">⬆️</button>
       <button id="idle-auto" class="round hidden" title="Auto-battle (A)">🤖</button>
       <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
+      <button id="bar-settings" class="round" title="Settings">⚙️</button>
     </div>
     <div class="hud bl">
       <div id="seg-info"></div>
@@ -287,6 +290,24 @@
     </div>
   </div>
 
+  <!-- settings: volumes, ui size, display (desktop app: fullscreen / window, quit); saved in the browser -->
+  <div id="settings" class="overlay hidden">
+    <div class="card end-card settings-card">
+      <div class="end-ribbon"><h2>Settings</h2></div>
+      <div class="set-row"><span>🎵 Music</span><input id="set-music" type="range" min="0" max="100" step="5"><b id="set-music-v"></b></div>
+      <div class="set-row"><span>🔊 Sound</span><input id="set-sfx" type="range" min="0" max="100" step="5"><b id="set-sfx-v"></b></div>
+      <div class="set-row"><span>🔍 Interface</span><span id="set-ui" class="chunky-group">
+        <button data-ui="0.85">Small</button><button data-ui="1">Normal</button><button data-ui="1.2">Large</button></span></div>
+      <div class="set-row desktop-only hidden"><span>🖥️ Display</span><span id="set-display" class="chunky-group">
+        <button data-full="1">Fullscreen</button><button data-full="0">Window</button></span></div>
+      <p class="hint">Keys: Space pause · 1–4 send % · Esc close / back · U upgrades · A auto-attack<span class="desktop-only hidden"> · F11 fullscreen</span></p>
+      <div class="end-btns">
+        <button id="set-quit" class="mode red big-btn desktop-only hidden">Quit game</button>
+        <button id="set-done" class="mode green big-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- rules -->
   <div id="help" class="overlay hidden">
     <div class="card scroll">
@@ -318,6 +339,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=88"></script>
+  <script type="module" src="js/main.js?v=89"></script>
 </body>
 </html>

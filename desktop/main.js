@@ -9,7 +9,7 @@
 //   --windowed            start in a window instead of fullscreen
 //   --remote-debugging-port=9222   standard chromium flag, used by tools/desktop_check.py
 // keys: f11 or alt+enter toggles fullscreen.
-const { app, BrowserWindow, protocol, net, shell, Menu } = require('electron');
+const { app, BrowserWindow, protocol, net, shell, Menu, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -62,6 +62,7 @@ function createWindow() {
       nodeIntegration: false,             // the game is plain web code, it never needs node
       sandbox: true,
       backgroundThrottling: false,        // idle mode keeps ticking while the window is in the background
+      preload: path.join(__dirname, 'preload.js'),   // window.fogtideDesktop (settings: fullscreen, quit)
     },
   });
   // first run (or saved as fullscreen) starts fullscreen, like most steam games
@@ -99,6 +100,8 @@ function createWindow() {
   win.on('resize', track);
   win.on('move', track);
   win.on('close', () => saveState(win, normal));
+  // tell the page (settings card) when fullscreen changes, whatever changed it
+  for (const ev of ['enter-full-screen', 'leave-full-screen']) win.on(ev, () => win.webContents.send('fullscreen:changed', win.isFullScreen()));
   win.loadURL('app://fogtide/index.html');
 }
 
@@ -112,6 +115,11 @@ app.whenReady().then(() => {
     if (!file.startsWith(gameDir + path.sep)) return new Response('forbidden', { status: 403 });
     return net.fetch(pathToFileURL(file).toString());
   });
+  // settings card calls (desktop/preload.js)
+  const winOf = (e) => BrowserWindow.fromWebContents(e.sender);
+  ipcMain.handle('fullscreen:get', (e) => winOf(e)?.isFullScreen() ?? false);
+  ipcMain.handle('fullscreen:set', (e, on) => { winOf(e)?.setFullScreen(!!on); });
+  ipcMain.handle('app:quit', () => app.quit());
   createWindow();
 });
 

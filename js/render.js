@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes } from './config.js?v=88';
-import * as structures from './structures.js?v=88';
+import { themes } from './config.js?v=89';
+import * as structures from './structures.js?v=89';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -968,6 +968,22 @@ export class MapView {
     ctx.lineWidth = 3.6 * px;
     ctx.strokeStyle = css(color);
     ctx.stroke(this.segP[id]);
+    ctx.restore();
+  }
+
+  // mouse hover: the tile under the cursor lights up (soft white wash + outline). strong = the
+  // tile a drag would send troops to: brighter wash and an outline in the given colour
+  hoverTile(ctx, id, color, strong = false) {
+    const px = 1 / this.scale;
+    ctx.save();
+    this.gridT(ctx);
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = `rgba(255,255,255,${strong ? 0.24 : 0.17})`;
+    ctx.fill(this.segP[id]);
+    ctx.lineWidth = (strong ? 6 : 4.5) * px;
+    ctx.strokeStyle = `rgba(255,255,255,${strong ? 0.95 : 0.8})`;
+    ctx.stroke(this.segP[id]);
+    if (strong) { ctx.lineWidth = 2.6 * px; ctx.strokeStyle = css(color); ctx.stroke(this.segP[id]); }
     ctx.restore();
   }
 

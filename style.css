@@ -417,6 +417,14 @@ html.rotated body { position: fixed; top: 0; left: 0; width: var(--sh); height: 
 .profile-card { max-width: 540px; }
 .profile-card h3 { margin: 10px 0 6px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .pf-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+/* settings card: one row per setting (label, control, value) */
+.settings-card { max-width: 520px; }
+.set-row { display: grid; grid-template-columns: 120px 1fr 48px; align-items: center; gap: 12px; margin: 12px 4px; text-align: left; font-weight: 700; }
+.set-row .chunky-group { grid-column: 2 / 4; justify-self: start; }
+.set-row .chunky-group button { margin: 0 1px; min-width: 84px; }
+.set-row b { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.set-row input[type=range] { width: 100%; accent-color: #2f74d6; height: 22px; cursor: pointer; }
+.settings-card .hint { margin: 14px 0 4px; }
 .pf-swatch { width: 40px; height: 40px; border-radius: 50%; padding: 0; border: 3px solid #fff; box-shadow: 0 3px 0 rgba(0,0,0,0.25); }
 .pf-swatch.on { outline: 3px solid #e0a43a; outline-offset: 2px; transform: scale(1.1); }
 .pf-card { width: 108px; padding: 6px 6px 8px; border: 0; border-radius: 14px; background: #fff; display: flex; flex-direction: column; align-items: center; gap: 4px;

@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=88';
-import { generateMap, rng } from './mapgen.js?v=88';
-import { initAnalytics, track } from './analytics.js?v=88';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=88';
-import { Battle } from './battle.js?v=88';
-import { personalities } from './ai.js?v=88';
-import { Campaign } from './campaign.js?v=88';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=88';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=88';
-import { initAudio, sfx, setSfx, setMusic, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=88';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=88';
-import { previewBuildings } from './structures.js?v=88';
-import { initTune, tuneChanges } from './tune.js?v=88';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=89';
+import { generateMap, rng } from './mapgen.js?v=89';
+import { initAnalytics, track } from './analytics.js?v=89';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=89';
+import { Battle } from './battle.js?v=89';
+import { personalities } from './ai.js?v=89';
+import { Campaign } from './campaign.js?v=89';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=89';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=89';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=89';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=89';
+import { previewBuildings } from './structures.js?v=89';
+import { initTune, tuneChanges } from './tune.js?v=89';
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,6 +44,10 @@ if (!desktop && !hostOk(location.hostname) || (framedBy !== null && !hostOk(fram
 const params = new URLSearchParams(location.search);
 // ui zoom (1 = designed size 1280x720, 1.5 at 1080p), kept in sync by syncRotation; map labels use it
 let uiK = 1;
+// settings saved in the browser: uiSize = interface size multiplier (0.85 / 1 / 1.2)
+const settings_key = 'frontlines.settings';
+const settings = (() => { try { return { uiSize: 1, ...JSON.parse(localStorage.getItem(settings_key)) }; } catch { return { uiSize: 1 }; } })();
+function saveSettings() { try { localStorage.setItem(settings_key, JSON.stringify(settings)); } catch { /* not saved */ } }
 const autoplay = params.has('autoplay');   // test mode: the player side is played by a bot too
 
 const colors = factionColors.map(hexToRgb);
@@ -404,6 +408,12 @@ function drawBattle() {
   // highlight: the tile you're dragging from (with its neighbours), else the selected tile
   const hl = drag ? drag.from : selected;
   if (hl >= 0) bv.highlight(ctx, hl, colors[battle.factions[0].color], battle.segs[hl].adj, performance.now() / 1000);
+  // mouse hover: the tile under the cursor lights up; while dragging, the tile that would get the
+  // troops (gold = attack, white = move to your own); touch has no hover, so it skips this
+  if (mouseOver && hover >= 0 && battle.segs[hover]) {
+    if (drag) { if (hover !== drag.from && canTarget(drag.from, hover)) bv.hoverTile(ctx, hover, isMine(hover) ? [255, 255, 255] : [240, 170, 40], true); }
+    else if (hover !== selected) bv.hoverTile(ctx, hover);
+  }
   const fs = Math.max(11, Math.min(18 * uiK, bv.size / 30)) * mapScale(battle.map);
   drawUnits(ctx, bv, battle, acc, true);
   drawFx(ctx, fs);
@@ -601,6 +611,18 @@ $('battle-canvas').addEventListener('pointerdown', (e) => {
   hover = sid;
   gesture = { sid, ...wrapPos(e), x0: cam.x, y0: cam.y, mode: null };
 });
+// mouse over the map (hover highlight + cursor). cursor: grab hand over your own tiles (drag to
+// send), pointer over others (tap for info), grabbing while dragging / panning
+let mouseOver = false, cursorNow = '';
+function setCursor() {
+  const on = mouseOver && hover >= 0 && !!battle?.segs[hover];   // a hover from the previous map can point past this one
+  const c = gesture?.mode ? 'grabbing' : !on ? '' : isMine(hover) ? 'grab' : 'pointer';
+  if (c !== cursorNow) { cursorNow = c; $('battle-canvas').style.cursor = c; }
+}
+$('battle-canvas').addEventListener('pointerleave', (e) => {
+  if (e.pointerType !== 'mouse' || gesture) return;
+  mouseOver = false; hover = -1; setCursor();
+});
 $('battle-canvas').addEventListener('pointermove', (e) => {
   if (!battle) return;
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, wrapPos(e));
@@ -612,6 +634,8 @@ $('battle-canvas').addEventListener('pointermove', (e) => {
     return;
   }
   hover = bv.segAt(e.clientX, e.clientY);
+  mouseOver = e.pointerType === 'mouse';
+  setCursor();
   if (!gesture) return;
   const p = wrapPos(e);
   if (!gesture.mode && Math.hypot(p.x - gesture.x, p.y - gesture.y) > 8) {
@@ -1582,13 +1606,13 @@ $('leave-go').onclick = withdraw;
 $('leave-stay').onclick = () => { $('leave').classList.add('hidden'); if (!pausedBeforeLeave) setSpeed(speed); };
 // submenus close on a tap outside their card (on the dimmed backdrop), same as their close button;
 // leave = 'keep fighting'. end-of-battle and resume screens need a real choice, so they don't.
-for (const [id, btn] of [['help', 'help-close'], ['board', 'board-close'], ['profile', 'pf-done'], ['leave', 'leave-stay']]) {
+for (const [id, btn] of [['help', 'help-close'], ['board', 'board-close'], ['profile', 'pf-done'], ['leave', 'leave-stay'], ['settings', 'set-done']]) {
   $(id).addEventListener('click', (e) => { if (e.target === e.currentTarget) $(btn).click(); });
 }
 $('help-buildings').innerHTML = Object.values(buildings).map((b) => `<li>${b.icon} <b>${b.name}</b> (cost ${b.cost}): ${b.desc}</li>`).join('');
 
 // cards that esc closes, each with the button that closes it (same as clicking it)
-const escClose = { 'idle-shop': 'shop-close', help: 'help-close', board: 'board-close', profile: 'pf-done', leave: 'leave-stay' };
+const escClose = { settings: 'set-done', 'idle-shop': 'shop-close', help: 'help-close', board: 'board-close', profile: 'pf-done', leave: 'leave-stay' };
 const shown = (id) => !$(id).classList.contains('hidden');
 addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -1596,6 +1620,8 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const open = Object.keys(escClose).find(shown);
     if (open) { $(escClose[open]).click(); return; }
+    // menu with nothing open: esc opens settings (pc games' usual pause/options key)
+    if (screen === 'menu' && !document.documentElement.classList.contains('booting')) { openSettings(); return; }
   }
   if (screen !== 'battle') return;
   if (e.key === ' ') { setSpeed(paused ? speed : 0); e.preventDefault(); }
@@ -1989,7 +2015,7 @@ function syncRotation() {
 }
 function uiScale(upright) {
   const w = upright ? innerHeight : innerWidth, h = upright ? innerWidth : innerHeight;
-  return Math.min(3, Math.max(1, Math.min(w / 1280, h / 720))).toFixed(3);
+  return (Math.min(3, Math.max(1, Math.min(w / 1280, h / 720))) * settings.uiSize).toFixed(3);
 }
 syncRotation();
 addEventListener('resize', syncRotation);
@@ -2011,6 +2037,53 @@ function syncAudioButtons() {
 }
 $('btn-sfx').onclick = () => { setSfx(!audioPrefs.sfx); syncAudioButtons(); sfx.click(); };
 $('btn-music').onclick = $('bar-music').onclick = () => { setMusic(!audioPrefs.music); syncAudioButtons(); };
+
+// ---------- settings card ----------
+// volumes (sliders; moving one also switches that sound back on), interface size, and in the
+// desktop app fullscreen / window and quit (window.fogtideDesktop from desktop/preload.js)
+const desk = window.fogtideDesktop ?? null;
+for (const el of document.querySelectorAll('.desktop-only')) el.classList.toggle('hidden', !desk);
+function paintSettings() {
+  for (const [k, on, vol] of [['music', audioPrefs.music, audioPrefs.musicVol], ['sfx', audioPrefs.sfx, audioPrefs.sfxVol]]) {
+    const v = on ? Math.round(vol * 100) : 0;
+    $(`set-${k}`).value = v;
+    $(`set-${k}-v`).textContent = v ? `${v}%` : 'off';
+  }
+  for (const b of $('set-ui').children) b.classList.toggle('on', +b.dataset.ui === settings.uiSize);
+}
+function paintDisplay(full) { for (const b of $('set-display').children) b.classList.toggle('on', (b.dataset.full === '1') === full); }
+function openSettings() {
+  paintSettings();
+  if (desk) desk.isFullscreen().then(paintDisplay);
+  $('settings').classList.remove('hidden');
+}
+$('btn-settings').onclick = $('bar-settings').onclick = openSettings;
+$('set-done').onclick = () => $('settings').classList.add('hidden');
+for (const k of ['music', 'sfx']) {
+  $(`set-${k}`).oninput = (e) => {
+    const v = +e.target.value / 100, on = v > 0;
+    setVolume(k, on ? v : (k === 'music' ? audioPrefs.musicVol : audioPrefs.sfxVol));   // 0 = off, keeps the last level
+    if (k === 'music' && on !== audioPrefs.music) setMusic(on);
+    if (k === 'sfx' && on !== audioPrefs.sfx) setSfx(on);
+    syncAudioButtons();
+    paintSettings();
+  };
+}
+$('set-sfx').onchange = () => sfx.click();   // sample of the new effect volume when the slider is let go
+$('set-ui').onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  settings.uiSize = +b.dataset.ui;
+  saveSettings();
+  syncRotation();
+  dispatchEvent(new Event('resize'));   // map labels / layouts that size from the window
+  paintSettings();
+};
+if (desk) {
+  $('set-display').onclick = (e) => { const b = e.target.closest('button'); if (b) desk.setFullscreen(b.dataset.full === '1'); };
+  desk.onFullscreen(paintDisplay);
+  $('set-quit').onclick = () => desk.quit();
+}
 syncAudioButtons();
 renderMenuStats();
 

@@ -11,11 +11,16 @@ let ctx = null, master, sfxBus, musicBus, noiseBuf, musicTimer = 0;
 const prefs = loadPrefs();
 
 function loadPrefs() {
-  try { return { sfx: true, music: true, ...JSON.parse(localStorage.getItem(pref_key)) }; } catch { return { sfx: true, music: true }; }
+  // sfx / music = on-off switches (menu buttons), sfxVol / musicVol = settings sliders (0..1)
+  const def = { sfx: true, music: true, sfxVol: 1, musicVol: 1 };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(pref_key)) }; } catch { return def; }
 }
 function savePrefs() { try { localStorage.setItem(pref_key, JSON.stringify(prefs)); } catch { /* storage blocked */ } }
 
 export const audioPrefs = prefs;
+// bus levels from the switches and sliders
+const sfxLevel = () => (prefs.sfx ? sfx_vol * prefs.sfxVol : 0);
+const musicLevel = () => (prefs.music ? music_vol * prefs.musicVol : 0);
 
 // create the audio graph on the first user gesture
 export function initAudio() {
@@ -31,10 +36,10 @@ export function initAudio() {
   comp.ratio.value = 4;
   master.connect(comp).connect(ctx.destination);
   sfxBus = ctx.createGain();
-  sfxBus.gain.value = prefs.sfx ? sfx_vol : 0;
+  sfxBus.gain.value = sfxLevel();
   sfxBus.connect(master);
   musicBus = ctx.createGain();
-  musicBus.gain.value = prefs.music ? music_vol : 0;
+  musicBus.gain.value = musicLevel();
   musicBus.connect(ctx.destination);   // music skips the compressor so sfx don't pump it
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -48,13 +53,23 @@ export function initAudio() {
   });
 }
 
-export function setSfx(on) { prefs.sfx = on; savePrefs(); if (ctx) sfxBus.gain.setTargetAtTime(on ? sfx_vol : 0, ctx.currentTime, 0.05); }
+export function setSfx(on) { prefs.sfx = on; savePrefs(); if (ctx) sfxBus.gain.setTargetAtTime(sfxLevel(), ctx.currentTime, 0.05); }
 export function setMusic(on) {
   prefs.music = on; savePrefs();
   if (!ctx) return;
-  musicBus.gain.setTargetAtTime(on ? music_vol : 0, ctx.currentTime, 0.3);
+  musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.3);
   // pause the streams while music is off (saves data), pick up where they were when it's back
   if (on) resumeDecks(); else setTimeout(() => { if (!prefs.music) for (const d of decks) d.el.pause(); }, 1200);
+}
+
+// settings sliders: volume 0..1 for effects / music (applies at once, remembered)
+export function setVolume(kind, v) {
+  v = Math.min(1, Math.max(0, v));
+  if (kind === 'sfx') prefs.sfxVol = v; else prefs.musicVol = v;
+  savePrefs();
+  if (!ctx) return;
+  if (kind === 'sfx') sfxBus.gain.setTargetAtTime(sfxLevel(), ctx.currentTime, 0.05);
+  else musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.1);
 }
 
 // ---------- samples ----------
