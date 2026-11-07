@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes } from './config.js?v=89';
-import * as structures from './structures.js?v=89';
+import { themes } from './config.js?v=90';
+import * as structures from './structures.js?v=90';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -25,6 +25,7 @@ export function mix(a, b, t) {
 }
 
 const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+let shadowBlob = null;   // soft cloud-shadow sprite (MapView.drawAmbient), made once
 
 // deterministic hash + smooth value noise (ground patches, tree placement)
 function hash(x, y, s) {
@@ -237,6 +238,7 @@ export class MapView {
     this.buildGround();
     this.buildOutlines();
     this.placeTrees();
+    this.measureIsland();
     // fog around the island lives on the container, so there's no square edge
     this.canvas.parentElement.style.background = `url(${cloudTexture(this.theme)}) center / 720px 720px repeat, rgb(${this.theme.fogB})`;
     this.styleOf = this.st = null;
@@ -245,14 +247,53 @@ export class MapView {
     this.resize();
   }
 
+  // island bounding box (grid cells, land + lakes + mountains) and sample points on the water
+  // (lakes, rivers) for the animated sparkles and the lake wave strokes
+  measureIsland() {
+    const { ids, terrain, grid: g } = this.map;
+    let x0 = g, y0 = g, x1 = 0, y1 = 0;
+    const pts = [];
+    for (let c = 0; c < g * g; c++) {
+      if (ids[c] < 0 && !(terrain && terrain[c])) continue;
+      const x = c % g, y = Math.floor(c / g);
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (terrain && terrain[c] === 1 && hash(x, y, this.seed + 40) < 0.012) pts.push([x + 0.5, y + 0.5, 1]);
+    }
+    this.isle = [x0, y0, x1 + 1, y1 + 1];
+    // rivers: every few points along each course (rivers sit on the ground, no lake drop)
+    for (const r of this.map.rivers ?? []) for (let j = 4; j < r.length; j += 9) if (hash(j, 41, r.length) < 0.5) pts.push([r[j][0], r[j][1], 0]);
+    // at most ~70 sparkles; phase and speed fixed per point
+    this.glints = pts.slice(0, 70).map(([x, y, lake], i) => ({ x, y, lake, ph: hash(i, 42, this.seed) * 6.28, w: 0.7 + hash(i, 43, this.seed) * 1.1 }));
+  }
+
   // fit the canvas into the parent: width = map width, height = squashed map + room for cliffs
-  // below and buildings/rocks above. cached layers are rebuilt lazily
+  // below and buildings/rocks above. cached layers are rebuilt lazily.
+  // fitIsland (battle view): size so the island itself, not its square grid, fills the screen
+  // (the grid's empty fog corners may run off-screen); the canvas shifts so the island is centred
   resize() {
     // layout size (clientWidth ignores the zoom transform on the parent)
     const el = this.canvas.parentElement, r = { width: el.clientWidth, height: el.clientHeight };
     this.tilt = 0.8;
     const pad = 0.12;   // extra height (as a share of width): cliffs + raised objects
-    const size = Math.max(50, Math.floor(Math.min(r.width, r.height / (this.tilt + pad))));
+    let size = Math.max(50, Math.floor(Math.min(r.width, r.height / (this.tilt + pad))));
+    let shiftX = 0, shiftY = 0;
+    if (this.fitIsland && this.isle) {
+      const g = this.map.grid, [x0, y0, x1, y1] = this.isle;
+      const bw = (x1 - x0) / g, bh = (y1 - y0) / g;
+      // margins for the corner hud (top) and the send box / tile card (bottom)
+      const fit = Math.floor(Math.min((r.width * 0.9) / bw, (r.height * 0.8) / (bh * this.tilt + pad * 0.6)));
+      const grown = Math.min(Math.floor(size * 1.8), Math.max(size, fit));
+      if (grown > size) {
+        size = grown;
+        // island centre -> container centre (the canvas centre is the grid centre)
+        shiftX = (0.5 - (x0 + x1) / 2 / g) * size;
+        shiftY = (0.5 - (y0 + y1) / 2 / g) * size * this.tilt + size * 0.015;
+      }
+      this.canvas.style.position = 'relative';
+      this.canvas.style.left = Math.round(shiftX) + 'px';
+      this.canvas.style.top = Math.round(shiftY) + 'px';
+      this.canvas.style.flex = 'none';   // may be bigger than the container (centred overflow)
+    }
     // zoomed in (boost > 1): render sharper, boost x the screen's own density, so a phone at 2x zoom
     // gets 2x its pixels too; capped at ~4 M px per layer (~6 cached layers, several drawn each frame)
     const base = window.devicePixelRatio || 1, css = size * size * (this.tilt + pad);
@@ -453,9 +494,36 @@ export class MapView {
     x.restore();
     x.save();
     x.translate(0, ch);
-    // lakes: water (a bit deeper than the old sea colour), light rim along the shore
-    x.fillStyle = css(shade(hexToRgb(t.sea), -0.08));
+    // lakes: deeper water in the middle, a light shallow band along the shore (blurred stroke
+    // inside the lake), faint wave strokes, then the foam rim
+    const water = shade(hexToRgb(t.sea), -0.08);
+    x.fillStyle = css(shade(water, -0.1));
     x.fill(this.lakesP);
+    x.save();
+    x.clip(this.lakesP);
+    x.filter = `blur(${this.size * 0.008 * this.dpr}px)`;
+    x.lineWidth = Math.max(6, this.size * 0.03) * px;
+    x.strokeStyle = css(t.seaLight, 0.75);
+    x.stroke(this.lakesP);
+    x.lineWidth = Math.max(3, this.size * 0.012) * px;
+    x.strokeStyle = css(shade(t.seaLight, 0.3), 0.7);
+    x.stroke(this.lakesP);
+    x.filter = 'none';
+    // waves: short shallow arcs scattered over the water
+    const wv = new Path2D(), wl = Math.max(3, this.size * 0.012) * px;
+    for (const gl of this.glints ?? []) {
+      if (!gl.lake) continue;
+      if (hash(gl.x | 0, 46, gl.y | 0) < 0.4) continue;   // about 1 in 2 points gets one wave
+      for (let j = 0; j < 1; j++) {
+        const wx = gl.x + (hash(j, 44, gl.x | 0) - 0.5) * 22 * this.k, wy = gl.y + (hash(j, 45, gl.y | 0) - 0.5) * 16 * this.k;
+        wv.moveTo(wx - wl, wy); wv.quadraticCurveTo(wx, wy - wl * 0.5, wx + wl, wy);
+      }
+    }
+    x.lineCap = 'round';
+    x.lineWidth = Math.max(1, this.size * 0.0016) * px;
+    x.strokeStyle = css(t.foam, 0.35);
+    x.stroke(wv);
+    x.restore();
     x.lineWidth = Math.max(1.5, this.size * 0.004) * px;
     x.strokeStyle = css(t.foam, 0.8);
     x.stroke(this.lakesP);
@@ -634,6 +702,7 @@ export class MapView {
     x.clip(this.islandP, 'evenodd');
     x.imageSmoothingEnabled = true;
     x.drawImage(this.groundC, 0, 0, g, g);
+    this.drawGroundDetail(x, px);
     x.lineJoin = 'round';
     x.lineWidth = Math.max(1, this.size * 0.0022) * px * borderW * mapScale(this.map);
     x.strokeStyle = css(t.lineNeutral, 0.45);
@@ -643,6 +712,105 @@ export class MapView {
     x.stroke(this.islandP);
     x.restore();
     this.base = c;
+  }
+
+  // small ground details, crisp at display resolution: grass tufts, flowers, pebbles, ferns on
+  // forest floors, stones on highland, dry tufts in the desert, snow-dusted tufts in winter.
+  // spacing is in css px, so the density on screen is the same at any map size; same-coloured
+  // details are batched into one path each (a few strokes/fills for thousands of details)
+  drawGroundDetail(x, px) {
+    const { ids, bdist, grid: g, segs } = this.map, k = this.k, ms = mapScale(this.map);
+    if (!bdist) return;
+    const step = (8.5 * ms) / this.scale;                 // grid units between detail slots (~8.5 css px)
+    const L = Math.max(1.6, this.size / 520) * ms * px;   // tuft blade length (grid units)
+    const batches = new Map();                             // 'stroke|rgba' / 'fill|rgba' -> Path2D
+    const path = (kind, col, a) => {
+      const key = `${kind}|${css(col, a)}`;
+      if (!batches.has(key)) batches.set(key, new Path2D());
+      return batches.get(key);
+    };
+    // ellipse as its own closed subpath in a batch path
+    const dot = (pth, cx, cy, rx, ry) => { pth.moveTo(cx + rx, cy); pth.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); };
+    let i = 0;
+    for (let gy = step / 2; gy < g; gy += step) {
+      for (let gx = step / 2; gx < g; gx += step) {
+        i++;
+        const xx = gx + (hash(i, 50, this.seed) - 0.5) * step, yy = gy + (hash(i, 51, this.seed) - 0.5) * step;
+        const c = Math.floor(yy) * g + Math.floor(xx);
+        if (xx < 0 || yy < 0 || xx >= g || yy >= g || ids[c] < 0 || bdist[c] < 2.5 * k) continue;
+        const sg = segs[ids[c]];
+        if (Math.hypot(sg.x - xx, sg.y - yy) < 20 * k) continue;   // keep the number label clear
+        const tc = this.segTheme ? this.segTheme[ids[c]] : this.theme;
+        const r = hash(i, 52, this.seed), sz = 0.7 + hash(i, 53, this.seed) * 0.6;
+        const winter = tc === themes.winter, desert = tc === themes.desert, tr = sg.trait;
+        // what goes in this slot (most slots stay empty, so the ground still reads calm)
+        const pTuft = tr === 'forest' ? 0.42 : tr === 'highland' ? 0.12 : desert ? 0.1 : 0.3;
+        const pFlower = winter || desert || tr === 'highland' ? 0 : tr === 'forest' ? 0.03 : 0.09;
+        const pStone = tr === 'highland' ? 0.3 : desert ? 0.1 : 0.04;
+        if (r < pTuft) {
+          // tuft: 3 blades fanning up from one point, two dark + one light
+          const dark = tr === 'forest' ? shade(tc.treeDark, 0.05) : desert ? [168, 146, 92] : shade(tc.groundA, winter ? -0.18 : -0.3);
+          const light = winter ? [255, 255, 255] : shade(tc.groundB, 0.22);
+          const pd = path('stroke', dark, winter ? 0.45 : 0.55), pl = path('stroke', light, 0.45);
+          const len = L * sz * (tr === 'forest' ? 1.35 : 1);
+          for (const [dx, lean, pp] of [[-0.35, -0.55, pd], [0, 0, pd], [0.35, 0.55, pl]]) {
+            pp.moveTo(xx + dx * len * 0.4, yy);
+            pp.quadraticCurveTo(xx + dx * len * 0.5, yy - len * 0.6, xx + (dx + lean) * len * 0.6, yy - len * 1.15);
+          }
+        } else if (r < pTuft + pFlower) {
+          // flower: tiny coloured dot with a light centre
+          const pal = tc === themes.autumn ? [[255, 206, 92], [236, 120, 70], [250, 240, 220]] : [[255, 255, 255], [255, 222, 96], [240, 146, 178], [190, 160, 240]];
+          const col = pal[Math.floor(hash(i, 54, this.seed) * pal.length)], rr = L * 0.45 * sz;
+          dot(path('fill', col, 0.95), xx, yy, rr, rr * 0.8);
+          dot(path('fill', [255, 250, 220], 0.9), xx, yy, rr * 0.38, rr * 0.3);
+        } else if (r < pTuft + pFlower + pStone) {
+          // pebble: grey ellipse with a light top
+          const rr = L * (0.35 + 0.35 * sz) * (tr === 'highland' ? 1.3 : 1);
+          dot(path('fill', shade(tc.scree, -0.2), 0.75), xx, yy, rr, rr * 0.62);
+          dot(path('fill', shade(tc.rockLight, 0.25), 0.8), xx - rr * 0.15, yy - rr * 0.18, rr * 0.6, rr * 0.34);
+        }
+      }
+    }
+    x.save();
+    x.lineCap = 'round';
+    x.lineWidth = Math.max(0.8, this.size / 1400) * ms * px;
+    for (const [key, pth] of batches) {
+      const [kind, col] = key.split('|');
+      if (kind === 'stroke') { x.strokeStyle = col; x.stroke(pth); } else { x.fillStyle = col; x.fill(pth); }
+    }
+    x.restore();
+  }
+
+  // ambient life, drawn every frame between the map and the troops (ctx in css px): sparkles that
+  // wink on lakes and rivers, and soft cloud shadows drifting slowly across the island
+  drawAmbient(ctx, time) {
+    const ch = Math.max(4, this.size * 0.022);   // lakes sit lower than the ground (cliff height)
+    ctx.save();
+    for (const gl of this.glints ?? []) {
+      const a = Math.max(0, Math.sin(time * gl.w + gl.ph)) ** 6;
+      if (a < 0.03) continue;
+      const x = this.sx(gl.x), y = this.sy(gl.y) + (gl.lake ? ch : 0), r = Math.max(2, this.size * 0.0042) * (gl.lake ? 1 : 0.7);
+      ctx.fillStyle = `rgba(255,255,255,${0.85 * a})`;
+      ctx.beginPath(); ctx.ellipse(x, y, r * 1.8, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y, r * 0.35, r * 0.9 * a, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // cloud shadows: one cached soft blob, three copies drifting left to right on loops
+    if (!shadowBlob) {
+      shadowBlob = document.createElement('canvas');
+      shadowBlob.width = shadowBlob.height = 128;
+      const b = shadowBlob.getContext('2d'), gr = b.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(20,34,44,1)'); gr.addColorStop(0.55, 'rgba(20,34,44,0.6)'); gr.addColorStop(1, 'rgba(20,34,44,0)');
+      b.fillStyle = gr; b.fillRect(0, 0, 128, 128);
+    }
+    const w = this.size, h = this.cssH;
+    ctx.globalAlpha = 0.085;
+    for (let n = 0; n < 3; n++) {
+      const span = w * 1.6, sw = w * (0.32 + 0.1 * n);
+      const cx = ((time * w * 0.006 * (1 + n * 0.3) + (n * span) / 3) % span) - w * 0.3;
+      const cy = h * (0.3 + 0.22 * n);
+      ctx.drawImage(shadowBlob, cx - sw / 2, cy - sw * 0.3, sw, sw * 0.6);
+    }
+    ctx.restore();
   }
 
   // rivers (visual only): smoothed polylines, drawn in pieces so they widen toward the mouth

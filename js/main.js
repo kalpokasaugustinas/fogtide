@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=89';
-import { generateMap, rng } from './mapgen.js?v=89';
-import { initAnalytics, track } from './analytics.js?v=89';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=89';
-import { Battle } from './battle.js?v=89';
-import { personalities } from './ai.js?v=89';
-import { Campaign } from './campaign.js?v=89';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=89';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=89';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=89';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=89';
-import { previewBuildings } from './structures.js?v=89';
-import { initTune, tuneChanges } from './tune.js?v=89';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=90';
+import { generateMap, rng } from './mapgen.js?v=90';
+import { initAnalytics, track } from './analytics.js?v=90';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=90';
+import { Battle } from './battle.js?v=90';
+import { personalities } from './ai.js?v=90';
+import { Campaign } from './campaign.js?v=90';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=90';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=90';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=90';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=90';
+import { previewBuildings } from './structures.js?v=90';
+import { initTune, tuneChanges } from './tune.js?v=90';
 
 const $ = (id) => document.getElementById(id);
 
@@ -206,7 +206,7 @@ function startBattle(setup, m, rid = -1) {
   numScale = m === 'idle' ? idle.scale : 1;
   idleKilled = 0;
   const theme = setup.theme ?? themeNames[setup.seed % themeNames.length];
-  if (!bv) bv = new MapView($('battle-canvas'), map, theme); else bv.setMap(map, theme);
+  if (!bv) { bv = new MapView($('battle-canvas'), map, theme); bv.fitIsland = true; bv.size = 0; bv.resize(); } else bv.setMap(map, theme);   // fitIsland: the island fills the screen
   bv.prewarm(battle.factions.map((f) => colors[f.color]), 0.16);
   $('stage').classList.toggle('hidden', m !== 'expedition' && m !== 'idle');
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
@@ -256,7 +256,9 @@ function paintBattle() {
 // big conquest maps (continent, world): badges, labels and figures shrink by mapScale (render.js)
 // and the camera glides in by 1 / mapScale after the zoom-out
 function drawUnits(ctx, v, b, ac, numbers) {
-  const fs = Math.max(11, Math.min(18 * uiK, v.size / 30)) * mapScale(b.map);
+  // battle camera zoom: badges grow only with zoom^0.35 on screen (else they'd fill the view at 5x)
+  const lk = v === bv ? cam.z ** 0.65 : 1;
+  const fs = Math.max(11, Math.min(18 * uiK, v.size / 30)) * mapScale(b.map) / lk;
   // troop figures: one soldier per troopsPerDot troops (battalions of x5 on zoomed-out maps)
   const z = Math.max(1, Math.min(1.9, v.size / 480)) * mapScale(b.map), dpr = v.dpr;   // figure scale: small but visible
   const kind = (b.map.detail ?? 1) < 0.7 ? 'battalion' : 'soldier';
@@ -404,6 +406,7 @@ function drawUnits(ctx, v, b, ac, numbers) {
 function drawBattle() {
   paintBattle();
   const ctx = bv.drawBase();
+  bv.drawAmbient(ctx, performance.now() / 1000);   // water sparkles + drifting cloud shadows
   // selected segment: glowing outline; its neighbours: dashed outlines
   // highlight: the tile you're dragging from (with its neighbours), else the selected tile
   const hl = drag ? drag.from : selected;
@@ -1469,7 +1472,9 @@ function drawMenu(dt) {
     const building = s.building ?? (s.relic ? 'relic' : s.home ? 'home' : null);
     return { color: s.owner < 0 ? null : colors[demo.factions[s.owner].color], fill: s.owner < 0 ? 0 : 0.16, building, huts: s.owner < 0 && !building, skin: s.owner < 0 ? null : demo.factions[s.owner].skin?.buildings };
   });
-  drawUnits(mv.drawBase(), mv, demo, demoAcc, false);
+  const mctx = mv.drawBase();
+  mv.drawAmbient(mctx, performance.now() / 1000);
+  drawUnits(mctx, mv, demo, demoAcc, false);
 }
 
 // menu badges: campaign progress, best expedition, quick battle wins

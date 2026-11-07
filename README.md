@@ -121,6 +121,13 @@ Vanilla JS modules plus canvas 2D. No build step, no dependencies.
 | `js/analytics.js` | anonymous GoatCounter visit + event counter (off until a site code is set) |
 | `manifest.webmanifest`, `img/` | install-as-app manifest (fullscreen, landscape), icons, link-preview image |
 
+## Graphics (PC polish)
+- Island fit: in battles the island itself (not its square map grid) is sized to fill the screen (90% width / 80% height, up to 1.8x the grid fit) and centred; the empty fog corners of the grid may run off-screen.
+- Ground detail, drawn once into the static base layer at display resolution: grass tufts, flowers, pebbles, ferns on forest floors, stones on highland, dry tufts in the desert, snow-dusted tufts in winter (~8.5 css px slot spacing, batched paths, kept clear of borders and number badges).
+- Lakes: deeper middle, light shallow band along the shore, faint wave strokes, foam rim.
+- Ambient (every frame, cheap): sparkles winking on lakes and rivers, three soft cloud shadows drifting across the island (battle and menu).
+- Number badges grow only with zoom^0.35 when you zoom in, so they never fill the view.
+
 ## Performance
 Runs at the monitor's refresh rate (60, 144 Hz ...). The simulation steps at 10 Hz; armies and route arrows interpolate between steps. Terrain, borders and rocks are drawn once per map; each segment's overlay, trees and building scene is a cached sprite, so captures and new buildings only re-stack sprites (~1 ms). The smoke test prints frame times and the rebuild cost.
 
