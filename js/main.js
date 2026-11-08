@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=100';
-import { generateMap, rng } from './mapgen.js?v=100';
-import { initAnalytics, track } from './analytics.js?v=100';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=100';
-import { Battle } from './battle.js?v=100';
-import { personalities } from './ai.js?v=100';
-import { Campaign } from './campaign.js?v=100';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=100';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=100';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=100';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=100';
-import { previewBuildings } from './structures.js?v=100';
-import { initTune, tuneChanges } from './tune.js?v=100';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=101';
+import { generateMap, rng } from './mapgen.js?v=101';
+import { initAnalytics, track } from './analytics.js?v=101';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=101';
+import { Battle } from './battle.js?v=101';
+import { personalities } from './ai.js?v=101';
+import { Campaign } from './campaign.js?v=101';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=101';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=101';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=101';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=101';
+import { previewBuildings } from './structures.js?v=101';
+import { initTune, tuneChanges } from './tune.js?v=101';
 
 const $ = (id) => document.getElementById(id);
 

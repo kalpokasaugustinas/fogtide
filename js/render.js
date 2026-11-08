@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=100';
-import * as structures from './structures.js?v=100';
+import { themes, fogTwirl } from './config.js?v=101';
+import * as structures from './structures.js?v=101';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -1212,6 +1212,7 @@ export class MapView {
       const x = this.sx((c % g) + 0.5), y = this.sy(Math.floor(c / g) + 0.5);
       if (Math.hypot(x - this.sx(s.x), y - this.sy(s.y)) < clear) continue;
       if (this.nearRiver((c % g) + 0.5, Math.floor(c / g) + 0.5, (this.u * 1.5) / this.scale)) continue;   // no tower in a river
+      if (this.coastD[c] * this.scale < this.u * 1.3) continue;   // tower base must stay on the island
       if (out.every((p) => Math.hypot(p[0] - x, p[1] - y) >= sep)) out.push([x, y]);
     }
     this.spotCache.set(key, out);
@@ -1650,4 +1651,39 @@ export function label(ctx, text, x, y, size, color = '#fff', weight = 800) {
   ctx.font = `${weight} ${size}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = Math.max(2, size 
+  ctx.lineWidth = Math.max(2, size / 4);
+  ctx.strokeStyle = 'rgba(25,35,40,0.6)';
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+// troop count badge: white rounded pill with an owner-coloured rim and a soft drop shadow
+export function pill(ctx, text, x, y, size, rim, ink) {
+  ctx.font = `800 ${size}px system-ui, sans-serif`;
+  const w = Math.max(size * 1.6, ctx.measureText(text).width + size * 0.9), h = size * 1.4;
+  ctx.fillStyle = 'rgba(20,30,35,0.22)';
+  roundRect(ctx, x - w / 2 + 1, y - h / 2 + 2, w, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.93)';
+  roundRect(ctx, x - w / 2, y - h / 2, w, h, h / 2);
+  ctx.fill();
+  ctx.lineWidth = Math.max(1.5, size * 0.14);
+  ctx.strokeStyle = rim;
+  ctx.stroke();
+  ctx.fillStyle = ink;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y + size * 0.04);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
