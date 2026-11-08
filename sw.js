@@ -33,6 +33,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || req.headers.has('range')) return;   // music streaming: network only
   if (url.origin !== location.origin && !fontHost.test(url.hostname)) return;
+  // design mockups: network only (a mockup page must never be cached as the game's start page)
+  if (url.pathname.includes('/mockups/')) return;
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req)
       .then((res) => { const copy = res.clone(); caches.open(cacheName).then((c) => c.put('./', copy)); return res; })

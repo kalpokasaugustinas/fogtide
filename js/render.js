@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=93';
-import * as structures from './structures.js?v=93';
+import { themes, fogTwirl } from './config.js?v=94';
+import * as structures from './structures.js?v=94';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);

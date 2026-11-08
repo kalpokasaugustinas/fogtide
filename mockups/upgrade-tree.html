@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide: upgrade tree options</title>
+<style>
+  /* design mockups for the idle upgrade tree: 4 layouts on the same data, each in a 1280x720 frame */
+  @font-face { font-family: 'Fredoka'; font-weight: 300 700; src: url(../fonts/fredoka.woff2) format('woff2'); }
+  @font-face { font-family: 'Luckiest Guy'; src: url(../fonts/luckiest-guy.woff2) format('woff2'); }
+  :root {
+    --off: #e2483d; --def: #2f74d6; --gro: #33b366; --fog: #16a3b5; --cmd: #8b55c9;
+    --gold: #ffc94d; --mist: #7b6cf0; --ink: #23343a; --muted: #5e7076;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1d2a30; font-family: 'Fredoka', system-ui, sans-serif; color: var(--ink); overflow: hidden; }
+  button { font: inherit; cursor: pointer; }
+  /* option switcher above the frame */
+  .switch { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; padding: 10px; }
+  .switch a { color: #ffd76a; font-weight: 600; margin-right: 8px; }
+  .switch span { color: #cfe0e4; font-weight: 600; margin-right: 6px; }
+  .switch button { border: 0; border-radius: 14px; padding: 8px 16px; font-weight: 700; font-size: 15px; color: #fff; background: #3a4c55; box-shadow: 0 3px 0 #111b20; }
+  .switch button.on { background: linear-gradient(180deg, #ffd76a, #e0961a); color: #4a2a00; box-shadow: 0 3px 0 #8a5208; }
+  /* fixed wrapper: the wide frame inside never makes the page wider (phones would zoom out) */
+  #wrap { position: fixed; left: 0; right: 0; bottom: 0; top: 0; overflow: hidden; pointer-events: none; }
+  #wrap #stage { pointer-events: auto; }
+  .switch { position: relative; z-index: 2; }
+  /* the 1280x720 game screen, scaled to fit the window */
+  #stage { width: 1280px; height: 720px; position: absolute; left: 50%; top: 58px; touch-action: manipulation; transform-origin: 50% 0; overflow: hidden; border-radius: 10px;
+    background: radial-gradient(ellipse 30% 22% at 20% 30%, #f4f7f7 0, transparent 70%), radial-gradient(ellipse 26% 20% at 75% 20%, #eef3f3 0, transparent 70%),
+      radial-gradient(ellipse 34% 24% at 60% 80%, #f1f5f5 0, transparent 70%), radial-gradient(ellipse 22% 18% at 10% 85%, #e9eff0 0, transparent 70%), #c6d0d2; }
+  .frame { position: absolute; inset: 0; display: none; }
+  .frame.on { display: block; }
+  /* shared card + ribbon in the game's style */
+  .card { position: absolute; left: 50px; top: 46px; width: 1180px; height: 640px; background: #fffaf0; border-radius: 26px;
+    border: 4px solid #d79a2b; box-shadow: 0 8px 0 #a3650a, 0 18px 40px rgba(0,0,0,0.3); }
+  .ribbon { position: absolute; left: 50%; top: -30px; transform: translateX(-50%); padding: 10px 70px 12px; color: #fff; font-family: 'Luckiest Guy', sans-serif;
+    font-size: 30px; letter-spacing: 2px; background: linear-gradient(180deg, #f0564a, #c43128); clip-path: polygon(0 0, 100% 0, 94% 50%, 100% 100%, 0 100%, 6% 50%);
+    text-shadow: 0 3px 0 #7d1a14; }
+  .wallet { position: absolute; top: 26px; right: 30px; display: flex; gap: 8px; }
+  .pill { background: #fff; border-radius: 20px; padding: 5px 14px; font-weight: 700; font-size: 18px; box-shadow: inset 0 0 0 2px #ecd9b0, 0 2px 0 #e2c88f; font-variant-numeric: tabular-nums; }
+  .pill.mist { color: #5a46d8; }
+  .title { position: absolute; top: 26px; left: 34px; font-family: 'Luckiest Guy', sans-serif; font-size: 22px; letter-spacing: 1px; color: #b0761a; }
+  /* shared detail panel (A, B, C) */
+  .detail { position: absolute; right: 26px; top: 76px; bottom: 26px; width: 300px; background: #fff; border-radius: 22px; padding: 22px 20px;
+    box-shadow: inset 0 0 0 3px #f0e2c4, 0 4px 0 #ead3a2; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .d-ico { width: 96px; height: 96px; border-radius: 30px; display: grid; place-items: center; font-size: 52px; color: #fff; box-shadow: 0 5px 0 rgba(0,0,0,0.25), inset 0 3px 0 rgba(255,255,255,0.35); }
+  .d-branch { margin-top: 12px; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .d-name { font-family: 'Luckiest Guy', sans-serif; font-size: 26px; letter-spacing: 1px; margin: 4px 0 6px; }
+  .pips { display: flex; gap: 5px; justify-content: center; margin: 4px 0 10px; }
+  .pips i { width: 22px; height: 10px; border-radius: 5px; background: #e4e9ea; }
+  .pips i.f { background: var(--c, var(--gro)); }
+  .d-lv { font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+  .d-desc { font-size: 17px; line-height: 1.35; min-height: 48px; }
+  .d-needs { margin-top: 12px; display: flex; flex-direction: column; gap: 5px; width: 100%; }
+  .need { border-radius: 12px; padding: 6px 10px; font-weight: 600; font-size: 14px; background: #fdecea; color: #b8322b; }
+  .need.ok { background: #e4f6ec; color: #1d7d55; }
+  .buy { margin-top: auto; width: 100%; border: 0; border-radius: 18px; padding: 14px 10px 16px; font-family: 'Luckiest Guy', sans-serif; font-size: 26px; letter-spacing: 1px; color: #fff;
+    background: linear-gradient(180deg, #ffd76a, #e0961a); box-shadow: 0 6px 0 #a3650a, inset 0 3px 0 rgba(255,255,255,0.5); text-shadow: 0 2px 0 #8a5208; }
+  .buy.mist { background: linear-gradient(180deg, #a99cff, #6a55e8); box-shadow: 0 6px 0 #3d2bb0, inset 0 3px 0 rgba(255,255,255,0.4); text-shadow: 0 2px 0 #2c1e8a; }
+  .buy:disabled { filter: grayscale(0.9); opacity: 0.6; cursor: default; }
+  .buy:not(:disabled):active { transform: translateY(4px); box-shadow: 0 2px 0 #a3650a; }
+  .back { position: absolute; bottom: -26px; left: 50%; transform: translateX(-50%); border: 0; border-radius: 18px; padding: 10px 30px 12px; color: #fff;
+    font-family: 'Luckiest Guy', sans-serif; font-size: 20px; letter-spacing: 1px; background: linear-gradient(180deg, #4fd394, #23966a); box-shadow: 0 5px 0 #166647; text-shadow: 0 2px 0 #0a3b28; }
+  .note { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 13px; color: #31454c; font-weight: 600; }
+  @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  @keyframes bob { 50% { transform: translateY(-4px); } }
+  @keyframes glow { 50% { box-shadow: 0 0 0 4px rgba(255, 201, 77, 0.55), 0 0 22px rgba(255, 201, 77, 0.9); } }
+  .popped { animation: pop 0.35s ease-out; }
+
+  /* ---------- A: lanes ---------- */
+  .lanes { position: absolute; left: 26px; top: 76px; width: 820px; bottom: 26px; display: flex; flex-direction: column; gap: 10px; }
+  .lane { position: relative; flex: 1; border-radius: 20px; display: flex; align-items: center; padding-left: 8px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--c) 22%, #fff), color-mix(in srgb, var(--c) 6%, #fff)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 30%, #fff); }
+  .lane-head { width: 136px; display: flex; align-items: center; gap: 8px; }
+  .lane-ico { width: 46px; height: 46px; border-radius: 14px; background: var(--c); display: grid; place-items: center; font-size: 24px; box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 60%, #000); }
+  .lane-name { font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: color-mix(in srgb, var(--c) 70%, #000); }
+  .lane-bar { width: 70px; height: 7px; background: rgba(0,0,0,0.1); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+  .lane-bar i { display: block; height: 100%; background: var(--c); }
+  .lane-nodes { position: relative; flex: 1; height: 100%; }
+  .a-link { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px; background: rgba(0,0,0,0.08); }
+  .a-link.met { background: var(--c); }
+  .a-node { position: absolute; top: 50%; width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 22px; border: 0; padding: 0;
+    background: #fff; box-shadow: 0 4px 0 rgba(0,0,0,0.18), inset 0 0 0 3px color-mix(in srgb, var(--c) 35%, #fff); display: grid; place-items: center; font-size: 30px; }
+  .a-node.owned { background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c)); box-shadow: 0 5px 0 color-mix(in srgb, var(--c) 55%, #000), inset 0 3px 0 rgba(255,255,255,0.4); }
+  .a-node.buyable { animation: glow 1.4s ease-in-out infinite; }
+  .a-node.mist { border-radius: 16px; transform: rotate(45deg); width: 62px; height: 62px; margin: -31px 0 0 -31px; }
+  .a-node.mist > span { transform: rotate(-45deg); }
+  .a-node.mist.owned { background: linear-gradient(180deg, #b9afff, var(--mist)); box-shadow: 0 5px 0 #3d2bb0; }
+  .a-node.locked { background: radial-gradient(circle at 35% 35%, #fff, #dfe6e8); box-shadow: 0 0 14px 4px rgba(255,255,255,0.8); font-size: 20px; }
+  .a-node.sel { outline: 4px solid var(--ink); outline-offset: 3px; }
+  .a-lv { position: absolute; right: -9px; top: -9px; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; line-height: 22px; }
+  .a-node.mist .a-lv { transform: rotate(-45deg); right: auto; top: -14px; left: 40px; }
+  .a-cost { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: #8a5208; white-space: nowrap; }
+  .a-node.mist .a-cost { display: none; }
+  svg.cross { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  svg.cross path { fill: none; stroke: #9aa8ad; stroke-width: 3; stroke-dasharray: 3 7; stroke-linecap: round; }
+  svg.cross path.met { stroke: #e0961a; stroke-dasharray: none; stroke-width: 4; }
+
+  /* ---------- B: compass ---------- */
+  .compass { position: absolute; left: 26px; top: 76px; width: 820px; bottom: 26px; border-radius: 22px; overflow: hidden;
+    background: radial-gradient(circle at 50% 50%, #fff7e0 0, #fbefd2 var(--clear, 30%), #cdd7d9 calc(var(--clear, 30%) + 18%), #b9c5c8 100%); box-shadow: inset 0 0 0 3px #f0e2c4; }
+  .ring { position: absolute; left: 50%; top: 50%; border: 2px dashed rgba(150, 120, 60, 0.25); border-radius: 50%; transform: translate(-50%, -50%); }
+  .core { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; transform: translate(-50%, -50%); border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #fff2b8, #e0961a); box-shadow: 0 5px 0 #a3650a, 0 0 0 8px rgba(255, 215, 106, 0.35); display: grid; place-items: center; text-align: center; }
+  .core b { font-family: 'Luckiest Guy', sans-serif; font-size: 30px; color: #fff; text-shadow: 0 2px 0 #8a5208; line-height: 1; }
+  .core small { display: block; font-size: 11px; font-weight: 700; color: #6b3c00; }
+  .b-node { position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; border: 0; padding: 0; font-size: 24px; display: grid; place-items: center;
+    background: #fff; box-shadow: 0 3px 0 rgba(0,0,0,0.2), inset 0 0 0 3px var(--c); }
+  .b-node.owned { background: radial-gradient(circle at 40% 30%, color-mix(in srgb, var(--c) 55%, #fff), var(--c)); box-shadow: 0 4px 0 color-mix(in srgb, var(--c) 55%, #000); }
+  .b-node.buyable { animation: glow 1.4s ease-in-out infinite; }
+  .b-node.mist { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); border-radius: 0; width: 62px; height: 62px; margin: -31px 0 0 -31px; background: linear-gradient(180deg, #d9d3ff, #a99cff); }
+  .b-node.mist.owned { background: linear-gradient(180deg, #b9afff, var(--mist)); }
+  .b-node.locked { background: radial-gradient(circle, #fff 0, #e3e9ea 70%); box-shadow: 0 0 16px 6px rgba(255,255,255,0.75); font-size: 16px; }
+  .b-node.sel { outline: 4px solid var(--ink); outline-offset: 3px; }
+  .b-lv { position: absolute; top: -6px; right: -8px; min-width: 22px; height: 19px; padding: 0 5px; border-radius: 10px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; line-height: 19px; }
+  .b-label { position: absolute; transform: translate(-50%, -50%); padding: 4px 12px; border-radius: 12px; color: #fff; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; background: var(--c); box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 55%, #000); white-space: nowrap; }
+  svg.spokes { position: absolute; inset: 0; pointer-events: none; }
+  svg.spokes path { fill: none; stroke-linecap: round; }
+
+  /* ---------- C: islands ---------- */
+  .sea { position: absolute; left: 26px; top: 76px; width: 820px; bottom: 26px; border-radius: 22px; overflow: hidden;
+    background: radial-gradient(ellipse 40% 25% at 30% 30%, rgba(255,255,255,0.7), transparent 70%), radial-gradient(ellipse 35% 25% at 75% 70%, rgba(255,255,255,0.6), transparent 70%), linear-gradient(180deg, #d5dee0, #b4c1c4); box-shadow: inset 0 0 0 3px #f0e2c4; }
+  .isle { position: absolute; width: 96px; height: 70px; margin: -42px 0 0 -48px; border: 0; padding: 0; background: none; }
+  .isle .top { position: absolute; left: 4px; right: 4px; top: 30px; height: 30px; border-radius: 50%; background: linear-gradient(180deg, #9bd06a, #6fb04a); box-shadow: 0 8px 0 #8a6a48, 0 12px 0 #6c5038, 0 16px 10px rgba(0,0,0,0.2); }
+  .isle.owned .top { background: linear-gradient(180deg, color-mix(in srgb, var(--c) 45%, #9bd06a), color-mix(in srgb, var(--c) 60%, #5a9a3a)); }
+  .isle .ic { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); font-size: 34px; filter: drop-shadow(0 3px 0 rgba(0,0,0,0.2)); }
+  .isle.sel .ic, .isle.buyable .ic { animation: bob 1.2s ease-in-out infinite; }
+  .isle.buyable .top { box-shadow: 0 8px 0 #8a6a48, 0 12px 0 #6c5038, 0 0 18px 6px rgba(255, 201, 77, 0.85); }
+  .isle.sel .top { outline: 4px solid var(--ink); outline-offset: 4px; }
+  .isle.mist .top { background: linear-gradient(180deg, #cfc8ff, #9a8cf5); box-shadow: 0 8px 0 #6a5cc8, 0 12px 0 #4c3ea6, 0 16px 10px rgba(0,0,0,0.2); }
+  .isle .flag { position: absolute; right: 2px; top: 22px; background: var(--c); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
+  .isle.locked .ic { opacity: 0; }
+  .isle .cloud { display: none; }
+  .isle.locked .cloud { display: block; position: absolute; inset: 4px 2px 0; border-radius: 40px;
+    background: radial-gradient(circle at 30% 60%, #fff 0 22%, transparent 23%), radial-gradient(circle at 55% 45%, #fff 0 28%, transparent 29%), radial-gradient(circle at 78% 62%, #fff 0 20%, transparent 21%), radial-gradient(ellipse at 50% 70%, #f2f5f5 0 45%, transparent 46%); }
+  .isle.locked .cloud::after { content: '🔒'; position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); font-size: 18px; }
+  .col-banner { position: absolute; bottom: 10px; transform: translateX(-50%); padding: 6px 14px; border-radius: 12px; color: #fff; font-weight: 700; font-size: 14px; text-transform: uppercase;
+    background: var(--c); box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 55%, #000); white-space: nowrap; }
+  svg.bridges { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ---------- D: path ---------- */
+  .tabs { position: absolute; left: 26px; top: 76px; bottom: 26px; width: 200px; display: flex; flex-direction: column; gap: 10px; }
+  .tab { flex: 1; border: 0; border-radius: 20px; display: flex; align-items: center; gap: 10px; padding: 0 14px; text-align: left; background: #fff; box-shadow: 0 4px 0 #ead3a2, inset 0 0 0 3px #f0e2c4; }
+  .tab.on { background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c)); box-shadow: 0 5px 0 color-mix(in srgb, var(--c) 55%, #000); color: #fff; transform: translateX(8px); }
+  .tab .ring2 { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; flex: none;
+    background: radial-gradient(circle, #fff 0 58%, transparent 59%), conic-gradient(var(--c) calc(var(--p) * 1%), #e6ebec 0); }
+  .tab.on .ring2 { background: radial-gradient(circle, #fff 0 58%, transparent 59%), conic-gradient(#ffd76a calc(var(--p) * 1%), rgba(255,255,255,0.35) 0); }
+  .tab b { display: block; font-size: 17px; }
+  .tab small { font-weight: 600; opacity: 0.8; }
+  .tab .dot { margin-left: auto; width: 12px; height: 12px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+  .path { position: absolute; left: 250px; right: 26px; top: 76px; bottom: 26px; border-radius: 22px; overflow: hidden;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c) 14%, #fff), #fffaf0); box-shadow: inset 0 0 0 3px #f0e2c4; }
+  .path-title { position: absolute; left: 26px; top: 16px; font-family: 'Luckiest Guy', sans-serif; font-size: 30px; letter-spacing: 1px; color: color-mix(in srgb, var(--c) 75%, #000); }
+  .path-sub { position: absolute; left: 28px; top: 52px; font-weight: 600; color: var(--muted); }
+  svg.trail { position: absolute; inset: 0; pointer-events: none; }
+  .pcard { position: absolute; width: 132px; height: 196px; margin-left: -66px; border-radius: 20px; background: #fff; padding: 10px 8px 0; text-align: center;
+    box-shadow: 0 5px 0 rgba(0,0,0,0.14), inset 0 0 0 3px color-mix(in srgb, var(--c) 30%, #fff); display: flex; flex-direction: column; align-items: center; border: 0; }
+  .pcard.sel { outline: 4px solid var(--ink); outline-offset: 3px; }
+  .pcard .pi { width: 60px; height: 60px; border-radius: 18px; display: grid; place-items: center; font-size: 32px; background: color-mix(in srgb, var(--c) 18%, #fff); }
+  .pcard.owned .pi { background: linear-gradient(180deg, color-mix(in srgb, var(--c) 65%, #fff), var(--c)); box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 55%, #000); }
+  .pcard.mist .pi { background: linear-gradient(180deg, #cfc8ff, var(--mist)); }
+  .pcard b { font-size: 14px; margin-top: 6px; line-height: 1.1; }
+  .pcard small { font-size: 11px; color: var(--muted); line-height: 1.2; margin-top: 3px; min-height: 26px; }
+  .pcard .pips { margin: 5px 0 0; gap: 3px; }
+  .pcard .pips i { width: 14px; height: 7px; }
+  .pcard .pbuy { margin-top: auto; margin-bottom: -14px; border: 0; border-radius: 14px; padding: 6px 14px 8px; font-weight: 700; font-size: 15px; color: #fff;
+    background: linear-gradient(180deg, #ffd76a, #e0961a); box-shadow: 0 4px 0 #a3650a; white-space: nowrap; }
+  .pcard .pbuy.mist { background: linear-gradient(180deg, #a99cff, #6a55e8); box-shadow: 0 4px 0 #3d2bb0; }
+  .pcard .pbuy:disabled { filter: grayscale(0.9); opacity: 0.7; }
+  .pcard.buyable .pbuy { animation: glow 1.4s ease-in-out infinite; }
+  .pcard.locked { background: radial-gradient(circle at 50% 40%, #fff, #e3e9ea); box-shadow: 0 0 18px 6px rgba(255,255,255,0.8); }
+  .pcard.locked > * { opacity: 0.35; filter: grayscale(1); }
+  .pcard.locked .lockchip { opacity: 1; filter: none; }
+  .lockchip { position: absolute; top: 120px; left: 6px; right: 6px; background: #fdecea; color: #b8322b; border-radius: 10px; font-size: 11px; font-weight: 700; padding: 4px; }
+</style>
+</head>
+<body>
+<div class="switch">
+  <a href="./">← All mockups</a><span>Upgrade tree options:</span>
+  <button data-f="a" class="on">A · Lanes</button>
+  <button data-f="b">B · Compass</button>
+  <button data-f="c">C · Islands</button>
+  <button data-f="d">D · Path</button>
+</div>
+<div id="wrap"><div id="stage">
+  <div class="frame on" id="f-a"></div>
+  <div class="frame" id="f-b"></div>
+  <div class="frame" id="f-c"></div>
+  <div class="frame" id="f-d"></div>
+</div></div>
+<script>
+// ---------- data: copy of js/idle.js branches + upgrades (descriptions shortened for the mockup) ----------
+const branches = [
+  { id: 'offense', icon: '⚔️', name: 'Offense', c: 'var(--off)' },
+  { id: 'defense', icon: '🛡️', name: 'Defense', c: 'var(--def)' },
+  { id: 'growth', icon: '🌱', name: 'Growth', c: 'var(--gro)' },
+  { id: 'fog', icon: '🌫️', name: 'Fog', c: 'var(--fog)' },
+  { id: 'command', icon: '🤖', name: 'Command', c: 'var(--cmd)' },
+];
+const ups = [
+  ['atk', 'offense', 0, '🗡️', 'Sharper blades', 40, 1.9, 0, 0, [], 'Attack +5% per level'],
+  ['march', 'offense', 1, '🥾', 'Forced march', 120, 2.2, 5, 0, [['atk', 2]], 'Armies move +4% faster per level'],
+  ['conscription', 'offense', 2, '📜', 'Conscription', 300, 2.2, 5, 0, [['march', 2]], 'Neutral tiles defend 3% weaker per level'],
+  ['archers', 'offense', 3, '🏹', 'Archers', 900, 2.4, 5, 0, [['conscription', 1], ['walls', 1]], 'Your tiles shoot into enemy neighbours'],
+  ['plunder', 'offense', 4, '💰', 'Plunder', 4000, 2.5, 5, 0, [['archers', 2]], 'Taken enemy tiles add 0.5% of cap per level'],
+  ['mistblades', 'offense', 5, '⚜️', 'Mist blades', 1, 2, 5, 1, [['plunder', 1], ['atk', 6]], 'Attack x1.1 per level, on top of blades'],
+  ['def', 'defense', 0, '🛡️', 'Shield wall', 40, 1.9, 0, 0, [], 'Defense +5% per level'],
+  ['walls', 'defense', 1, '🧱', 'Great walls', 150, 2.3, 4, 0, [['def', 2]], 'Capital defense +12% per level'],
+  ['start', 'defense', 2, '🏕️', 'Bigger camp', 400, 2.2, 0, 0, [['walls', 2]], 'Start every stage with 8 more foglets per level'],
+  ['mistveil', 'defense', 3, '🌁', 'Mist veil', 1, 2, 5, 1, [['start', 1], ['def', 6]], 'Defense x1.1 per level, on top of shields'],
+  ['growth', 'growth', 0, '🌱', 'Fertile fog', 50, 2, 0, 0, [], 'Growth +4% per level'],
+  ['granary', 'growth', 1, '🌾', 'Master builders', 160, 2.2, 5, 0, [['growth', 2]], 'Farms, hospitals and labs +6% per level'],
+  ['engineers', 'growth', 2, '🛠️', 'Engineers', 450, 2.2, 5, 0, [['granary', 2]], 'Buildings cost 4% less per level'],
+  ['roots', 'growth', 3, '🌳', 'Deep roots', 1, 2, 5, 1, [['engineers', 1]], 'Your land raises more before it runs dry'],
+  ['fog', 'fog', 0, '🧺', 'Fog harvest', 80, 2.3, 0, 0, [], 'Fog +5% per level'],
+  ['wells', 'fog', 1, '⛲', 'Fog wells', 300, 2.4, 5, 0, [['fog', 2]], 'Tiles you hold make Fog every second'],
+  ['horn', 'fog', 2, '📯', 'Fog horn', 600, 2.5, 5, 0, [['wells', 1]], 'Gathers Fog in real time, even while away'],
+  ['drift', 'fog', 3, '🌀', 'Fog drift', 1500, 3, 5, 0, [['horn', 1], ['wells', 2]], 'Start runs 2 stages further in per level'],
+  ['mistborn', 'fog', 4, '💠', 'Mistborn', 2, 2, 5, 1, [['drift', 1]], 'All Fog x1.2 per level'],
+  ['auto', 'command', 0, '🤖', 'Auto-attack', 40, 2.6, 5, 0, [], 'Full tiles attack enemies on their own'],
+  ['autoneutral', 'command', 1, '🧭', 'Auto-expand', 200, 1, 1, 0, [['auto', 2]], 'Auto-attack takes neutral tiles too'],
+  ['reinforce', 'command', 2, '🔁', 'Auto-reinforce', 700, 1, 1, 0, [['autoneutral', 1]], 'Full back tiles feed the front'],
+  ['autobuild', 'command', 3, '🏗️', 'Auto-build', 2500, 1, 1, 0, [['reinforce', 1], ['granary', 1]], 'Full tiles build what pays back fastest'],
+  ['sharpeye', 'command', 4, '👁️', 'Sharp eye', 1, 2, 3, 1, [['autobuild', 1]], 'Auto-attack sends a safer margin'],
+].map(([id, branch, col, icon, name, base, grow, max, mist, needs, desc]) => ({ id, branch, col, icon, name, base, grow, max, mist, needs, desc }));
+const byId = Object.fromEntries(ups.map((u) => [u.id, u]));
+const brOf = (u) => branches.find((b) => b.id === u.branch);
+
+// ---------- sample progress (same as the screenshot of the current tree) ----------
+const st = { fogs: 2400, mist: 2, sel: 'atk',
+  lv: { atk: 4, march: 2, conscription: 1, def: 3, walls: 1, growth: 3, granary: 1, fog: 2, wells: 1, auto: 2 } };
+const lvl = (id) => st.lv[id] ?? 0;
+const locked = (id) => byId[id].needs.some(([n, l]) => lvl(n) < l);
+const maxed = (id) => byId[id].max && lvl(id) >= byId[id].max;
+const cost = (id) => Math.ceil(byId[id].base * byId[id].grow ** lvl(id));
+const canBuy = (id) => !locked(id) && !maxed(id) && (byId[id].mist ? st.mist : st.fogs) >= cost(id);
+const fmt = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n));
+const cls = (u) => [locked(u.id) ? 'locked' : '', lvl(u.id) ? 'owned' : '', canBuy(u.id) ? 'buyable' : '', u.mist ? 'mist' : '', st.sel === u.id ? 'sel' : ''].join(' ');
+const lvText = (u) => (maxed(u.id) ? '★' : u.max ? `${lvl(u.id)}/${u.max}` : lvl(u.id));
+
+function buy(id) {
+  if (!canBuy(id)) return;
+  if (byId[id].mist) st.mist -= cost(id); else st.fogs -= cost(id);
+  st.lv[id] = lvl(id) + 1;
+  render(id);
+}
+function select(id) { st.sel = id; render(); }
+
+// shared parts: card shell, wallet and the detail panel
+function shell(title, inner, withDetail = true) {
+  return `<div class="card"><div class="ribbon">Upgrades</div><div class="title">${title}</div>
+    <div class="wallet"><span class="pill">🌫️ ${fmt(st.fogs)} Fog</span><span class="pill mist">💠 ${st.mist} Mist</span></div>
+    ${inner}${withDetail ? detail() : ''}<button class="back">Back to battle</button></div>`;
+}
+function pips(u) {
+  if (!u.max) return `<div class="d-lv">Level ${lvl(u.id)}</div>`;
+  return `<div class="pips" style="--c:${brOf(u).c}">${Array.from({ length: u.max }, (_, i) => `<i class="${i < lvl(u.id) ? 'f' : ''}"></i>`).join('')}</div>`;
+}
+function detail() {
+  const u = byId[st.sel], b = brOf(u), lk = locked(u.id), mx = maxed(u.id);
+  const needs = u.needs.map(([n, l]) => `<div class="need ${lvl(n) >= l ? 'ok' : ''}">${lvl(n) >= l ? '✓' : '✗'} ${byId[n].icon} ${byId[n].name} level ${l}</div>`).join('');
+  const label = mx ? 'Max' : lk ? '🔒 Locked' : `${u.mist ? '💠' : '🌫️'} ${fmt(cost(u.id))}`;
+  return `<div class="detail"><div class="d-ico" style="background:${u.mist ? 'linear-gradient(180deg,#b9afff,#7b6cf0)' : b.c}">${u.icon}</div>
+    <div class="d-branch" style="color:${b.c}">${b.icon} ${b.name}${u.mist ? ' · Mist' : ''}</div><div class="d-name">${u.name}</div>${pips(u)}
+    <div class="d-desc">${u.desc}</div><div class="d-needs">${needs}</div>
+    <button class="buy ${u.mist ? 'mist' : ''}" ${canBuy(u.id) ? '' : 'disabled'} onclick="buy('${u.id}')">${label}</button></div>`;
+}
+// line between two node centres as an svg path (curved when rows differ)
+const curve = (x1, y1, x2, y2) => `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+
+// ---------- A: lanes (current layout, polished: colour per branch, detail panel on the right) ----------
+function drawA() {
+  const laneH = (640 - 76 - 26 - 40) / 5, x0 = 144, step = 112;   // node centre x inside the lane area
+  const pos = (u) => { const r = branches.findIndex((b) => b.id === u.branch); return [x0 + u.col * step + 40, r * (laneH + 10) + laneH / 2]; };
+  let h = '<div class="lanes">';
+  branches.forEach((b) => {
+    const list = ups.filter((u) => u.branch === b.id), got = list.filter((u) => lvl(u.id)).length;
+    h += `<div class="lane" style="--c:${b.c}"><div class="lane-head"><div class="lane-ico">${b.icon}</div><div><div class="lane-name">${b.name}</div>
+      <div class="lane-bar"><i style="width:${(got / list.length) * 100}%"></i></div></div></div><div class="lane-nodes">`;
+    list.forEach((u, i) => {
+      if (i) h += `<div class="a-link ${lvl(list[i - 1].id) >= (u.needs.find(([n]) => n === list[i - 1].id)?.[1] ?? 1) ? 'met' : ''}" style="left:${(i - 1) * step + 40}px;width:${step}px"></div>`;
+    });
+    list.forEach((u) => {
+      h += `<button class="a-node ${cls(u)}" style="left:${u.col * step + 40}px" onclick="select('${u.id}')"><span>${locked(u.id) ? '🔒' : u.icon}</span>`
+        + (locked(u.id) ? '' : `<span class="a-lv">${lvText(u)}</span>`) + (locked(u.id) || maxed(u.id) ? '' : `<span class="a-cost">${u.mist ? '💠' : '🌫️'}${fmt(cost(u.id))}</span>`) + '</button>';
+    });
+    h += '</div></div>';
+  });
+  // requirements that cross lanes: dashed curves (gold when met)
+  let svg = '<svg class="cross">';
+  for (const u of ups) for (const [n, l] of u.needs) {
+    if (byId[n].branch === u.branch) continue;
+    const [x1, y1] = pos(byId[n]), [x2, y2] = pos(u);
+    svg += `<path class="${lvl(n) >= l ? 'met' : ''}" d="${curve(x1 + 8, y1, x2 - 8, y2)}"/>`;
+  }
+  h += svg + '</svg></div>';
+  return shell('A · Lanes', h);
+}
+
+// ---------- B: compass (radial: your base in the middle, fog clears outward as you buy) ----------
+function drawB() {
+  const W = 820, H = 538, cx = W / 2, cy = H / 2, deg = [180, -125, 125, -55, 55], ang = (r) => (deg[r] * Math.PI) / 180;
+  const pos = (u) => { const r = branches.findIndex((b) => b.id === u.branch), d = 72 + u.col * 44; return [cx + Math.cos(ang(r)) * d * 1.22, cy + Math.sin(ang(r)) * d * 0.95]; };
+  const total = ups.reduce((s, u) => s + lvl(u.id), 0), owned = ups.filter((u) => lvl(u.id)).length;
+  let h = `<div class="compass" style="--clear:${18 + (owned / ups.length) * 50}%">`;
+  for (const d of [72, 116, 160, 204, 248, 292]) h += `<div class="ring" style="width:${d * 2 * 1.22}px;height:${d * 2 * 0.95}px"></div>`;
+  let svg = '<svg class="spokes">';
+  branches.forEach((b, r) => {
+    const list = ups.filter((u) => u.branch === b.id);
+    let prev = [cx, cy];
+    for (const u of list) {
+      const p = pos(u), met = !locked(u.id);
+      svg += `<path d="M${prev[0]},${prev[1]} L${p[0]},${p[1]}" stroke="${met ? b.c : '#b8c3c6'}" stroke-width="${met ? 6 : 3}" ${met ? '' : 'stroke-dasharray="3 7"'}/>`;
+      prev = p;
+    }
+  });
+  for (const u of ups) for (const [n, l] of u.needs) {
+    if (byId[n].branch === u.branch) continue;
+    const [x1, y1] = pos(byId[n]), [x2, y2] = pos(u);
+    svg += `<path d="M${x1},${y1} Q${cx + (x1 + x2 - 2 * cx) * 0.75},${cy + (y1 + y2 - 2 * cy) * 0.75} ${x2},${y2}" stroke="${lvl(n) >= l ? '#e0961a' : '#9aa8ad'}" stroke-width="3" stroke-dasharray="${lvl(n) >= l ? '0' : '3 7'}"/>`;
+  }
+  h += svg + '</svg>';
+  h += `<div class="core"><div><b>${total}</b><small>LEVELS</small></div></div>`;
+  for (const u of ups) {
+    const [x, y] = pos(u);
+    h += `<button class="b-node ${cls(u)}" style="left:${x}px;top:${y}px;--c:${brOf(u).c}" onclick="select('${u.id}')">${locked(u.id) ? '🔒' : u.icon}`
+      + (locked(u.id) || u.mist ? '' : `<span class="b-lv">${lvText(u)}</span>`) + '</button>';
+  }
+  branches.forEach((b, r) => {
+    const d = 72 + Math.max(...ups.filter((u) => u.branch === b.id).map((u) => u.col)) * 44 + 44;
+    let x = cx + Math.cos(ang(r)) * d * 1.22, y = cy + Math.sin(ang(r)) * d * 0.95;
+    if (Math.abs(Math.sin(ang(r))) < 0.3) { x = cx + Math.cos(ang(r)) * (d - 44) * 1.22; y -= 40; }   // horizontal spoke: label above the last node
+    x = Math.min(W - 60, Math.max(60, x)); y = Math.min(H - 18, Math.max(18, y));
+    h += `<div class="b-label" style="left:${x}px;top:${y}px;--c:${b.c}">${b.icon} ${b.name}</div>`;
+  });
+  h += '</div>';
+  return shell('B · Compass', h);
+}
+
+// ---------- C: islands (each upgrade a floating island in the fog sea, bridges between them) ----------
+function drawC() {
+  const colW = 164, x0 = 82, base = 470, rise = 74;   // branch = column, depth = height
+  const pos = (u) => { const r = branches.findIndex((b) => b.id === u.branch); return [x0 + r * colW + (u.col % 2 ? 14 : -14), base - u.col * rise]; };
+  let h = '<div class="sea">';
+  let svg = '<svg class="bridges">';
+  for (const u of ups) for (const [n, l] of u.needs) {
+    const [x1, y1] = pos(byId[n]), [x2, y2] = pos(u), met = lvl(n) >= l, same = byId[n].branch === u.branch;
+    // planks when met (brown, chunky), a thin rope while still unmet
+    svg += met ? `<path d="${curve(x1, y1 + 4, x2, y2 + 4)}" stroke="#7a5532" stroke-width="9" fill="none" stroke-linecap="round"/><path d="${curve(x1, y1 + 4, x2, y2 + 4)}" stroke="#c9995e" stroke-width="5" stroke-dasharray="4 4" fill="none"/>`
+      : `<path d="${curve(x1, y1 + 4, x2, y2 + 4)}" stroke="${same ? '#8d7a66' : '#a0a8ab'}" stroke-width="2" stroke-dasharray="2 6" fill="none"/>`;
+  }
+  h += svg + '</svg>';
+  for (const u of ups) {
+    const [x, y] = pos(u);
+    h += `<button class="isle ${cls(u)}" style="left:${x}px;top:${y}px;--c:${brOf(u).c}" onclick="select('${u.id}')"><span class="top"></span><span class="ic">${u.icon}</span>`
+      + (locked(u.id) ? '' : `<span class="flag">${lvText(u)}</span>`) + '<span class="cloud"></span></button>';
+  }
+  branches.forEach((b, r) => { h += `<div class="col-banner" style="left:${x0 + r * colW}px;--c:${b.c}">${b.icon} ${b.name}</div>`; });
+  h += '</div>';
+  return shell('C · Islands', h);
+}
+
+// ---------- D: path (one branch at a time: tabs on the left, a winding row of big cards) ----------
+let dBranch = 'offense';
+function drawD() {
+  const b = branches.find((x) => x.id === dBranch), list = ups.filter((u) => u.branch === dBranch);
+  let h = '<div class="tabs">';
+  for (const t of branches) {
+    const l2 = ups.filter((u) => u.branch === t.id), got = l2.filter((u) => lvl(u.id)).length, any = l2.some((u) => canBuy(u.id));
+    h += `<button class="tab ${t.id === dBranch ? 'on' : ''}" style="--c:${t.c};--p:${(got / l2.length) * 100}" onclick="dBranch='${t.id}';st.sel='${l2[0].id}';render()">
+      <span class="ring2">${t.icon}</span><span><b>${t.name}</b><small>${got}/${l2.length} unlocked</small></span>${any ? '<span class="dot"></span>' : ''}</button>`;
+  }
+  h += `</div><div class="path" style="--c:${b.c}"><div class="path-title">${b.icon} ${b.name}</div><div class="path-sub">Tap a card to see it, buy right on the card</div>`;
+  const W = 904, n = list.length, gap = (W - 180) / Math.max(1, n - 1), xs = list.map((_, i) => 90 + i * (n > 1 ? gap : 0)), ys = list.map((_, i) => (i % 2 ? 250 : 130));
+  let svg = '<svg class="trail">';
+  for (let i = 1; i < n; i++) {
+    const met = !locked(list[i].id);
+    svg += `<path d="${curve(xs[i - 1], ys[i - 1] + 98, xs[i], ys[i] + 98)}" stroke="${met ? b.c : '#c8d0d2'}" stroke-width="${met ? 10 : 6}" stroke-dasharray="${met ? '1 16' : '1 12'}" stroke-linecap="round" fill="none"/>`;
+  }
+  h += svg + '</svg>';
+  list.forEach((u, i) => {
+    const lk = locked(u.id), mx = maxed(u.id), miss = u.needs.filter(([m, l]) => lvl(m) < l).map(([m, l]) => `${byId[m].icon} ${byId[m].name} ${l}`).join(', ');
+    const btn = mx ? '<button class="pbuy" disabled>★ Max</button>' : lk ? '' : `<button class="pbuy ${u.mist ? 'mist' : ''}" ${canBuy(u.id) ? '' : 'disabled'} onclick="event.stopPropagation();buy('${u.id}')">${u.mist ? '💠' : '🌫️'} ${fmt(cost(u.id))}</button>`;
+    h += `<div class="pcard ${cls(u)}" style="left:${xs[i]}px;top:${ys[i]}px;--c:${b.c}" onclick="select('${u.id}')"><div class="pi">${u.icon}</div><b>${u.name}</b>`
+      + `${u.max ? pips(u) : `<div class="d-lv" style="margin:4px 0 0;font-size:12px">Level ${lvl(u.id)}</div>`}<small>${u.desc}</small>${btn}${lk ? `<div class="lockchip">🔒 Needs ${miss}</div>` : ''}</div>`;
+  });
+  h += '</div>';
+  return shell('D · Path', h, false);
+}
+
+// ---------- render + option switcher ----------
+let cur = 'a';
+function render(popId) {
+  document.getElementById('f-a').innerHTML = cur === 'a' ? drawA() : '';
+  document.getElementById('f-b').innerHTML = cur === 'b' ? drawB() : '';
+  document.getElementById('f-c').innerHTML = cur === 'c' ? drawC() : '';
+  document.getElementById('f-d').innerHTML = cur === 'd' ? drawD() : '';
+  if (popId) document.querySelectorAll('.sel').forEach((e) => e.classList.add('popped'));
+}
+document.querySelectorAll('.switch button').forEach((b) => b.onclick = () => {
+  cur = b.dataset.f;
+  document.querySelectorAll('.switch button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.frame').forEach((f) => f.classList.toggle('on', f.id === 'f-' + cur));
+  render();
+});
+// fit the 1280x720 frame into the window
+// fit the frame under the (possibly wrapped) switcher; phones in portrait get the full width
+function fit() {
+  const top = document.querySelector('.switch').offsetHeight + 6, el = document.getElementById('stage');
+  const w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
+  const s = Math.min(w / 1280, Math.max(h - top - 6, 200) / 720, 1);
+  el.style.top = top + 'px';
+  el.style.transform = `translateX(-50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+// ?o=b opens an option directly (used for screenshots)
+const want = new URLSearchParams(location.search).get('o');
+if (want) document.querySelector(`.switch button[data-f="${want}"]`)?.click(); else render();
+</script>
+</body>
+</html>
