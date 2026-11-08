@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=102';
-import { generateMap, rng } from './mapgen.js?v=102';
-import { initAnalytics, track } from './analytics.js?v=102';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=102';
-import { Battle } from './battle.js?v=102';
-import { personalities } from './ai.js?v=102';
-import { Campaign } from './campaign.js?v=102';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=102';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=102';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=102';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=102';
-import { previewBuildings } from './structures.js?v=102';
-import { initTune, tuneChanges } from './tune.js?v=102';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=103';
+import { generateMap, rng } from './mapgen.js?v=103';
+import { initAnalytics, track } from './analytics.js?v=103';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=103';
+import { Battle } from './battle.js?v=103';
+import { personalities } from './ai.js?v=103';
+import { Campaign } from './campaign.js?v=103';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=103';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=103';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=103';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=103';
+import { previewBuildings } from './structures.js?v=103';
+import { initTune, tuneChanges } from './tune.js?v=103';
 
 const $ = (id) => document.getElementById(id);
 
@@ -210,6 +210,8 @@ function startBattle(setup, m, rid = -1) {
   const theme = setup.theme ?? themeNames[setup.seed % themeNames.length];
   if (!bv) { bv = new MapView($('battle-canvas'), map, theme); bv.fitIsland = true; bv.size = 0; bv.resize(); } else bv.setMap(map, theme);   // fitIsland: the island fills the screen
   bv.prewarm(battle.factions.map((f) => colors[f.color]), 0.16);
+  // boss stage: the fog darkens into a storm (rolls in gradually); any other battle starts clear
+  if (m === 'idle' && setup.boss) bv.setStorm(true); else bv.setStorm(false, true);
   $('stage').classList.toggle('hidden', m !== 'expedition' && m !== 'idle');
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
   if (m === 'idle') $('stage').textContent = `${setup.boss ? '👑 ' : setup.ghost ? '👤 ' : ''}Stage ${idle.stage}`;
@@ -356,18 +358,18 @@ function drawUnits(ctx, v, b, ac, numbers) {
         if (t.owner < 0 || t.owner === s.owner) continue;
         for (const off of [0, 0.5]) {   // two arrows per pair, half a flight apart, side by side
           const k = (tnow * 0.8 + off + ((s.id * 7 + id * 13) % 10) / 10) % 1;   // flight progress 0..1
-          const x1 = v.sx(s.x), y1 = v.sy(s.y), x2 = v.sx(t.x), y2 = v.sy(t.y), hgt = fs * 1.8, along = 0.2 + 0.6 * k;
+          const x1 = v.sx(s.x), y1 = v.sy(s.y), x2 = v.sx(t.x), y2 = v.sy(t.y), hgt = fs * 0.9, along = 0.2 + 0.6 * k;
           const side = (off ? 1 : -1) * fs * 0.35, nx = -(y2 - y1), ny = x2 - x1, nl = Math.hypot(nx, ny) || 1;
           const x = x1 + (x2 - x1) * along + (nx / nl) * side, y = y1 + (y2 - y1) * along + (ny / nl) * side - Math.sin(Math.PI * k) * hgt;
           // flight direction = derivative of the arc, so the arrow tilts up, then down
           const dx = (x2 - x1) * 0.6, dy = (y2 - y1) * 0.6 - Math.cos(Math.PI * k) * Math.PI * hgt, d = Math.hypot(dx, dy) || 1;
-          const ux = dx / d, uy = dy / d, len = fs * 1.1, w = fs * 0.22;
+          const ux = dx / d, uy = dy / d, len = fs * 0.85, w = fs * 0.15;
           ctx.globalAlpha = Math.min(1, Math.sin(Math.PI * k) * 3);   // fades in / out at the ends
           ctx.strokeStyle = 'rgba(255,255,255,0.75)';   // light rim so the shaft shows on dark ground
-          ctx.lineWidth = Math.max(2.4, fs * 0.2);
+          ctx.lineWidth = Math.max(1.6, fs * 0.12);
           ctx.beginPath(); ctx.moveTo(x - ux * len, y - uy * len); ctx.lineTo(x, y); ctx.stroke();
           ctx.strokeStyle = 'rgba(60,44,28,0.95)';
-          ctx.lineWidth = Math.max(1.4, fs * 0.11);
+          ctx.lineWidth = Math.max(0.9, fs * 0.06);
           ctx.stroke();
           ctx.fillStyle = col;   // head in the shooter's colour, fletching at the tail
           ctx.beginPath();
@@ -1282,6 +1284,7 @@ function endIdleStage(won) {
     flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Fog` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
     sfx.perk();
     fogFlow($('toast'), $('idle-shop-btn'), 10, 0);
+    bv.setStorm(false);   // the storm clears as the boss falls
     const pour = mist ? obeliskMist(mist) : 0;   // ms the obelisks need to pour out the Mist
     setTimeout(() => {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile

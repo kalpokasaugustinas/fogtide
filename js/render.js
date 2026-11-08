@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=102';
-import * as structures from './structures.js?v=102';
+import { themes, fogTwirl } from './config.js?v=103';
+import * as structures from './structures.js?v=103';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -95,6 +95,9 @@ function applyFogTwirl() {
   s.setProperty('--twirl-a', fogTwirl.period + 's');
   s.setProperty('--twirl-b', fogTwirl.counterPeriod + 's');
   s.setProperty('--twirl-alpha', fogTwirl.counterAlpha);
+  s.setProperty('--storm-dark', fogTwirl.stormDark);
+  s.setProperty('--storm-in', fogTwirl.stormIn + 's');
+  s.setProperty('--storm-out', fogTwirl.stormOut + 's');
 }
 applyFogTwirl();
 addEventListener('tune', applyFogTwirl);
@@ -266,12 +269,52 @@ export class MapView {
         return d;
       });
     }
+    // new fog colour (climate change): copies of the old layers keep turning in step on top and fade
+    // out, so the colour changes gradually instead of snapping
+    if (this.fogUrl && this.fogUrl !== url && fogTwirl.colorFade > 0 && el.offsetParent) {
+      for (const d of this.twirl) {
+        const c = d.cloneNode();
+        c.classList.add('fading');
+        d.after(c);
+        const [a] = d.getAnimations(), [b] = c.getAnimations();
+        if (a && b) b.currentTime = a.currentTime;   // same rotation as the live layer
+        c.style.opacity = getComputedStyle(d).opacity;
+        c.style.transition = `opacity ${fogTwirl.colorFade}s ease-in-out`;
+        requestAnimationFrame(() => requestAnimationFrame(() => { c.style.opacity = '0'; }));
+        setTimeout(() => c.remove(), fogTwirl.colorFade * 1000 + 200);
+      }
+    }
+    this.fogUrl = url;
     for (const d of this.twirl) d.style.backgroundImage = `url(${url})`;
+    // boss storm: dark layer above the fog, below the map (opacity fades via css, see setStorm)
+    if (!this.storm) {
+      this.storm = document.createElement('div');
+      this.storm.className = 'fog-storm';
+      this.storm.setAttribute('aria-hidden', 'true');
+      this.canvas.before(this.storm);   // after both twirl layers, right under the map
+    }
     this.styleOf = this.st = null;
     this.bkey = this.okey = null;
     this.size = 0;   // forces resize() to rebuild every cached layer for the new map
     this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
     this.resize();
+  }
+
+  // boss stage storm over the fog: on = darken gradually (stormIn), off = clear gradually (stormOut).
+  // instant = jump there with no fade (a new non-boss battle must not show the old storm clearing)
+  setStorm(on, instant = false) {
+    const d = this.storm;
+    if (!d) return;
+    cancelAnimationFrame(this.stormRaf);
+    if (instant) {
+      d.style.transition = 'none';
+      d.classList.toggle('on', on);
+      void d.offsetWidth;
+      d.style.transition = '';
+      return;
+    }
+    // two frames later, so the fade also runs when the battle screen was only just shown
+    this.stormRaf = requestAnimationFrame(() => { this.stormRaf = requestAnimationFrame(() => d.classList.toggle('on', on)); });
   }
 
   // island bounding box (grid cells, land + lakes + mountains) and sample points on the water

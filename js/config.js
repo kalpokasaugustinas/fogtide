@@ -87,6 +87,11 @@ export const fogTwirl = {
   period: 480,          // seconds per full turn of the main fog layer (clockwise)
   counterPeriod: 340,   // seconds per turn of the thin top layer (counter-clockwise)
   counterAlpha: 0.35,   // opacity of the top layer (0 = no swirl, just a slow turn)
+  // boss stage storm: a dark layer over the fog fades in when the stage starts, clears on the win
+  stormDark: 0.8,       // storm strength (0 = no storm, 1 = darkest)
+  stormIn: 6,           // seconds for the storm to roll in
+  stormOut: 3,          // seconds for it to clear after the boss falls
+  colorFade: 3,         // seconds the fog takes to change colour when the next island has a new climate
 };
 
 // island climates (picked per battle). colours are [r, g, b] except sea (css)

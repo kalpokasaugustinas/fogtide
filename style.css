@@ -648,3 +648,14 @@ html.compact .hub-horn { width: 78px; height: 48px; } html.compact .hub-horn svg
   text-shadow: 0 2px 0 #3d2bb0, 0 0 10px #8c9bff; animation: float-up 1.4s ease-out forwards; white-space: nowrap; }
 @keyframes float-up { 0% { opacity: 0; margin-top: 10px; transform: translate(-50%, -50%) scale(0.6); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
   30% { transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; margin-top: -60px; transform: translate(-50%, -50%) scale(1); } }
+
+/* boss storm (js/render.js setStorm): a dark slate layer above the fog twirl, below the map. it fades
+   in over --storm-in and clears over --storm-out (css takes the duration of the state it goes to);
+   now and then lightning lights the clouds for a moment */
+.fog-storm { position: absolute; inset: -50vmax; pointer-events: none; opacity: 0; transition: opacity var(--storm-out, 3s) ease-in-out;
+  background: radial-gradient(circle at 50% 50%, rgba(46, 52, 74, calc(var(--storm-dark, 0.8) * 0.7)) 20%, rgba(22, 26, 40, var(--storm-dark, 0.8)) 60%); }
+.fog-storm.on { opacity: 1; transition-duration: var(--storm-in, 6s); }
+.fog-storm::after { content: ''; position: absolute; inset: 0; opacity: 0; background: rgba(214, 224, 255, 0.5); }
+.fog-storm.on::after { animation: lightning 11s linear 4s infinite; }
+@keyframes lightning { 0%, 61%, 63.5%, 66%, 100% { opacity: 0; } 62% { opacity: 0.8; } 64.5% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .fog-storm.on::after { animation: none; } }

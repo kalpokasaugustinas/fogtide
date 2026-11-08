@@ -2,7 +2,7 @@
 // changes write straight into the shared config objects, so everything read at runtime updates live;
 // values marked ↻ are baked in when a battle starts (caps, growth, start troops) and need "restart round".
 // tuned values persist in localStorage, but only apply while ?tune=1 is in the url (normal play = config.js).
-import { rules, buildings, effects, traits, fogTwirl, testing } from './config.js?v=102';
+import { rules, buildings, effects, traits, fogTwirl, testing } from './config.js?v=103';
 
 const store_key = 'fogtide.tune';
 const on = new URLSearchParams(location.search).get('tune') === '1';
@@ -31,6 +31,7 @@ const groups = {
   ],
   'fog twirl': [
     ['fogTwirl.period', 60, 1200, 10], ['fogTwirl.counterPeriod', 60, 1200, 10], ['fogTwirl.counterAlpha', 0, 1, 0.05],
+    ['fogTwirl.stormDark', 0, 1, 0.05], ['fogTwirl.stormIn', 0, 20, 0.5], ['fogTwirl.stormOut', 0, 20, 0.5], ['fogTwirl.colorFade', 0, 10, 0.5],
   ],
 };
 
