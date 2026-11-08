@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=96';
-import { generateMap, rng } from './mapgen.js?v=96';
-import { initAnalytics, track } from './analytics.js?v=96';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=96';
-import { Battle } from './battle.js?v=96';
-import { personalities } from './ai.js?v=96';
-import { Campaign } from './campaign.js?v=96';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=96';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=96';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=96';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=96';
-import { previewBuildings } from './structures.js?v=96';
-import { initTune, tuneChanges } from './tune.js?v=96';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=97';
+import { generateMap, rng } from './mapgen.js?v=97';
+import { initAnalytics, track } from './analytics.js?v=97';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=97';
+import { Battle } from './battle.js?v=97';
+import { personalities } from './ai.js?v=97';
+import { Campaign } from './campaign.js?v=97';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=97';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=97';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=97';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=97';
+import { previewBuildings } from './structures.js?v=97';
+import { initTune, tuneChanges } from './tune.js?v=97';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1075,11 +1075,9 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   }
   const oc = { x: bv.sx((x0 + x1 + 1) / 2), y: bv.sy((y0 + y1 + 1) / 2), w: (x1 - x0 + 1) * bv.scale };
   // redraw the old map clean (no selection, drag arrow or banner) and keep a snapshot of it
-  // (ground only: no cloud banks, so a frozen picture of the fog doesn't shrink along with it)
+  // (the map canvas has no fog of its own, so no frozen picture of fog shrinks along with it)
   selected = -1; drag = null; goFlash = 0; wheelOn = false;
-  bv.groundOnly = true;
   drawBattle();
-  bv.groundOnly = false;
   const snap = document.createElement('canvas');
   snap.width = old.width; snap.height = old.height;
   snap.getContext('2d').drawImage(old, 0, 0);

@@ -3,10 +3,10 @@
 // owner colours as glowing segment borders, low-poly trees on top.
 // all edges (coast, lakes, mountains, segment borders) are smooth vector outlines traced from the
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
-// layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
+// layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=96';
-import * as structures from './structures.js?v=96';
+import { themes, fogTwirl } from './config.js?v=97';
+import * as structures from './structures.js?v=97';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -536,7 +536,7 @@ export class MapView {
     return [c, x];
   }
 
-  // fog shadow, lake water, cliff face and mist (static per map and size)
+  // island shadow, lake water and cliff face (static per map and size)
   buildUnder() {
     const [c, x] = this.newLayer(), t = this.theme, g = this.map.grid, px = 1 / this.scale, py = px / this.tilt;
     const ch = Math.max(4, this.size * 0.022) * py;   // cliff height (css px -> grid y units)
@@ -590,57 +590,13 @@ export class MapView {
       x.fill(this.islandP, 'evenodd');
       x.restore();
     }
-    // ground-only copy (shadow, lakes, cliffs, no fog): the conquest zoom-out shrinks just the land
-    this.cliffs = document.createElement('canvas');
-    this.cliffs.width = c.width; this.cliffs.height = c.height;
-    this.cliffs.getContext('2d').drawImage(c, 0, 0);
-    // cloud banks around the island: puffs with a blue-grey underside, a soft body and a bright
-    // top-left rim (light from above), like the cloud texture behind them
-    // (puffs go on a scratch layer without blur, which is then blurred once: a blur filter per
-    // fill would cost hundreds of full-layer blurs)
-    const [pc, pcx] = this.newLayer();
-    const fogc = shade(t.fogA, 0.4), cl = cloudColors(t);
-    for (let i = 0; i < 22; i++) {
-      const a = hash(i, 31, this.seed) * Math.PI * 2, rr = g * (0.44 + hash(i, 32, this.seed) * 0.12);
-      const fx = g / 2 + Math.cos(a) * rr, fy = g / 2 + Math.sin(a) * rr + ch;
-      const puffs = [];
-      for (let j = 0; j < 6; j++) {
-        const pr = g * (0.025 + hash(i * 7 + j, 36, this.seed) * 0.03);
-        puffs.push([fx + (hash(i * 7 + j, 37, this.seed) - 0.5) * g * 0.13, fy + (hash(i * 7 + j, 38, this.seed) - 0.5) * g * 0.04, pr]);
-      }
-      for (const [col, dx, dy, sc, al] of [[cl.dark, 0, 0.35, 1, 0.55], [cl.mid, 0, 0.1, 0.95, 0.85], [cl.light, -0.18, -0.22, 0.7, 0.9]]) {
-        pcx.fillStyle = css(col, al);
-        for (const [px0, py0, pr] of puffs) { pcx.beginPath(); pcx.ellipse(px0 + dx * pr, py0 + dy * pr, pr * sc, pr * sc * 0.62, 0, 0, Math.PI * 2); pcx.fill(); }
-      }
-    }
-    x.save();
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.filter = `blur(${this.size * 0.014 * this.dpr}px)`;
-    x.drawImage(pc, 0, 0);
-    this.gridT(x);
-    x.filter = `blur(${this.size * 0.012 * this.dpr}px)`;
-    x.translate(0, ch * 1.4);
-    x.lineWidth = g * 0.025;
-    x.strokeStyle = css(fogc, 0.75);
-    x.stroke(this.outerP);
-    x.restore();
-    // fade out toward the canvas edges (elliptical mask), so blurred fog never shows a hard edge
-    x.save();
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.globalCompositeOperation = 'destination-in';
-    x.translate(c.width / 2, c.height / 2);
-    x.scale(1, c.height / c.width);
-    const fadeR = c.width / 2, mask = x.createRadialGradient(0, 0, fadeR * 0.7, 0, 0, fadeR);
-    mask.addColorStop(0, 'rgba(0,0,0,1)');
-    mask.addColorStop(1, 'rgba(0,0,0,0)');
-    x.fillStyle = mask;
-    x.fillRect(-fadeR, -fadeR, fadeR * 2, fadeR * 2);
-    x.restore();
+    // no fog on the canvas: all fog around the island is the moving css layers behind it
+    // (fog-twirl), so nothing static covers them in a square around the map
     this.under = c;
   }
 
   // ---------- layers ----------
-  // static per map + size: under (fog, cliffs), base (ground, all borders, lip), rocks.
+  // static per map + size: under (shadow, lakes, cliffs), base (ground, all borders, lip), rocks.
   // per segment sprites (cached small canvases): building ground scene, owner overlay, trees,
   // building top scene. the three composite layers below are rebuilt from sprites with a few
   // drawImage calls when buildings or owners change, so no frame ever re-renders the scenes.
@@ -875,6 +831,12 @@ export class MapView {
       b.fillStyle = gr; b.fillRect(0, 0, 128, 128);
     }
     const w = this.size, h = this.cssH;
+    // shadows fall on the island only: over the fog they'd darken the canvas rectangle, whose
+    // edge then shows against the moving fog layers. clip to the island outline (grid units)
+    const css0 = ctx.getTransform();
+    ctx.transform(this.scale, 0, 0, this.scale * this.tilt, 0, this.oy);
+    ctx.clip(this.outerP);
+    ctx.setTransform(css0);
     ctx.globalAlpha = 0.085;
     for (let n = 0; n < 3; n++) {
       const span = w * 1.6, sw = w * (0.32 + 0.1 * n);
@@ -1309,7 +1271,7 @@ export class MapView {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.drawImage(this.groundOnly && this.cliffs ? this.cliffs : this.under, 0, 0);   // groundOnly: no fog
+    ctx.drawImage(this.under, 0, 0);
     if (this.st) {
       if (!this.layerGround) this.buildGroundLayer();
       if (!this.layerOwner) this.buildOwnerLayer();
