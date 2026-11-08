@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide: detailed foglets, 8 options</title>
+<style>
+  /* design mockups: 8 ways to draw foglets with more detail for pc, keeping the same form
+     (block body, square head, kit silhouettes). each option is a 1280x720 frame */
+  @font-face { font-family: 'Fredoka'; font-weight: 300 700; src: url(../fonts/fredoka.woff2) format('woff2'); }
+  @font-face { font-family: 'Luckiest Guy'; src: url(../fonts/luckiest-guy.woff2) format('woff2'); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1d2a30; font-family: 'Fredoka', system-ui, sans-serif; color: #23343a; overflow: hidden; }
+  button { font: inherit; cursor: pointer; }
+  /* option switcher above the frame (wraps on phones) */
+  .switch { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; padding: 8px; }
+  .switch a { color: #ffd76a; font-weight: 600; margin-right: 6px; }
+  .switch button { border: 0; border-radius: 14px; padding: 7px 13px; font-weight: 700; font-size: 14px; color: #fff; background: #3a4c55; box-shadow: 0 3px 0 #111b20; }
+  .switch button.on { background: linear-gradient(180deg, #ffd76a, #e0961a); color: #4a2a00; box-shadow: 0 3px 0 #8a5208; }
+  /* fixed wrapper so the wide frame never widens the page on phones */
+  #wrap { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
+  #stage { pointer-events: auto; width: 1280px; height: 720px; position: absolute; left: 50%; top: 58px; transform-origin: 50% 0; overflow: hidden; border-radius: 10px; }
+  #bg { position: absolute; inset: 0; }
+  #cv { position: absolute; inset: 0; width: 1280px; height: 720px; }
+  /* header text over the canvas */
+  .head { position: absolute; left: 34px; top: 22px; right: 34px; display: flex; align-items: baseline; gap: 14px; }
+  .head .tag { font-family: 'Luckiest Guy', sans-serif; font-size: 34px; color: #fff; background: linear-gradient(180deg, #f0564a, #c43128); border-radius: 14px; padding: 4px 14px 0; box-shadow: 0 4px 0 #7d1a14; }
+  .head h1 { margin: 0; font-family: 'Luckiest Guy', sans-serif; font-size: 34px; letter-spacing: 1px; }
+  .head p { margin: 0; font-size: 17px; font-weight: 600; opacity: 0.85; }
+  .notes { position: absolute; right: 30px; bottom: 26px; width: 410px; background: rgba(255,250,240,0.94); border-radius: 18px; padding: 12px 16px; font-size: 14px; line-height: 1.35;
+    box-shadow: inset 0 0 0 3px #f0e2c4, 0 4px 0 rgba(0,0,0,0.15); color: #23343a; }
+  .notes b { display: block; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: #b0761a; margin-bottom: 2px; }
+  .notes ul { margin: 0 0 6px; padding-left: 18px; }
+  .lbl { position: absolute; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  .dark .head h1, .dark .head p, .dark .lbl { color: #e8f0f2; }
+</style>
+</head>
+<body>
+<div class="switch">
+  <a href="./">‹ All mockups</a>
+  <button data-f="0" class="on">A Polished</button><button data-f="1">B Ink</button><button data-f="2">C Vinyl toy</button><button data-f="3">D HD pixel</button>
+  <button data-f="4">E Storybook</button><button data-f="5">F Faces</button><button data-f="6">G Battle-worn</button><button data-f="7">H Fog glow</button>
+</div>
+<div id="wrap"><div id="stage">
+  <div id="bg"></div>
+  <canvas id="cv"></canvas>
+  <div class="head"><span class="tag" id="tag">A</span><h1 id="name"></h1><p id="pitch"></p></div>
+  <div class="lbl" style="left:40px;top:92px">Your band (big, menu + unit cards)</div>
+  <div class="lbl" style="left:40px;top:436px">Rival band</div>
+  <div class="lbl" style="left:40px;top:572px">Map scale (pc zoom 2x, 3x, 4x)</div>
+  <div class="notes" id="notes"></div>
+</div></div>
+<script>
+// ---------- options: each is a set of drawing switches + post effects ----------
+// grad: gradient fills · cel: extra highlight/shadow bands · round: rounded corners · face: 0-3
+// detail: 0-2 (rivets, stitching, trims...) · outline: ink line width (units) · pixel: low-res grid
+// paper: painted texture · grit: dirt + scratches · rim: rim light + glow on a dark scene
+const opts = [
+  { name: 'Polished', pitch: 'Today\'s foglet, cleaned up: 3-tone shading, highlights, small trims.', detail: 1, cel: 1, face: 1,
+    bg: 'grass', pros: ['Closest to the current look, easy step', 'Still reads at map scale'], cons: ['Safe, least "new" feel on pc'] },
+  { name: 'Ink outline', pitch: 'Bold dark outline like a sticker; flat colours + one shadow.', detail: 1, outline: 0.32, face: 1,
+    bg: 'grass', pros: ['Pops on busy maps and fog', 'Cheap to draw, one cached sprite'], cons: ['Outline eats detail at 2x zoom'] },
+  { name: 'Vinyl toy', pitch: 'Rounded corners, soft gradients and a glossy shine, like collectible figures.', detail: 1, grad: 1, round: 1, gloss: 1, face: 2,
+    bg: 'grass', pros: ['Cute, premium, good for a shop / skins', 'Faces sell personality'], cons: ['Gloss looks busy in big battles'] },
+  { name: 'HD pixel art', pitch: 'Same shapes on a crisp pixel grid with dithered shading.', detail: 1, cel: 1, face: 1, pixel: 0.26,
+    bg: 'grass', pros: ['Strong retro identity on itch / steam', 'Sharp at any zoom'], cons: ['Clashes with the smooth map art'] },
+  { name: 'Storybook', pitch: 'Painted look: paper grain, soft edges, warm light.', detail: 2, grad: 1, face: 1, paper: 1,
+    bg: 'paper', pros: ['Cosy, matches the fog + island theme', 'Very distinct screenshots'], cons: ['Texture turns to noise when small'] },
+  { name: 'Expressive faces', pitch: 'Big eyes, brows and mouths; each kit gets its own mood.', detail: 1, cel: 1, face: 3,
+    bg: 'grass', pros: ['Most charm, great for the shouting mascots', 'Faces can react in battle'], cons: ['Faces vanish below 3x zoom'] },
+  { name: 'Battle-worn', pitch: 'Max gear detail: straps, pouches, dents, dirt and scratches.', detail: 2, cel: 1, face: 1, grit: 1, desat: 0.25,
+    bg: 'mud', pros: ['Feels like a real war game on pc', 'Detail rewards zooming in'], cons: ['Less cute; darker palette'] },
+  { name: 'Fog glow', pitch: 'Night fog scene: rim light in the team colour, glowing gear.', detail: 2, grad: 1, face: 1, rim: 1,
+    bg: 'night', dark: 1, pros: ['Team colour readable even in thick fog', 'Moody, unique'], cons: ['Needs a dark map mode to shine'] },
+];
+const kits = ['soldier', 'knight', 'viking', 'archer', 'wizard', 'pirate', 'barbarian'];
+const blue = [47, 116, 214], red = [226, 72, 61];
+
+// ---------- colour helpers ----------
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const arr = (c) => (typeof c === 'string' ? (c[0] === '#' ? hex(c) : c) : c);
+// shade: k > 0 lighter, k < 0 darker; desat pulls toward grey (battle-worn)
+let desat = 0;
+function rgb(c, k = 0, a = 1) {
+  if (typeof c === 'string' && c[0] !== '#') return c;
+  let [r, g, b] = arr(c);
+  if (desat) { const m = (r + g + b) / 3; r += (m - r) * desat; g += (m - g) * desat; b += (m - b) * desat; }
+  const f = (v) => Math.round(k > 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgba(${f(r)},${f(g)},${f(b)},${a})`;
+}
+
+// ---------- one detailed foglet ----------
+// same units as the game (feet at 0,0; ~5 wide x 8 tall). o = option switches, mood = face variety
+function foglet(x, sc, col, kit, o) {
+  const skin = '#ecceb0', skinD = '#d4b496', steel = '#c4ccd4', steelD = '#8e98a2', wood = '#7a5230', woodD = '#5a3a20', gold = '#ffd76a', fur = '#8a6a48';
+  const P = (px, py) => [px * sc, py * sc];
+  // fill style: flat, or a left-to-right gradient (light -> base -> dark) when o.grad
+  const fill = (c, l, t, w, h) => {
+    if (!o.grad || typeof c === 'string' && c[0] !== '#') return rgb(c);
+    const g = x.createLinearGradient(l * sc, t * sc, (l + w) * sc, (t + h * 0.4) * sc);
+    g.addColorStop(0, rgb(c, 0.22)); g.addColorStop(0.45, rgb(c)); g.addColorStop(1, rgb(c, -0.22)); return g;
+  };
+  // rect (rounded for the vinyl look)
+  const R = (l, t, w, h, c, rr) => {
+    x.fillStyle = fill(c, l, t, w, h);
+    const r = (rr ?? (o.round ? Math.min(w, h) * 0.28 : 0)) * sc;
+    x.beginPath(); r ? x.roundRect(l * sc, t * sc, w * sc, h * sc, r) : x.rect(l * sc, t * sc, w * sc, h * sc); x.fill();
+  };
+  const poly = (c, pts) => {
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    x.fillStyle = fill(c, Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).apply(x, P(px, py))); x.closePath(); x.fill();
+  };
+  const disc = (c, px, py, r) => { x.fillStyle = fill(c, px - r, py - r, r * 2, r * 2); x.beginPath(); x.arc(px * sc, py * sc, r * sc, 0, 7); x.fill(); };
+  const ell = (c, px, py, rx, ry) => { x.fillStyle = rgb(c); x.beginPath(); x.ellipse(px * sc, py * sc, rx * sc, ry * sc, 0, 0, 7); x.fill(); };
+  const line = (c, w, pts, cap = 'round') => { x.strokeStyle = rgb(c); x.lineCap = cap; x.lineJoin = 'round'; x.lineWidth = w * sc; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).apply(x, P(px, py))); x.stroke(); };
+  const D = o.detail || 0;
+  const body = col, side = rgb(col, -0.3), light = rgb(col, 0.3);
+
+  // --- behind the body ---
+  if (kit === 'archer') {
+    poly('#2f6a35', [[-1.5, -4.1], [1.5, -4.1], [1.9, -0.2], [-1.9, -0.2]]);
+    if (D) for (let i = 0; i < 4; i++) line('#24552a', 0.08, [[-1.3 + i * 0.85, -3.6], [-1.5 + i * 1.0, -0.3]]);   // cape folds
+    R(-1.9, -5.6, 0.7, 2.6, '#8a5a34', 0.1);
+    if (D) { R(-1.9, -4.9, 0.7, 0.18, '#5e3b20', 0); R(-1.9, -3.6, 0.7, 0.18, '#5e3b20', 0); }
+    // arrows with coloured fletching
+    for (const [ax, ay] of [[-1.75, -6.4], [-1.4, -6.5], [-1.58, -6.25]]) { line('#d8c8a0', 0.1, [[ax, -5.6], [ax, ay]]); if (D) poly(rgb(col, 0.1), [[ax - 0.16, ay + 0.35], [ax, ay - 0.05], [ax + 0.16, ay + 0.35], [ax, ay + 0.2]]); }
+  }
+  if (kit === 'wizard') {
+    line(wood, 0.32, [[-1.95, -0.2], [-1.95, -5.9]]);
+    if (D) for (let y = -5.4; y < -4.4; y += 0.25) line(woodD, 0.1, [[-2.12, y], [-1.78, y + 0.12]]);   // grip wrap
+    if (o.rim) { x.save(); x.shadowColor = '#9fe6ff'; x.shadowBlur = 1.2 * sc; disc('#9fe6ff', -1.95, -6.2, 0.5); x.restore(); }
+    disc('#9fe6ff', -1.95, -6.2, 0.5); disc('rgba(255,255,255,0.9)', -2.08, -6.34, 0.17);
+    if (D) { line(gold, 0.12, [[-2.4, -6.0], [-1.95, -5.75], [-1.5, -6.0]]); }
+  }
+  if (kit === 'pirate' && D) { line('#2a2a30', 0.18, [[0.5, -4.3], [1.5, -3]]); }
+
+  // --- body ---
+  if (kit === 'wizard') {
+    poly(body, [[-1.2, -4.1], [1.2, -4.1], [1.8, 0], [-1.8, 0]]);
+    poly(side, [[0.25, -4.1], [1.2, -4.1], [1.8, 0], [0.45, 0]]);
+    R(-1.8, -0.45, 3.6, 0.45, gold, 0.05);
+    if (D) {
+      for (const [sx, sy] of [[-0.8, -2.8], [-0.2, -1.4], [-1.1, -1.0], [0.9, -2.1], [-0.4, -3.4]]) { x.save(); x.translate(sx * sc, sy * sc); poly(o.rim ? '#fff6c0' : gold, [[0, -0.22], [0.07, -0.07], [0.22, 0], [0.07, 0.07], [0, 0.22], [-0.07, 0.07], [-0.22, 0], [-0.07, -0.07]]); x.restore(); }
+      R(-1.3, -2.4, 2.6, 0.3, gold, 0.05);   // sash
+      for (let i = 0; i < 6; i++) disc('#e8b84a', -1.6 + i * 0.64, -0.23, 0.08);
+    }
+  } else if (kit === 'barbarian') {
+    R(-1.3, -4, 2.6, 2, skin, 0.15); R(0.2, -4, 1.1, 2, skinD, 0.1);
+    if (D) { line('#c8a080', 0.07, [[-0.9, -3.5], [-0.15, -3.3]]); line('#c8a080', 0.07, [[-0.05, -3.3], [0.6, -3.5]]); line('#c8a080', 0.06, [[-0.3, -2.9], [-0.3, -2.2]]); }  // muscles
+    if (D > 1 || o.face === 3) { line('#3a6ad0', 0.14, [[-1.0, -3.0], [-0.55, -3.0]]); line('#3a6ad0', 0.14, [[-1.0, -2.65], [-0.55, -2.65]]); }  // war paint
+    line('#6e4a2c', 0.3, [[-1.2, -3.9], [1.2, -2.2]]);
+    if (D) { for (let i = 0; i < 4; i++) disc('#c4ccd4', -0.85 + i * 0.6, -3.58 + i * 0.42, 0.07); }  // strap studs
+    if (D) { line('#5e3b20', 0.06, [[-0.9, -4], [-0.5, -3.55], [0, -3.45], [0.5, -3.55], [0.9, -4]]); for (const tx of [-0.5, 0, 0.5]) poly('#f4ead2', [[tx - 0.09, -3.5], [tx + 0.09, -3.5], [tx, -3.18]]); }   // tooth necklace
+    R(-1.3, -2, 2.6, 2, body, 0.1); R(0.2, -2, 1.1, 2, side, 0.05);
+    for (let i = 0; i < 4; i++) poly(side, [[-1.3 + i * 0.65, -0.05], [-1 + i * 0.65, 0.35], [-0.65 + i * 0.65, -0.05]]);
+    if (D) for (let i = 0; i < 9; i++) line(rgb(col, -0.42), 0.06, [[-1.15 + i * 0.29, -1.8 + (i % 2) * 0.2], [-1.2 + i * 0.29, -1.3 + (i % 3) * 0.15]]);   // fur strands
+  } else {
+    R(-1.3, -4, 2.6, 4, body); R(0.2, -4, 1.1, 4, side, o.round ? 0.3 : 0);
+    if (o.round) R(-0.1, -4, 0.6, 4, side, 0);   // fills the inner rounded corner
+  }
+  // cel bands: thin light strip on the lit edge, darker strip at the hem
+  if (o.cel && kit !== 'barbarian' && kit !== 'wizard') { R(-1.3, -4, 0.3, 4, light, 0); R(-1.3, -0.35, 2.6, 0.35, rgb(col, -0.45), 0); }
+  if (kit === 'pirate') {
+    for (const y of [-3.4, -2.4, -1.4]) R(-1.3, y, 2.6, 0.45, 'rgba(255,255,255,0.88)', 0);
+    if (D) for (const y of [-3.4, -2.4, -1.4]) R(0.2, y, 1.1, 0.45, 'rgba(0,0,0,0.12)', 0);
+  }
+  if (kit === 'soldier' || kit === 'pirate') {
+    R(-1.3, -2, 2.6, 0.4, '#5e3b20', 0.05);
+    if (D) { R(-0.3, -2.07, 0.6, 0.54, kit === 'pirate' ? gold : '#c9a23a', 0.08); R(-0.15, -1.93, 0.3, 0.26, '#5e3b20', 0.04); }   // buckle
+  }
+  if (kit === 'soldier' && D) {
+    line('#6e4a2c', 0.24, [[-1.2, -3.9], [1.2, -2.1]]);   // cross strap
+    R(-1.15, -1.6, 0.75, 0.65, '#6e5030', 0.12); R(-1.15, -1.6, 0.75, 0.2, '#56391f', 0.06);   // pouch
+    if (D > 1) { R(0.45, -1.6, 0.7, 0.65, '#6e5030', 0.12); R(0.45, -1.6, 0.7, 0.2, '#56391f', 0.06); }
+    for (const y of [-3.3, -2.7]) disc(rgb(col, -0.5), -0.05, y, 0.08);   // buttons
+  }
+  if (kit === 'knight') {
+    R(-1.3, -4, 2.6, 2.3, steel, 0.12); R(0.2, -4, 1.1, 2.3, steelD, 0.08); R(-0.3, -4, 0.6, 4, light, 0);
+    if (D) {
+      line('#a8b2bc', 0.06, [[-1.25, -2.9], [1.25, -2.9]]); line('#a8b2bc', 0.06, [[-1.25, -2.3], [1.25, -2.3]]);   // plate segments
+      for (const [rx, ry] of [[-1.05, -3.75], [1.05, -3.75], [-1.05, -1.95], [1.05, -1.95]]) disc('#eef2f5', rx, ry, 0.08);   // rivets
+      R(-1.3, -1.7, 2.6, 0.3, '#5e3b20', 0.05); R(-0.2, -1.75, 0.4, 0.4, gold, 0.06);   // belt
+      R(-1.15, -4, 0.35, 2.3, 'rgba(255,255,255,0.35)', 0);   // shine
+    }
+  }
+  if (kit === 'viking') {
+    R(-1.45, -4.1, 2.9, 0.7, fur, 0.3);
+    if (D) for (let i = 0; i < 8; i++) line('#6e5034', 0.07, [[-1.35 + i * 0.37, -4.1], [-1.3 + i * 0.37, -3.5]]);
+    if (D) { R(-1.3, -1.95, 2.6, 0.35, '#5e3b20', 0.05); R(-0.22, -2, 0.44, 0.45, '#b8c0c8', 0.06); }
+  }
+  if (kit === 'archer' && D) { line('#5e3b20', 0.22, [[1.2, -3.9], [-1.2, -1.9]]); R(-1.3, -1.9, 2.6, 0.32, '#5e3b20', 0); }
+  // stitched seams for detail level 2
+  if (D > 1 && kit !== 'barbarian' && kit !== 'knight') { x.setLineDash([0.18 * sc, 0.14 * sc]); line(rgb(col, -0.5), 0.05, [[-0.25, -3.95], [-0.25, -0.5]], 'butt'); x.setLineDash([]); }
+
+  // --- head ---
+  R(-1.15, -6.15, 2.3, 2.25, skin, o.round ? 0.55 : 0);
+  R(0.45, -6.15, 0.7, 2.25, 'rgba(180,140,110,0.35)', o.round ? 0.3 : 0);
+  if (o.cel) R(-1.15, -4.12, 2.3, 0.22, 'rgba(160,120,95,0.35)', 0);   // chin shadow
+  face(x, sc, kit, o, col);
+
+  // --- headgear + kit ---
+  if (kit === 'soldier') {
+    line(wood, 0.35, [[1.8, -0.4], [1.8, -6.4]]);
+    if (D) { line('#3a2414', 0.4, [[1.8, -6.1], [1.8, -6.5]], 'butt'); line(rgb(col), 0.22, [[1.8, -5.9], [2.4, -5.6]]); }   // binding + pennant tie
+    poly(steel, [[1.8, -7.15], [1.4, -6.25], [2.2, -6.25]]);
+    if (D) poly('#eef2f5', [[1.8, -7.0], [1.62, -6.35], [1.8, -6.35]]);
+    ell('#9aa4ae', 0, -6.05, 1.75, 0.35);
+    R(-0.95, -6.95, 1.9, 0.9, '#9aa4ae', o.round ? 0.4 : 0);
+    if (D) { R(-0.95, -6.95, 0.35, 0.9, '#c4ccd4', 0); ell('#b4bec8', 0, -6.1, 1.6, 0.18); for (const rx of [-0.6, 0, 0.6]) disc('#e2e8ee', rx, -6.3, 0.07); R(-0.95, -6.55, 1.9, 0.14, rgb(col), 0); }
+  } else if (kit === 'knight') {
+    R(-1.3, -6.5, 2.6, 1.15, steel, o.round ? 0.3 : 0); R(0.3, -6.5, 1, 1.15, steelD, 0);
+    R(-0.12, -5.5, 0.24, 0.8, steelD, 0.05);
+    if (D) { for (let i = 0; i < 3; i++) R(0.45, -5.95 + i * 0.22, 0.6, 0.08, '#5e6870', 0); disc('#eef2f5', -1.0, -6.2, 0.07); R(-1.3, -6.5, 2.6, 0.16, '#e2e8ee', 0); }
+    poly(body, [[-0.3, -6.5], [0.3, -6.5], [1.1, -7.2], [-0.5, -7.2]]);
+    if (D) { line(light, 0.07, [[-0.2, -6.7], [0.6, -7.1]]); line(side, 0.07, [[0, -6.55], [0.9, -7.0]]); }   // plume feathers
+    // shield with team stripe / emblem
+    R(-2.3, -3.8, 1.3, 2.6, side, o.round ? 0.3 : 0); R(-2.3, -3.8, 1.3, 0.35, steel, 0);
+    if (D) { poly(body, [[-2.15, -3.4], [-1.15, -3.4], [-1.15, -2.0], [-1.65, -1.45], [-2.15, -2.0]]); line('#f2f2f2', 0.2, [[-1.65, -3.25], [-1.65, -1.7]]); line('#f2f2f2', 0.2, [[-2.05, -2.65], [-1.25, -2.65]]); for (const [sx, sy] of [[-2.2, -1.3], [-1.1, -1.3]]) disc(steel, sx, sy, 0.07); }
+    else R(-1.8, -3.5, 0.3, 1.9, '#f2f2f2', 0);
+  } else if (kit === 'viking') {
+    R(-1.25, -6.55, 2.5, 0.85, '#8a9096', o.round ? 0.3 : 0);
+    if (D) { R(-0.12, -6.55, 0.24, 0.85, '#b4bac0', 0); for (const rx of [-0.8, 0.8]) disc('#c8ced4', rx, -6.15, 0.07); R(-0.1, -5.7, 0.2, 0.55, '#8a9096', 0.04); }
+    line('#f4ead2', 0.5, [[-1.1, -6.3], [-1.9, -7.1]]); line('#f4ead2', 0.5, [[1.1, -6.3], [1.9, -7.1]]);
+    if (D) { line('#c9b994', 0.52, [[-1.15, -6.3], [-1.32, -6.48]], 'butt'); line('#c9b994', 0.52, [[1.15, -6.3], [1.32, -6.48]], 'butt'); }   // horn rings
+    poly('#c8782e', [[-1.15, -4.8], [1.15, -4.8], [0.9, -3.4], [0, -2.9], [-0.9, -3.4]]);
+    if (D) { poly('#a85e20', [[0.15, -4.8], [1.15, -4.8], [0.9, -3.4], [0, -2.9]]); line('#e09a50', 0.08, [[-0.5, -4.6], [-0.4, -3.4]]); line('#e09a50', 0.08, [[0.35, -4.5], [0.3, -3.3]]);
+      R(-0.18, -3.15, 0.36, 0.2, '#c4ccd4', 0.05); }   // braid bead
+    // round shield: planks, studs, boss
+    disc('#8a5a34', -1.55, -2.3, 1.2);
+    if (D) { for (const a of [0, 1, 2, 3]) { const an = a * Math.PI / 4; line('#6e4426', 0.07, [[-1.55 + Math.cos(an) * 1.15, -2.3 + Math.sin(an) * 1.15], [-1.55 - Math.cos(an) * 1.15, -2.3 - Math.sin(an) * 1.15]]); }
+      for (let a = 0; a < 10; a++) disc('#c4ccd4', -1.55 + Math.cos(a * 0.628) * 1.05, -2.3 + Math.sin(a * 0.628) * 1.05, 0.07); }
+    disc(body, -1.55, -2.3, 0.75); disc('#d8dde2', -1.55, -2.3, 0.25);
+    if (D) disc('#ffffff', -1.62, -2.37, 0.08);
+  } else if (kit === 'archer') {
+    poly('#3f7a3c', [[-1.35, -4.4], [-1.35, -6.4], [-0.6, -7.2], [1.35, -6.4], [1.35, -5.6], [-0.4, -5.9], [-0.7, -4.4]]);
+    if (D) { line('#2f6a35', 0.08, [[-1.1, -6.3], [-0.55, -6.95], [1.1, -6.35]]); x.setLineDash([0.12 * sc, 0.1 * sc]); line('#6aa860', 0.05, [[1.3, -5.65], [-0.38, -5.95], [-0.68, -4.5]], 'butt'); x.setLineDash([]); poly('#c03030', [[-0.6, -7.2], [-0.25, -7.6], [-0.15, -7.0]]); }   // feather
+    line(wood, 0.4, [[1.4, -6.1], [2.2, -4.6], [2.2, -2.2], [1.4, -0.9]]);
+    if (D) { line('#c9a23a', 0.44, [[2.2, -3.8], [2.2, -3.0]], 'butt'); line('#e8d8b0', 0.1, [[1.4, -6.1], [1.55, -5.85]]); }
+    line('rgba(240,235,220,0.9)', 0.15, [[1.4, -6.1], [1.4, -0.9]]);
+  } else if (kit === 'wizard') {
+    poly('#f4f4f6', [[-0.9, -4.6], [0.95, -4.6], [0.7, -3], [0, -2.4], [-0.6, -3]]);
+    if (D) { for (const bx of [-0.4, 0.05, 0.45]) line('#d8d8e0', 0.06, [[bx, -4.5], [bx * 0.6, -2.9]]); line('#f4f4f6', 0.3, [[-0.3, -4.7], [-0.95, -4.4]]); line('#f4f4f6', 0.3, [[0.35, -4.7], [1.0, -4.4]]); }   // moustache
+    poly(side, [[-1.7, -6], [1.7, -6], [0.7, -7.2]]);
+    if (D) { poly(rgb(col, -0.45), [[0.2, -6], [1.7, -6], [0.7, -7.2]]); poly(side, [[0.7, -7.2], [1.3, -7.35], [1.1, -7.0]]); }   // bent tip
+    R(-1.7, -6.15, 3.4, 0.35, side, 0.1);
+    if (D) R(-1.0, -6.15, 2.0, 0.22, gold, 0);
+    disc(gold, 0.35, -6.55, 0.25);
+  } else if (kit === 'pirate') {
+    R(-1.15, -5.65, 2.3, 0.22, '#1d1d22', 0); R(0.25, -5.6, 0.6, 0.5, '#1d1d22', 0.15);
+    if (D) { disc(gold, -1.18, -4.75, 0.12); line('#3a2414', 0.25, [[-0.8, -4.3], [0, -4.15], [0.8, -4.3]]); }   // earring + stubble line
+    poly('#2a2a30', [[-1.9, -6.0], [0, -7.25], [1.9, -6.0], [0, -6.45]]);
+    if (D) { line(gold, 0.1, [[-1.9, -6.0], [0, -6.45], [1.9, -6.0]]); poly('#1a1a1f', [[0, -7.25], [1.9, -6.0], [0, -6.45]]); }
+    disc('#f2f2f2', 0, -6.75, 0.22);
+    if (D) { disc('#1d1d22', -0.07, -6.78, 0.05); disc('#1d1d22', 0.07, -6.78, 0.05); line('#f2f2f2', 0.06, [[-0.2, -6.5], [0.2, -6.42]]); }   // tiny skull
+    line('#d4dbe2', 0.38, [[1.3, -1.8], [2.3, -3.2], [2.1, -5.2]]);
+    if (D) line('#ffffff', 0.1, [[1.45, -2.0], [2.32, -3.25], [2.17, -4.9]]);
+    R(1.05, -2, 0.6, 0.35, '#c9a23a', 0.08);
+  } else if (kit === 'barbarian') {
+    poly(fur, [[-1.4, -5.1], [-1.4, -6.5], [1.4, -6.5], [1.4, -5.1], [1.05, -5.9], [-1.05, -5.9]]);
+    if (D) for (let i = 0; i < 7; i++) line('#6e5034', 0.07, [[-1.25 + i * 0.42, -6.45], [-1.3 + i * 0.42, -6.0]]);
+    disc(fur, -1.05, -6.75, 0.42); disc(fur, 1.05, -6.75, 0.42);
+    if (D) { disc('#c89a7a', -1.05, -6.75, 0.2); disc('#c89a7a', 1.05, -6.75, 0.2); }
+    poly('#6e4a2c', [[1.4, -1.4], [1.85, -1.5], [2.45, -5.1], [1.35, -5]]); disc('#6e4a2c', 1.9, -5.3, 0.65);
+    if (D) { line('#4e3218', 0.07, [[1.6, -1.6], [1.75, -4.6]]); for (const [nx, ny] of [[1.45, -5.5], [2.3, -5.6], [1.9, -5.9], [1.55, -4.85], [2.25, -4.95]]) poly('#c4ccd4', [[nx - 0.1, ny], [nx + 0.1, ny], [nx, ny - 0.3]]); line('#3a2414', 0.45, [[1.55, -1.9], [1.75, -1.85]], 'butt'); }
+  }
+  // gloss: soft white shine on body + head (vinyl)
+  if (o.gloss) {
+    x.fillStyle = 'rgba(255,255,255,0.35)';
+    x.beginPath(); x.ellipse(-0.65 * sc, -5.6 * sc, 0.32 * sc, 0.16 * sc, -0.5, 0, 7); x.fill();
+    x.beginPath(); x.roundRect(-1.1 * sc, -3.8 * sc, 0.28 * sc, 2.2 * sc, 0.14 * sc); x.fill();
+  }
+}
+
+// ---------- faces ----------
+// 0 none · 1 dot eyes · 2 eyes + highlight + small mouth · 3 brows, mouths and moods per kit
+function face(x, sc, kit, o, col) {
+  if (!o.face) return;
+  const ink = '#2a1e18';
+  const dot = (px, py, r, c = ink) => { x.fillStyle = c; x.beginPath(); x.arc(px * sc, py * sc, r * sc, 0, 7); x.fill(); };
+  const ln = (w, pts, c = ink) => { x.strokeStyle = c; x.lineWidth = w * sc; x.lineCap = 'round'; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, px * sc, py * sc)); x.stroke(); };
+  const ox = kit === 'archer' ? 0.18 : 0.08, ey = kit === 'knight' ? -5.05 : -5.15;
+  const eyes = kit === 'pirate' ? [-0.45 + ox] : [-0.45 + ox, 0.45 + ox];
+  const big = o.face === 3 ? 0.22 : o.face === 2 ? 0.17 : 0.12;
+  for (const ex of eyes) {
+    if (o.face === 3) { dot(ex, ey, big + 0.06, '#ffffff'); dot(ex + 0.04, ey + 0.02, big - 0.02); }
+    else dot(ex, ey, big);
+    if (o.face >= 2) dot(ex - 0.05, ey - 0.07, 0.06, '#ffffff');
+  }
+  const beard = kit === 'viking' || kit === 'wizard';
+  if (o.face === 2 && !beard) ln(0.08, [[-0.15 + ox, -4.5], [0.05 + ox, -4.42], [0.25 + ox, -4.5]]);
+  if (o.face === 3) {
+    // brows + mouths: each kit has its own mood
+    const moods = { soldier: 'grit', knight: 'proud', viking: 'angry', archer: 'sly', wizard: 'wise', pirate: 'grin', barbarian: 'roar' };
+    const m = moods[kit], bw = 0.11;
+    const brow = (ex, tilt) => ln(bw, [[ex - 0.25, ey - 0.38 - tilt], [ex + 0.25, ey - 0.38 + tilt]]);
+    if (m === 'angry' || m === 'roar' || m === 'grit') { brow(-0.45 + ox, -0.12); brow(0.45 + ox, 0.12); }
+    else if (m === 'sly') { brow(-0.45 + ox, 0.06); brow(0.45 + ox, -0.1); }
+    else if (m === 'wise') { ln(0.16, [[-0.75 + ox, ey - 0.4], [-0.2 + ox, ey - 0.36]], '#f4f4f6'); ln(0.16, [[0.2 + ox, ey - 0.36], [0.75 + ox, ey - 0.4]], '#f4f4f6'); }
+    else if (m === 'grin') brow(-0.45 + ox, -0.08);
+    if (m === 'grit') { x.fillStyle = '#ffffff'; x.fillRect((-0.3 + ox) * sc, -4.6 * sc, 0.6 * sc, 0.2 * sc); ln(0.05, [[-0.3 + ox, -4.6], [0.3 + ox, -4.6], [0.3 + ox, -4.4], [-0.3 + ox, -4.4], [-0.3 + ox, -4.6]]); }
+    if (m === 'proud') ln(0.08, [[-0.2 + ox, -4.5], [0.05 + ox, -4.4], [0.3 + ox, -4.55]]);
+    if (m === 'sly') ln(0.08, [[-0.2 + ox, -4.45], [0.3 + ox, -4.6]]);
+    if (m === 'grin') { x.fillStyle = ink; x.beginPath(); x.ellipse((0.05 + ox) * sc, -4.5 * sc, 0.38 * sc, 0.2 * sc, 0, 0, Math.PI); x.fill(); x.fillStyle = '#ffd76a'; x.fillRect((0.15 + ox) * sc, -4.5 * sc, 0.12 * sc, 0.1 * sc); }
+    if (m === 'roar') { x.fillStyle = '#7a2a20'; x.beginPath(); x.ellipse((0.05 + ox) * sc, -4.42 * sc, 0.3 * sc, 0.26 * sc, 0, 0, 7); x.fill(); x.fillStyle = '#fff'; x.fillRect((-0.15 + ox) * sc, -4.66 * sc, 0.4 * sc, 0.08 * sc); }
+    if (!beard && m !== 'roar') { dot(-0.85 + ox, -4.7, 0.16, 'rgba(240,120,110,0.35)'); dot(0.85 + ox, -4.7, 0.16, 'rgba(240,120,110,0.35)'); }
+  }
+}
+
+// ---------- post effects: draw one figure into its own canvas, then decorate ----------
+function figureCanvas(sc, col, kit, o, dpr) {
+  const W = Math.ceil(7 * sc), H = Math.ceil(9.2 * sc);
+  const px = o.pixel && sc > 6;   // pixel art: draw at a low resolution then scale up crisp
+  const s = px ? Math.max(1, Math.round(sc * o.pixel)) : sc * dpr;
+  const c = document.createElement('canvas'); c.width = Math.ceil(7 * s); c.height = Math.ceil(9.2 * s);
+  const x = c.getContext('2d');
+  x.translate(3.5 * s, 8.4 * s);
+  foglet(x, s, col, kit, o);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  if (px) {
+    // dither: checkerboard darkening on the shaded right half
+    const im = x.getImageData(0, 0, c.width, c.height), d = im.data;
+    for (let yy = 0; yy < c.height; yy++) for (let xx = 0; xx < c.width; xx++) {
+      const i = (yy * c.width + xx) * 4;
+      if (d[i + 3] < 128) { d[i + 3] = 0; continue; }
+      d[i + 3] = 255;
+      if (xx > c.width * 0.53 && (xx + yy) % 2 === 0) for (let k = 0; k < 3; k++) d[i + k] *= 0.88;
+    }
+    x.putImageData(im, 0, 0);
+    // 1px dark outline on the pixel grid
+    const o2 = document.createElement('canvas'); o2.width = c.width; o2.height = c.height; const y = o2.getContext('2d');
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) y.drawImage(c, dx, dy);
+    y.globalCompositeOperation = 'source-in'; y.fillStyle = '#1e2a2e'; y.fillRect(0, 0, o2.width, o2.height);
+    y.globalCompositeOperation = 'source-over'; y.drawImage(c, 0, 0);
+    const big = document.createElement('canvas'); big.width = W * dpr; big.height = H * dpr; const b = big.getContext('2d');
+    b.imageSmoothingEnabled = false; b.drawImage(o2, 0, 0, big.width, big.height);
+    return big;
+  }
+  const out = document.createElement('canvas'); out.width = c.width; out.height = c.height; const y = out.getContext('2d');
+  // ink outline: stamp the silhouette around in dark, then the figure on top
+  if (o.outline) {
+    const r = o.outline * s;
+    for (let a = 0; a < 16; a++) y.drawImage(c, Math.cos(a / 16 * 6.283) * r, Math.sin(a / 16 * 6.283) * r);
+    y.globalCompositeOperation = 'source-in'; y.fillStyle = '#1b2226'; y.fillRect(0, 0, out.width, out.height); y.globalCompositeOperation = 'source-over';
+  }
+  // fog glow: team-coloured halo behind the figure
+  if (o.rim) { y.save(); y.shadowColor = rgb(col, 0.3, 0.9); y.shadowBlur = 0.9 * s; y.drawImage(c, 0, 0); y.restore(); }
+  y.drawImage(c, 0, 0);
+  // rim light: lit edge on the left from the team colour
+  if (o.rim) {
+    const rm = document.createElement('canvas'); rm.width = c.width; rm.height = c.height; const z = rm.getContext('2d');
+    z.drawImage(c, 0, 0); z.globalCompositeOperation = 'source-in'; z.fillStyle = rgb(col, 0.55); z.fillRect(0, 0, rm.width, rm.height);
+    z.globalCompositeOperation = 'destination-out'; z.drawImage(c, 0.16 * s, 0.06 * s);
+    y.save(); y.globalCompositeOperation = 'source-atop'; y.fillStyle = 'rgba(10,20,40,0.28)'; y.fillRect(0, 0, out.width, out.height); y.restore();   // night tint
+    y.drawImage(rm, 0, 0);
+  }
+  // painted paper grain + soft edge
+  if (o.paper) {
+    y.save(); y.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < out.width * out.height / 40; i++) { y.fillStyle = Math.random() < 0.5 ? 'rgba(255,245,220,0.10)' : 'rgba(60,40,20,0.10)'; y.fillRect(Math.random() * out.width, Math.random() * out.height, 2 * dpr, 2 * dpr); }
+    for (let i = 0; i < 26; i++) { y.strokeStyle = 'rgba(255,240,210,0.12)'; y.lineWidth = 0.25 * s; const sx = Math.random() * out.width, sy = Math.random() * out.height; y.beginPath(); y.moveTo(sx, sy); y.lineTo(sx + 0.8 * s, sy - 0.3 * s); y.stroke(); }
+    y.restore();
+    const soft = document.createElement('canvas'); soft.width = out.width; soft.height = out.height; const z = soft.getContext('2d');
+    z.filter = `blur(${0.05 * s}px)`; z.globalAlpha = 0.5; z.drawImage(out, 0.06 * s, 0.05 * s); z.filter = 'none'; z.globalAlpha = 1; z.drawImage(out, 0, 0);
+    return soft;
+  }
+  // battle-worn: dirt at the hem, scratches, scuffs
+  if (o.grit) {
+    y.save(); y.globalCompositeOperation = 'source-atop';
+    const g = y.createLinearGradient(0, 6 * s, 0, 8.4 * s); g.addColorStop(0, 'rgba(70,50,30,0)'); g.addColorStop(1, 'rgba(70,50,30,0.55)');
+    y.fillStyle = g; y.fillRect(0, 0, out.width, out.height);
+    let seed = kit.length * 7.3;
+    const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < 14; i++) { y.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(30,20,10,0.4)'; y.lineWidth = 0.05 * s; const sx = (1.8 + rnd() * 3.4) * s, sy = (2 + rnd() * 6) * s; y.beginPath(); y.moveTo(sx, sy); y.lineTo(sx + (rnd() - 0.5) * 0.7 * s, sy + rnd() * 0.4 * s); y.stroke(); }
+    for (let i = 0; i < 40; i++) { y.fillStyle = 'rgba(60,45,30,0.25)'; y.beginPath(); y.arc((1.6 + rnd() * 3.8) * s, (3 + rnd() * 5.4) * s, rnd() * 0.12 * s, 0, 7); y.fill(); }
+    y.restore();
+  }
+  return out;
+}
+
+// ---------- page ----------
+const cv = document.getElementById('cv'), stage = document.getElementById('stage'), bg = document.getElementById('bg');
+const bgs = {
+  grass: 'radial-gradient(ellipse 40% 30% at 15% 20%, rgba(255,255,255,0.35), transparent 70%), radial-gradient(ellipse 40% 30% at 85% 85%, rgba(255,255,255,0.3), transparent 70%), linear-gradient(180deg, #cfe3b8, #9fc98a)',
+  paper: 'radial-gradient(ellipse 60% 50% at 50% 40%, #fbf1dc, #e7d3ad)',
+  mud: 'radial-gradient(ellipse 50% 40% at 30% 30%, rgba(255,255,255,0.2), transparent 70%), linear-gradient(180deg, #c7c0a6, #8f8a70)',
+  night: 'radial-gradient(ellipse 35% 25% at 20% 30%, rgba(160,190,220,0.18), transparent 70%), radial-gradient(ellipse 40% 25% at 75% 75%, rgba(160,190,220,0.14), transparent 70%), linear-gradient(180deg, #1c2a3a, #0e1620)',
+};
+let cur = 0;
+function render() {
+  const o = opts[cur];
+  desat = o.desat || 0;
+  document.getElementById('tag').textContent = 'ABCDEFGH'[cur];
+  document.getElementById('name').textContent = o.name;
+  document.getElementById('pitch').textContent = o.pitch;
+  document.getElementById('notes').innerHTML = `<b>Good</b><ul>${o.pros.map((p) => `<li>${p}</li>`).join('')}</ul><b>Watch out</b><ul style="margin:0">${o.cons.map((p) => `<li>${p}</li>`).join('')}</ul>`;
+  stage.classList.toggle('dark', !!o.dark);
+  bg.style.background = bgs[o.bg];
+  // canvas at the screen's pixel density times the frame scale, so it stays sharp when zoomed
+  const dpr = Math.min(3, (window.devicePixelRatio || 1));
+  cv.width = 1280 * dpr; cv.height = 720 * dpr;
+  const x = cv.getContext('2d');
+  x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, 1280, 720);
+  const put = (cx, cy, sc, col, kit) => {
+    // ground shadow, then the figure canvas (feet at cx, cy)
+    x.fillStyle = o.dark ? 'rgba(0,0,0,0.45)' : 'rgba(20,30,30,0.22)';
+    x.beginPath(); x.ellipse(cx, cy + 0.15 * sc, 2.3 * sc, 0.55 * sc, 0, 0, 7); x.fill();
+    const f = figureCanvas(sc, col, kit, o, dpr);
+    x.drawImage(f, cx - 3.5 * sc, cy - 8.4 * sc, 7 * sc, 9.2 * sc);
+  };
+  // hero row: your band, big
+  kits.forEach((k, i) => put(120 + i * 172, 400, 34, blue, k));
+  // rival band, medium
+  kits.forEach((k, i) => put(80 + i * 98, 550, 13, red, k));
+  // map scale strip: a grass/fog tile with figures at zoom 2, 3, 4 (the 5 x 8 map figure)
+  x.fillStyle = o.dark ? '#1f3326' : '#7fb26a'; x.beginPath(); x.roundRect(36, 596, 780, 100, 14); x.fill();
+  x.fillStyle = o.dark ? 'rgba(170,200,230,0.12)' : 'rgba(255,255,255,0.35)';
+  x.beginPath(); x.ellipse(700, 650, 120, 40, 0, 0, 7); x.fill();
+  [2, 3, 4].forEach((z, j) => kits.forEach((k, i) => put(70 + j * 260 + i * (z * 7.2 + 4) , 676, z, i % 2 && j === 1 ? red : blue, k)));
+}
+document.querySelectorAll('.switch button').forEach((b) => b.onclick = () => {
+  cur = +b.dataset.f;
+  document.querySelectorAll('.switch button').forEach((y) => y.classList.toggle('on', y === b));
+  render();
+});
+// fit the 1280x720 frame under the (possibly wrapped) switcher
+function fit() {
+  const top = document.querySelector('.switch').offsetHeight + 6, el = stage;
+  const w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
+  const s = Math.min(w / 1280, Math.max(h - top - 6, 200) / 720, 1);
+  el.style.top = top + 'px'; el.style.transform = `translateX(-50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+// ?o=3 opens an option directly (used for screenshots)
+const want = new URLSearchParams(location.search).get('o');
+document.fonts.ready.then(() => { if (want) document.querySelector(`.switch button[data-f="${want}"]`)?.click(); else render(); });
+</script>
+</body>
+</html>

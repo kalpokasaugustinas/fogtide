@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=97';
-import { generateMap, rng } from './mapgen.js?v=97';
-import { initAnalytics, track } from './analytics.js?v=97';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=97';
-import { Battle } from './battle.js?v=97';
-import { personalities } from './ai.js?v=97';
-import { Campaign } from './campaign.js?v=97';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=97';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=97';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=97';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=97';
-import { previewBuildings } from './structures.js?v=97';
-import { initTune, tuneChanges } from './tune.js?v=97';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=98';
+import { generateMap, rng } from './mapgen.js?v=98';
+import { initAnalytics, track } from './analytics.js?v=98';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=98';
+import { Battle } from './battle.js?v=98';
+import { personalities } from './ai.js?v=98';
+import { Campaign } from './campaign.js?v=98';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=98';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=98';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=98';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=98';
+import { previewBuildings } from './structures.js?v=98';
+import { initTune, tuneChanges } from './tune.js?v=98';
 
 const $ = (id) => document.getElementById(id);
 
