@@ -193,6 +193,13 @@ function cross(x, cx, cy, s, col) {
 const fieldColors = [[226, 198, 112], [150, 172, 92], [176, 132, 92], [184, 196, 112], [212, 184, 96]];
 
 // radius (css px) of the field patch a farm gets on a terrain tile: about half the tile's size
+// enough island around a css px point for a scene piece reaching r css px sideways
+const roomy = (v, px, py, r) => v.clearAt(px, py) >= r;
+
+// neutral camp ring radius (in u): grows with the garrison level, but never past the free land
+// around the spot, so the palisade doesn't stand on the fog beyond the coast
+function campR(v, p, u, lv) { return Math.min(3.5 + lv * 1.2, Math.max(1.4, v.clearAt(p[0], p[1] - u * 0.5) / u - 0.3)); }
+
 export function fieldPatch(v, s) { return Math.min(v.u * 8, 0.5 * Math.sqrt(s.area / Math.PI) * v.scale); }
 
 export function ground(v, x, id, type, owner) {
@@ -258,7 +265,7 @@ export function ground(v, x, id, type, owner) {
       // neutral camp: trampled ground under the hamlet
       const [p] = v.spots(id, 1, 0);
       if (!p) return;
-      const r = 3.5 + Number(type.slice(4)) * 1.2;
+      const r = campR(v, p, u, Number(type.slice(4)));
       x.fillStyle = css(snow ? [220, 218, 214] : [178, 160, 122], 0.7);
       x.beginPath(); x.ellipse(p[0], p[1] - u * 0.5, u * r, u * r * 0.58, 0, 0, Math.PI * 2); x.fill();
     })(u * Math.max(0.62, v.map.detail ?? 1));
@@ -280,6 +287,21 @@ export function ground(v, x, id, type, owner) {
     x.strokeStyle = 'rgba(255, 235, 170, 0.8)';
     x.lineWidth = Math.max(1, u * 0.18);
     x.beginPath(); x.ellipse(p[0], p[1] - u * 0.3, u * 3.6, u * 2.1, 0, 0, Math.PI * 2); x.stroke();
+  } else if (type === 'obelisk') {
+    // boss mist obelisk: violet glow on the ground, a rune ring and a dark flagstone plinth
+    const [p] = v.spots(id, 1, 0);
+    if (!p) { x.restore(); return; }
+    x.fillStyle = 'rgba(130, 145, 255, 0.3)';
+    x.beginPath(); x.ellipse(p[0], p[1] - u * 0.3, u * 5.6, u * 3.3, 0, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = 'rgba(200, 210, 255, 0.85)';
+    x.lineWidth = Math.max(1, u * 0.2);
+    x.beginPath(); x.ellipse(p[0], p[1] - u * 0.3, u * 4.3, u * 2.5, 0, 0, Math.PI * 2); x.stroke();
+    for (let i = 0; i < 8; i++) {   // rune ticks around the ring
+      const a = (i / 8) * Math.PI * 2, rx = p[0] + Math.cos(a) * u * 4.3, ry = p[1] - u * 0.3 + Math.sin(a) * u * 2.5;
+      x.beginPath(); x.moveTo(rx - u * 0.3, ry); x.lineTo(rx + u * 0.3, ry); x.stroke();
+    }
+    x.fillStyle = css([74, 70, 96]);
+    x.beginPath(); x.ellipse(p[0], p[1] - u * 0.1, u * 2.2, u * 1.25, 0, 0, Math.PI * 2); x.fill();
   } else if (type === 'lab') {
     // paved plaza with a ring pattern
     const [p] = v.spots(id, 1, 0);
@@ -301,6 +323,7 @@ export function top(v, x, id, type, owner, skin) {
   if (type === 'farm') {
     // farmhouses with haystacks
     for (const [i, [px, py]] of v.spots(id, 3, u * 6).entries()) {
+      if (i && !roomy(v, px, py, u * 1.8)) continue;   // extra farmhouse would stand on the fog
       house(x, px, py, u, wallWhite, i === 0 ? roofRed : [150, 120, 80]);
       x.fillStyle = css([224, 190, 100]);
       x.beginPath(); x.arc(px + u * 2.4, py - u * 0.4, u * 0.6, Math.PI, 0); x.fill();
@@ -354,6 +377,8 @@ export function top(v, x, id, type, owner, skin) {
     const [c, a, b] = v.spots(id, 3, u * 7);
     if (!c) { x.restore(); return; }
     const [px, py] = c;
+    // tiny coastal tile: the castle shrinks to the land around its spot (towers reach 4.1 u)
+    ((u) => {
     shadow(x, px + u, py + u * 0.2, u * 4.5, u * 0.8);
     x.fillStyle = css(stone);
     x.fillRect(px - u * 3, py - u * 2.4, u * 6, u * 2.4);
@@ -364,8 +389,9 @@ export function top(v, x, id, type, owner, skin) {
     tower(x, px - u * 3.2, py, u, 1.8, 3.6);
     const t2 = tower(x, px + u * 3.2, py, u, 1.8, 3.6);
     flag(x, px + u * 3.2, t2, u, col);
-    if (a) for (let i = 0; i < 2; i++) tent(x, a[0] + (i - 0.5) * u * 2.6, a[1], u, [226, 218, 200]);
-    if (b) for (let r = 0; r < 3; r++) for (let q = 0; q < 5; q++) soldier(x, b[0] + (q - 2) * u * 0.9 + r * u * 0.3, b[1] + (r - 1) * u * 1.1, u, col);
+    })(u * Math.min(1, Math.max(0.55, v.clearAt(px, py) / (u * 4.4))));
+    if (a && roomy(v, a[0], a[1], u * 2.4)) for (let i = 0; i < 2; i++) tent(x, a[0] + (i - 0.5) * u * 2.6, a[1], u, [226, 218, 200]);
+    if (b && roomy(v, b[0], b[1], u * 2.3)) for (let r = 0; r < 3; r++) for (let q = 0; q < 5; q++) soldier(x, b[0] + (q - 2) * u * 0.9 + r * u * 0.3, b[1] + (r - 1) * u * 1.1, u, col);
   } else if (type === 'capital') {
     // walled town: wall along the segment edge, houses around a tall keep with a big flag
     x.save();
@@ -383,7 +409,7 @@ export function top(v, x, id, type, owner, skin) {
     const [c, ...homes] = v.spots(id, 7, u * 3.2);
     if (!c) { x.restore(); return; }
     const roofs = [roofRed, [150, 110, 80], [120, 130, 150], roofRed];
-    for (const [i, h] of homes.entries()) house(x, h[0], h[1], u * 0.85, wallWhite, roofs[i % roofs.length]);
+    for (const [i, h] of homes.entries()) if (roomy(v, h[0], h[1], u * 1.2)) house(x, h[0], h[1], u * 0.85, wallWhite, roofs[i % roofs.length]);
     const ty = tower(x, c[0], c[1], u, 3, 5.4, lt(stone, 0.1));
     tower(x, c[0] - u * 2.2, c[1] + u * 0.3, u, 1.5, 3.6);
     tower(x, c[0] + u * 2.2, c[1] + u * 0.3, u, 1.5, 3.6);
@@ -395,10 +421,12 @@ export function top(v, x, id, type, owner, skin) {
       // with a watch fire; roofs turn to the owner's colour once someone takes it
       const lv = Number(type.slice(4)), [p] = v.spots(id, 1, 0);
       if (!p) return;
-      const r = 3.5 + lv * 1.2, roofs = owner ? [col, dk(col, 0.25)] : [[124, 104, 86], [150, 120, 84], [112, 112, 118]];
+      const r = campR(v, p, u, lv), roofs = owner ? [col, dk(col, 0.25)] : [[124, 104, 86], [150, 120, 84], [112, 112, 118]];
       const homes = [];
-      for (let i = 0; i <= lv; i++) {
-        const a = (i / (lv + 1)) * Math.PI * 2 + rnd(i, 41, seed) * 0.8;
+      // a tight ring has room for fewer houses (at least one)
+      const nh = Math.min(lv + 1, Math.max(1, Math.floor(r / 1.6)));
+      for (let i = 0; i < nh; i++) {
+        const a = (i / nh) * Math.PI * 2 + rnd(i, 41, seed) * 0.8;
         homes.push([p[0] + Math.cos(a) * u * r * 0.45, p[1] - u * 0.5 + Math.sin(a) * u * r * 0.26]);
       }
       homes.sort((a, b) => a[1] - b[1]);
@@ -462,6 +490,34 @@ export function top(v, x, id, type, owner, skin) {
     x.beginPath(); x.arc(p[0], p[1] - u * 5.3, u * 2.4, 0, Math.PI * 2); x.fill();
     x.fillStyle = css([255, 205, 80]);
     x.beginPath(); x.moveTo(p[0], p[1] - u * 6.2); x.lineTo(p[0] - u * 0.6, p[1] - u * 5.3); x.lineTo(p[0], p[1] - u * 4.5); x.lineTo(p[0] + u * 0.6, p[1] - u * 5.3); x.fill();
+  } else if (type === 'obelisk') {
+    // boss mist obelisk: big dark slate needle with blue-violet runes, a mist crystal hovering on
+    // top (its live pulse and the pour-out flare are drawn every frame, see main.js drawUnits)
+    const [p] = v.spots(id, 1, 0);
+    if (!p) { x.restore(); return; }
+    const hgt = u * 8, w0 = u * 1.25, w1 = u * 0.7, cy = p[1] - u * 9.4;
+    shadow(x, p[0] + u * 1.4, p[1], u * 2.4, u * 0.6);
+    x.fillStyle = css([92, 88, 118]);   // plinth step
+    x.fillRect(p[0] - u * 1.7, p[1] - u * 0.6, u * 3.4, u * 0.7);
+    x.fillStyle = css([82, 78, 108]);   // lit face
+    x.beginPath(); x.moveTo(p[0] - w0, p[1] - u * 0.5); x.lineTo(p[0] - w1, p[1] - hgt); x.lineTo(p[0], p[1] - hgt - u * 0.9); x.lineTo(p[0], p[1] - u * 0.5); x.fill();
+    x.fillStyle = css([54, 50, 76]);    // shaded face
+    x.beginPath(); x.moveTo(p[0], p[1] - u * 0.5); x.lineTo(p[0], p[1] - hgt - u * 0.9); x.lineTo(p[0] + w1, p[1] - hgt); x.lineTo(p[0] + w0, p[1] - u * 0.5); x.fill();
+    x.strokeStyle = css([170, 185, 255], 0.95);   // glowing runes down the lit face
+    x.lineWidth = Math.max(1, u * 0.22);
+    x.beginPath(); x.moveTo(p[0] - u * 0.5, p[1] - u * 1.2); x.lineTo(p[0] - u * 0.36, p[1] - hgt + u * 0.6); x.stroke();
+    for (let i = 1; i <= 5; i++) {
+      const ry = p[1] - u * i * 1.3, rw = u * (0.75 - i * 0.05);
+      x.beginPath(); x.moveTo(p[0] - rw, ry); x.lineTo(p[0] - u * 0.12, ry - u * 0.25); x.stroke();
+    }
+    const halo = x.createRadialGradient(p[0], cy, 0, p[0], cy, u * 3);
+    halo.addColorStop(0, 'rgba(200, 210, 255, 0.7)'); halo.addColorStop(1, 'rgba(130, 145, 255, 0)');
+    x.fillStyle = halo;
+    x.beginPath(); x.arc(p[0], cy, u * 3, 0, Math.PI * 2); x.fill();
+    x.fillStyle = css([150, 165, 255]);   // mist crystal: tall diamond, light left half
+    x.beginPath(); x.moveTo(p[0], cy - u * 1.3); x.lineTo(p[0] + u * 0.75, cy); x.lineTo(p[0], cy + u * 1.1); x.fill();
+    x.fillStyle = css([226, 230, 255]);
+    x.beginPath(); x.moveTo(p[0], cy - u * 1.3); x.lineTo(p[0] - u * 0.75, cy); x.lineTo(p[0], cy + u * 1.1); x.fill();
   } else if (type === 'hospital') {
     // white infirmary with a red cross, medical tents
     const [c, ...rest] = v.spots(id, 3, u * 6);
@@ -469,7 +525,7 @@ export function top(v, x, id, type, owner, skin) {
     house(x, c[0], c[1], u, wallWhite, [214, 214, 218], 4, 1.8);
     cross(x, c[0] - u * 0.8, c[1] - u * 3.1, u * 0.6, [214, 64, 60]);
     flag(x, c[0] + u * 2.2, c[1] - u * 1.8, u, col);
-    for (const p of rest) tent(x, p[0], p[1], u, [242, 242, 238], [214, 64, 60]);
+    for (const p of rest) if (roomy(v, p[0], p[1], u * 1.2)) tent(x, p[0], p[1], u, [242, 242, 238], [214, 64, 60]);
   } else if (type === 'lab') {
     // domed observatory, a tower with glowing windows, crystals
     const [c, a, b] = v.spots(id, 3, u * 6);
@@ -488,12 +544,12 @@ export function top(v, x, id, type, owner, skin) {
     x.lineWidth = u * 0.35;
     x.beginPath(); x.moveTo(px - u * 0.3, py - u * 3.4); x.lineTo(px + u * 1.4, py - u * 4.6); x.stroke();   // telescope
     flag(x, px - u * 1.8, py - u * 2.2, u, col);
-    if (a) {
+    if (a && roomy(v, a[0], a[1], u * 1)) {
       const ty = tower(x, a[0], a[1], u, 1.6, 4.2, [210, 206, 214]);
       x.fillStyle = css([120, 230, 240]);
       for (let i = 0; i < 3; i++) x.fillRect(a[0] - u * 0.2, ty + u * (1 + i * 1.1), u * 0.4, u * 0.5);
     }
-    if (b) for (let i = 0; i < 3; i++) {
+    if (b && roomy(v, b[0], b[1], u * 1.7)) for (let i = 0; i < 3; i++) {
       const bx = b[0] + (i - 1) * u * 1.2, by = b[1] + (i % 2) * u * 0.4, hgt = u * (1.4 + rnd(i, 9, seed) * 1.2);
       x.fillStyle = 'rgba(120,230,240,0.35)';
       x.beginPath(); x.arc(bx, by - hgt * 0.5, hgt * 0.7, 0, Math.PI * 2); x.fill();

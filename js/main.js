@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=101';
-import { generateMap, rng } from './mapgen.js?v=101';
-import { initAnalytics, track } from './analytics.js?v=101';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=101';
-import { Battle } from './battle.js?v=101';
-import { personalities } from './ai.js?v=101';
-import { Campaign } from './campaign.js?v=101';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=101';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=101';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=101';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=101';
-import { previewBuildings } from './structures.js?v=101';
-import { initTune, tuneChanges } from './tune.js?v=101';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=102';
+import { generateMap, rng } from './mapgen.js?v=102';
+import { initAnalytics, track } from './analytics.js?v=102';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=102';
+import { Battle } from './battle.js?v=102';
+import { personalities } from './ai.js?v=102';
+import { Campaign } from './campaign.js?v=102';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=102';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=102';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=102';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=102';
+import { previewBuildings } from './structures.js?v=102';
+import { initTune, tuneChanges } from './tune.js?v=102';
 
 const $ = (id) => document.getElementById(id);
 
@@ -246,7 +246,7 @@ function paintBattle() {
   if (selected >= 0 && !isMine(selected)) selected = -1;
   const adj = selected >= 0 ? battle.segs[selected].adj : [];
   bv.paint((id) => {
-    const s = battle.segs[id], o = s.owner, building = s.building ?? (s.relic ? 'relic' : s.home ? 'home' : s.camp ? 'camp' + s.camp : null);   // shrine shows until something is built
+    const s = battle.segs[id], o = s.owner, building = s.obelisk ? 'obelisk' : s.building ?? (s.relic ? 'relic' : s.home ? 'home' : s.camp ? 'camp' + s.camp : null);   // shrine shows until something is built
     if (o < 0) return { color: null, fill: 0, building, huts: !building };   // neutral: shacks show people live there
     return { color: colors[battle.factions[o].color], fill: 0.16, building, skin: battle.factions[o].skin?.buildings };
   });
@@ -285,6 +285,19 @@ function drawUnits(ctx, v, b, ac, numbers) {
     ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(1, 0.55); ctx.translate(-p[0], -p[1]);
     ctx.beginPath(); ctx.arc(p[0], p[1], u * 4.5, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+  }
+  for (const s of b.segs) {
+    if (!s.obelisk) continue;
+    const [p] = v.spots(s.id, 1, 0), u = v.u;
+    if (!p) continue;
+    // drain: 0 before the win, then a flare for ~0.4 s that settles to a dim glow (spent)
+    const d = s.drainAt ? (performance.now() - s.drainAt) / 1000 : -1;
+    const flare = d < 0 ? 0 : d < 0.4 ? d / 0.4 : Math.max(0, 1 - (d - 0.4) / 0.8);
+    const k = d > 1.2 ? 0.35 : 1, gx = p[0], gy = p[1] - u * 9.4, r = u * (3.6 + 1.1 * glow + 5 * flare);
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
+    g.addColorStop(0, `rgba(190, 200, 255, ${(0.38 + 0.2 * glow) * k + 0.5 * flare})`); g.addColorStop(0.45, `rgba(130, 145, 255, ${(0.14 + 0.1 * glow) * k + 0.25 * flare})`); g.addColorStop(1, 'rgba(120, 130, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(gx, gy, r, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
   for (const s of b.segs) {
@@ -709,7 +722,7 @@ const wheelIcons = {
 };
 function renderWheel() {
   const box = $('wheel'), s = battle && selected >= 0 ? battle.segs[selected] : null;
-  const want = wheelOn && s && s.owner === 0 && !s.building && !s.capital ? selected : -1;
+  const want = wheelOn && s && s.owner === 0 && !s.building && !s.capital && !s.obelisk ? selected : -1;
   if (want === wheelFor) return;
   wheelFor = want;
   wheelPos = '';
@@ -798,6 +811,7 @@ function updatePanel() {
       s.trait && `<span>${traits[s.trait].name}: ${traits[s.trait].desc}</span>`,
       s.building && !s.capital && `<span>${buildings[s.building].icon} ${buildings[s.building].name}: ${buildingEffect(s)}</span>`,
       relic && `<span class="gold">✨ ${relic.name}: ${relic.desc}</span>`,
+      s.obelisk && `<span class="gold">💠 Mist obelisk: win the boss stage and it pours out Mist</span>`,
       s.capital && s.owner === 0 && `<span class="gold">${capitalInfo(s)}</span>`,
       battle.deplete && s.owner >= 0 && `<span>🌾 Land: ${battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'}</span>`,
     ].filter(Boolean).join('');
@@ -1215,6 +1229,46 @@ function autoAdvance() {
 // growth slider moved: running battle picks up the new growth at once
 addEventListener('tune', () => { if (battle) battle.updateGrowth(); });
 
+let mistShown = null;
+// page position of a point (css px) on the battle canvas, with the camera zoom / pan applied
+function mapToPage(px, py) {
+  const w = $('battle-wrap'), o = layoutCenter(w), c = bv.canvas;
+  return { x: o.x - w.offsetWidth / 2 + cam.x + cam.z * (c.offsetLeft + px), y: o.y - w.offsetHeight / 2 + cam.y + cam.z * (c.offsetTop + py) };
+}
+// boss win: the boss's obelisks flare one by one, each pours its share of the Mist (sparks fly into
+// the Mist badge, which counts up as they land) and shows "+n 💠" above it. returns the time it takes
+function obeliskMist(mist) {
+  const obs = battle.segs.filter((s) => s.obelisk), target = $('idle-mist');
+  mistShown = idle.mist - mist;
+  updateIdleHud();   // badge visible (first boss) and showing the Mist before this win
+  const land = (n) => { if (mistShown === null) return; mistShown += n; if (mistShown >= idle.mist) mistShown = null; updateIdleHud(); };
+  if (!obs.length) { fogFlow($('toast'), target, 0, 4, () => land(mist)); return 900; }
+  const step = 550;
+  obs.forEach((s, i) => {
+    const share = Math.floor(mist / obs.length) + (i < mist % obs.length ? 1 : 0);
+    setTimeout(() => {
+      if (screen !== 'battle' || !bv) { land(share); return; }
+      s.drainAt = performance.now();
+      const [p] = bv.spots(s.id, 1, 0);
+      if (!p) { land(share); return; }
+      const at = mapToPage(p[0], p[1] - bv.u * 9.4);
+      floatText(`+${share} 💠`, at);
+      sfx.perk();
+      fogFlow(at, target, 0, Math.min(8, 2 + share), () => land(share));
+    }, 250 + i * step);
+  });
+  return 250 + obs.length * step + 1100;
+}
+// short rising "+n" label at a page point (css .float-text)
+function floatText(text, at) {
+  const el = document.createElement('b');
+  el.className = 'float-text';
+  el.textContent = text;
+  el.style.left = `${at.x}px`; el.style.top = `${at.y}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1400);
+}
+
 // stage over: a win zooms straight out to the next stage; a loss ends the run (Fog, Mist, upgrades kept)
 function endIdleStage(won) {
   idleTick(0);
@@ -1227,12 +1281,13 @@ function endIdleStage(won) {
     const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
     flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Fog` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
     sfx.perk();
-    fogFlow($('toast'), $('idle-shop-btn'), 10, mist ? 4 : 0);
+    fogFlow($('toast'), $('idle-shop-btn'), 10, 0);
+    const pour = mist ? obeliskMist(mist) : 0;   // ms the obelisks need to pour out the Mist
     setTimeout(() => {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
       zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp), mode: 'idle' });
       setTimeout(idleIntro, 5200);   // after the zoom-out
-    }, 1000);
+    }, 1000 + pour);
     return;
   }
   const prevBest = idle.best, run = idle.endRun(secs);
@@ -1384,7 +1439,7 @@ function buyUpgrade(id) {
 // hud: fog counter, the shop button glows when something is affordable, auto-battle toggle
 function updateIdleHud() {
   $('idle-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)}`;
-  $('idle-mist').textContent = `💠 ${idle.mist}`;
+  $('idle-mist').textContent = `💠 ${mistShown ?? idle.mist}`;   // mistShown: counting up while obelisks pour
   $('idle-mist').classList.toggle('hidden', !idle.mistTotal);
   $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
   if (!$('idle-shop').classList.contains('hidden')) renderShop();
@@ -1464,11 +1519,12 @@ function layoutCenter(el) {
   for (let e = el; e; e = e.offsetParent) { x += e.offsetLeft - (e.scrollLeft || 0); y += e.offsetTop - (e.scrollTop || 0); }
   return { x, y };
 }
-// fog flow: n soft fog puffs (and m Mist sparks) fly on curved paths from one element into another;
+// fog flow: n soft fog puffs (and m Mist sparks) fly on curved paths from one element (or a page
+// point { x, y }) into another;
 // the target gulps as each lands. done() runs when the last one arrives
 function fogFlow(from, to, n, m = 0, done = null) {
   if (!from || !to || to.offsetParent === null) { done?.(); return; }
-  const a = layoutCenter(from), b = layoutCenter(to), t0 = performance.now(), total = n + m;
+  const a = from.nodeType ? layoutCenter(from) : from, b = layoutCenter(to), t0 = performance.now(), total = n + m;
   let left = total;
   for (let i = 0; i < total; i++) {
     const mist = i >= n, el = document.createElement('i');

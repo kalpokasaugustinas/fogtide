@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=101';
-import { rng, hops } from './mapgen.js?v=101';
-import { effects } from './config.js?v=101';
+import { personalities, pickBuilding } from './ai.js?v=102';
+import { rng, hops } from './mapgen.js?v=102';
+import { effects } from './config.js?v=102';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -322,6 +322,7 @@ export class Idle {
       deplete: idleCfg.deplete, quietEnd: idleCfg.quietEnd,
       factions: [me, ...bots],
       ghost: ghost && { name: ghost.name }, boss: st.boss,
+      obelisks: Math.min(3, bossMist(n)),   // boss obelisks: one per Mist up to 3 (stage 10 drops 1)
     };
   }
 

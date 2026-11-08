@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=101';
-import { perks, combineMods } from './expedition.js?v=101';
-import { hops } from './mapgen.js?v=101';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=101';
-import { think } from './ai.js?v=101';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=102';
+import { perks, combineMods } from './expedition.js?v=102';
+import { hops } from './mapgen.js?v=102';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=102';
+import { think } from './ai.js?v=102';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -72,6 +72,19 @@ export class Battle {
         fac.capitalSeg = sid;
       }
     });
+    // boss obelisks (idle boss stage): the boss also holds the tiles next to its capital, each with a
+    // big mist obelisk; win the stage and the obelisks pour the boss's Mist out (main.js)
+    for (const fac of this.factions) {
+      const cap = this.segs[fac.capitalSeg];
+      if (!fac.boss || !cap) continue;
+      const near = hops(map, [cap.id]);
+      const ring = this.segs.filter((s) => s.owner < 0 && near[s.id] >= 1 && near[s.id] <= 2).sort((a, b) => near[a.id] - near[b.id] || b.cap - a.cap);
+      for (const s of ring.slice(0, opts.obelisks ?? 3)) {
+        s.owner = fac.id;
+        s.obelisk = true;
+        s.troops = Math.min(s.cap, rules.startTroops);
+      }
+    }
     // relic tiles: neutral tiles away from every start hold a perk shrine; the holder gets the perk
     const starts = this.segs.filter((s) => s.owner >= 0).map((s) => s.id), far = hops(map, starts);
     const pool = this.segs.filter((s) => s.owner < 0 && far[s.id] >= 2 && !s.capital);
@@ -180,7 +193,7 @@ export class Battle {
   // faction f builds type in segment s, paid with troops from that segment
   build(f, sid, type) {
     const s = this.segs[sid], b = buildings[type];
-    if (this.state !== 'running' || s.owner !== f || !b || s.capital || s.building === type) return false;
+    if (this.state !== 'running' || s.owner !== f || !b || s.capital || s.obelisk || s.building === type) return false;   // obelisk tiles stay as they are
     const cost = this.costOf(f, type);
     if (s.troops < cost) return false;
     s.troops -= cost;

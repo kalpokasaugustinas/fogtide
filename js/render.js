@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=101';
-import * as structures from './structures.js?v=101';
+import { themes, fogTwirl } from './config.js?v=102';
+import * as structures from './structures.js?v=102';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -474,6 +474,8 @@ export class MapView {
     };
     const place = (o) => {
       const [w, h] = shape(o), cy = o.y * tilt - h, bx = Math.floor(o.x / bucket), by = Math.floor(o.y / bucket);
+      // most of the silhouette's width must stand on the island, not hang over the fog or a lake
+      if (this.coastD[Math.floor(o.y) * g + Math.floor(o.x)] < w * 0.8) return false;
       for (let yy = by - 1; yy <= by + 1; yy++) {
         for (let xx = bx - 1; xx <= bx + 1; xx++) {
           for (const p of buckets.get(yy * bw + xx) ?? []) {
@@ -704,6 +706,7 @@ export class MapView {
     else if (type === 'capital') { add(this.spots(id, 7, u * 3.2), u * 3.2, u * 2.2); add(main, u * 8, u * 4.8); }
     else if (type.startsWith('camp')) add(main, u * (4 + Number(type.slice(4)) * 1.3) * Math.max(0.62, this.map.detail ?? 1), u * 3.4);
     else if (type === 'home') add(main, u * 6.6, u * 3);   // house + fence + its own tree
+    else if (type === 'obelisk') add(main, u * 5.6, u * 3.3);
     else add(main, u * 4.5, u * 2.8);   // relic
     const { bdist, grid: g } = this.map, wall = (u * 2.6) / this.scale;
     // buildings stand up from their spot: besides the ground clearing, a box over each building
@@ -1168,16 +1171,21 @@ export class MapView {
     const mainR = this.u * 6.2 / sc, secR = Math.max(this.u * 2.6, sep * 0.45) / sc;   // grid units
     // room score: how much of the wanted land radius r the cell has (capped, in 0.5 u steps so
     // the depth / label rules still decide among cells that all fit)
-    const room = (c, r) => Math.floor(Math.min(cd[c], r) / (u * 0.5));
+    // cells 1.5-3 u from a river count 1.5 u less room: a tile cut by a river may only have dry
+    // cells at the coast, and a house close to the bank looks better than one on the fog
+    // room is measured 0.5 u above the base point: scenes (hamlet rings, courtyards) centre there
+    const up = Math.round((this.u * 0.5) / (sc * this.tilt)) * g;
+    const room = (e, r) => Math.floor(Math.min(cd[Math.max(0, e[3] - up)], r) / (u * 0.5)) - (e[4] ? 3 : 0);
     const cand = [], late = [];
     for (let i = 0; i < cells.length; i += 2) {
       const c = cells[i], x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5, dx = x - s.x, dy = (y - s.y) * this.tilt;
-      if (wet(x, y)) continue;   // no house on a river
-      const e = [Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y, c];
+      const damp = wet(x, y);
+      if (damp && this.nearRiver(x, y, u * 1.5)) continue;   // no house on a river
+      const e = [Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y, c, damp];
       // the label area is allowed too, but only after every free cell with as much room
       if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) late.push(e); else cand.push(e);
     }
-    const order = (r) => [...cand.map((e) => [room(e[3], r), 1, e]), ...late.map((e) => [room(e[3], r), 0, e])]
+    const order = (r) => [...cand.map((e) => [room(e, r), 1, e]), ...late.map((e) => [room(e, r), 0, e])]
       .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2][0] - a[2][0]).map((o) => o[2]);
     const out = [];
     const take = (list, gap) => {
