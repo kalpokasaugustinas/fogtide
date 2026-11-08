@@ -531,14 +531,32 @@ export function generateMap({ seed, cells: n, grid: g, shape = 'blob', obstacles
           exit = shore[id].reduce((a, c) => (Math.hypot((c % g) - fx, Math.floor(c / g) - fy) > Math.hypot((a % g) - fx, Math.floor(a / g) - fy) ? c : a), shore[id][0]);
           after = nbrs(exit).find(water);
         }
-        // 1-2 waypoints deep in the tile, sorted along the way, so the river bends through it
+        // 2-3 waypoints deep in the tile, spread along the way and on alternating sides of the
+        // straight line from entry to exit, so the river swings left and right (s-bends)
         const pool = deep[id].length ? deep[id] : cellsOf[id];
         const ax = from % g, ay = Math.floor(from / g), bx = exit % g, by = Math.floor(exit / g);
-        const along = (c) => ((c % g) - ax) * (bx - ax) + (Math.floor(c / g) - ay) * (by - ay);
-        // up to 4 tries; keep the longest course, stop once it is at least one tile-width long
+        const span = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / span, uy = (by - ay) / span;
+        const along = (c) => ((c % g) - ax) * ux + (Math.floor(c / g) - ay) * uy;    // distance along the line
+        const across = (c) => ((c % g) - ax) * -uy + (Math.floor(c / g) - ay) * ux;  // signed distance off it
+        const pickWays = () => {
+          const n = 2 + Math.floor(orand() * 2), side = orand() < 0.5 ? 1 : -1, ways = [], swing = Math.sqrt(segs[id].area) * 0.25;   // max sideways reward: a quarter tile
+          for (let j = 0; j < n; j++) {
+            // best of 12 random cells: off the line on this side (up to swing), near its slot along the way
+            const t = (span * (j + 1)) / (n + 1), sd = j % 2 ? -side : side;
+            let w = -1, ws = -1e9;
+            for (let q = 0; q < 12; q++) {
+              const c = pool[Math.floor(orand() * pool.length)];
+              const sc = Math.min(sd * across(c), swing) - Math.abs(along(c) - t) * 0.8;
+              if (sc > ws) { ws = sc; w = c; }
+            }
+            ways.push(w);
+          }
+          return ways.sort((a, b) => along(a) - along(b));
+        };
+        // up to 4 tries; keep the longest course, stop once it is 1.5 tile-widths long
         let best = null;
-        for (let k = 0; k < 4 && !(best && best.length >= Math.sqrt(segs[id].area)); k++) {
-          const ways = Array.from({ length: 1 + Math.floor(orand() * 2) }, () => pool[Math.floor(orand() * pool.length)]).sort((a, b) => along(a) - along(b));
+        for (let k = 0; k < 4 && !(best && best.length >= 1.5 * Math.sqrt(segs[id].area)); k++) {
+          const ways = pickWays();
           const course = [from];
           let at = from;
           for (const w of [...ways, exit]) { course.push(...route(at, w, id).slice(1)); at = w; }
@@ -550,7 +568,7 @@ export function generateMap({ seed, cells: n, grid: g, shape = 'blob', obstacles
         riverTile[id] = 1;
       }
       used += tiles.length;
-      const pts = smoothCourse(cells, g);
+      const pts = smoothCourse(cells, g, Math.sqrt(avgArea), (x, y) => ids[Math.floor(y) * g + Math.floor(x)] >= 0);
       if (pts.length > 8) { rivers.push(pts); r++; }
     }
   }
@@ -784,11 +802,14 @@ function recount(map) {
   map.avgArea = segs.reduce((a, s) => a + s.area, 0) / segs.length;
 }
 
-// river course from grid cells to a smooth, gently meandering line (grid units). bfs paths are
-// straight runs with 45 degree kinks, so: resample evenly, average away the kinks (rounded turns),
-// add a sine meander across the flow that fades out at the spring and the mouth, smooth again.
-// the ends stay pinned, so the river still starts at its spring and ends in the water
-function smoothCourse(cells, g) {
+// river course from grid cells to a smooth, winding line (grid units). tile = typical tile width
+// in cells; everything scales with it so rivers look the same at any grid size. bfs paths are
+// straight runs with 45 degree kinks, so: resample evenly, average away the kinks (rounded turns
+// about a tenth of a tile wide), add an uneven meander across the flow (wavelength and amplitude
+// drift, so bends differ in size) that fades out at the spring and the mouth, smooth again.
+// onLand(x, y) keeps the meander off the water. the ends stay pinned, so the river still starts
+// at its spring and ends in the water
+function smoothCourse(cells, g, tile, onLand = () => true) {
   let p = cells.map((c) => [(c % g) + 0.5, Math.floor(c / g) + 0.5]);
   // even spacing along the line
   const resample = (pts, step) => {
@@ -809,16 +830,24 @@ function smoothCourse(cells, g) {
     for (let j = i - w; j <= i + w; j++) { x += pts[j][0]; y += pts[j][1]; }
     return [x / (2 * w + 1), y / (2 * w + 1)];
   });
-  p = resample(p, 0.5);
-  p = average(average(p, 6), 6);
-  // meander: amplitude 1.1 cells, wavelength 11 cells, phase from the spring cell (no rng draw,
-  // so the rest of the map stays the same for a seed)
-  const amp = 1.1, wave = 11, phase = (cells[0] * 0.618) % (2 * Math.PI), len = (p.length - 1) * 0.5;
+  const step = 0.5, win = Math.max(3, Math.round((tile * 0.05) / step));   // ~5% of a tile each side
+  p = resample(p, step);
+  p = average(average(p, win), win);
+  // meander: wavelength drifts 0.3-0.6 tiles and amplitude 0.025-0.065 tiles along the river (slow
+  // sine mixes), phase from the spring cell (no rng draw, so the rest of the map stays the same)
+  const seed = cells[0] * 0.618, len = (p.length - 1) * step, fade = tile * 0.12;
+  let phase = seed % (2 * Math.PI);
   p = p.map((q, i) => {
     const a = p[Math.max(0, i - 1)], b = p[Math.min(p.length - 1, i + 1)];
-    const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1, s = i * 0.5;
-    const off = amp * Math.sin((2 * Math.PI * s) / wave + phase) * Math.min(1, s / 4, (len - s) / 4);
-    return [q[0] - (dy / d) * off, q[1] + (dx / d) * off];
+    const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1, s = i * step;
+    const wave = tile * (0.45 + 0.15 * Math.sin((s / tile) * 2.1 + seed));
+    const amp = tile * (0.045 + 0.02 * Math.sin((s / tile) * 3.3 + seed * 1.7));
+    phase += (2 * Math.PI * step) / wave;
+    let off = amp * Math.sin(phase) * Math.min(1, s / fade, (len - s) / fade);
+    // pull the bend in where it would swing out over the sea or a lake
+    const nx = -dy / d, ny = dx / d;
+    for (let k = 0; k < 3 && off && !onLand(q[0] + nx * off, q[1] + ny * off); k++) off *= k < 1 ? 0.5 : 0;
+    return [q[0] + nx * off, q[1] + ny * off];
   });
-  return resample(average(p, 2), 0.75);
+  return resample(average(p, Math.max(2, win >> 1)), 0.75);
 }
