@@ -163,6 +163,8 @@ python tools/idle_sim.py [--careers 2] [--runs 8] [--target 30] [--set enemyAtk=
 ## Tuning
 Open the game with `?tune=1` (e.g. `http://localhost:8000/?tune=1`) for a collapsible panel with a slider and number box per balance value in `js/config.js` (rules, building costs, effects, terrain traits). Most values apply live; ones marked ↻ (start troops, caps, growth, capital margin) are set when a battle starts, so press "restart round". "copy changes" copies only the changed values as JSON (e.g. `{"rules.growthRate":0.012}`) to paste back into `config.js`; "reset" goes back to the file's values. Tuned values are kept in localStorage but only used while `?tune=1` is on. Building descriptions don't follow the sliders.
 
+The panel's **testing** group helps playtests: `growth` multiplies your foglets' growth x1 to x10 (all modes, live), and `autoPlay` turns on full auto: a bot plays your side (your upgrades and perks still count), idle mode buys the cheapest affordable upgrades every second, and end cards move on by themselves (perk pick, play again, new run). Untick it to take control back mid-battle. `?autoplay` in the url does the same as the tick.
+
 ## itch.io build
 ```
 python tools/make_itch_zip.py

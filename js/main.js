@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=98';
-import { generateMap, rng } from './mapgen.js?v=98';
-import { initAnalytics, track } from './analytics.js?v=98';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=98';
-import { Battle } from './battle.js?v=98';
-import { personalities } from './ai.js?v=98';
-import { Campaign } from './campaign.js?v=98';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=98';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=98';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=98';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=98';
-import { previewBuildings } from './structures.js?v=98';
-import { initTune, tuneChanges } from './tune.js?v=98';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=99';
+import { generateMap, rng } from './mapgen.js?v=99';
+import { initAnalytics, track } from './analytics.js?v=99';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=99';
+import { Battle } from './battle.js?v=99';
+import { personalities } from './ai.js?v=99';
+import { Campaign } from './campaign.js?v=99';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=99';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=99';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=99';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=99';
+import { previewBuildings } from './structures.js?v=99';
+import { initTune, tuneChanges } from './tune.js?v=99';
 
 const $ = (id) => document.getElementById(id);
 
@@ -202,7 +202,7 @@ function startBattle(setup, m, rid = -1) {
   endTutor(false);
   tutorWanted = false;   // startTutorial sets it after this
   // idle: only the first stage of a run counts down; later stages roll straight on after the zoom-out
-  countdown = autoplay || (m === 'idle' && idle.stage > 1) ? 0 : 3; goFlash = 0;
+  countdown = autoOn() || (m === 'idle' && idle.stage > 1) ? 0 : 3; goFlash = 0;
   numScale = m === 'idle' ? idle.scale : 1;
   idleKilled = 0;
   const theme = setup.theme ?? themeNames[setup.seed % themeNames.length];
@@ -895,6 +895,7 @@ function statsHtml(b) {
 function starsOf(b) { return [true, b.stats.lost === 0, b.time / rules.timeScale < 360]; }
 
 function showEnd(won, starsFor) {
+  autoAdvance();   // full auto: the card moves on by itself
   $('end').classList.toggle('win', won);
   $('end').classList.toggle('lose', !won);
   if (won && starsFor) {
@@ -1176,6 +1177,41 @@ function idleTick(dt) {
   idleSaveT -= dt;
   if (idleSaveT <= 0) { idle.save(); idleSaveT = 5; }
 }
+
+// ---------- full auto (tuning panel: testing.autoPlay, or ?autoplay) ----------
+// a bot plays your side (your idle upgrades / perks still apply), idle buys the cheapest upgrades,
+// and end cards move on by themselves (perk pick, play again, new run), so a test runs hands-off
+let autoBuyT = 0;
+function autoOn() { return autoplay || testing.autoPlay === 1; }   // hoisted: startBattle uses it
+function fullAuto(dt) {
+  const me = battle.factions[0], on = autoOn() && mode !== 'tutorial';
+  if (on && !me.ai) Object.assign(me, { ai: true, think: me.think ?? 1.5, personality: me.personality ?? personalities.aggressive, timer: 0 });
+  else if (!on && me.ai && !autoplay) me.ai = false;   // switched off: your side is yours again
+  if (on && mode === 'idle' && (autoBuyT -= dt) <= 0) { autoBuyT = 1; autoBuy(); }
+}
+// idle: buy the cheapest affordable upgrade until nothing is affordable (fog and mist alike)
+function autoBuy() {
+  for (let n = 0; n < 100; n++) {
+    const open = upgrades.filter((u) => idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) / (idle.wallet(a.id) || 1) - idle.cost(b.id) / (idle.wallet(b.id) || 1));
+    if (!open.length || !idle.buy(open[0].id)) break;
+  }
+  if (battle && screen === 'battle') { battle.factions[0].mods = idle.mods(); battle.updateGrowth(); }
+  idle.save();
+  syncIdleButtons();
+}
+// end card shown while full auto is on: pick a perk / play again / start a new run after a short look
+function autoAdvance() {
+  if (!autoOn() || mode === 'tutorial') return;
+  setTimeout(() => {
+    if (!autoOn() || screen !== 'battle' || $('end').classList.contains('hidden')) return;
+    const perk = $('end-perks').querySelector('.perk');
+    if (perk) { perk.click(); return; }
+    if (mode === 'idle') { autoBuy(); $('idle-shop').classList.add('hidden'); }
+    if (!$('end-retry').classList.contains('hidden')) $('end-retry').click();
+  }, 2500);
+}
+// growth slider moved: running battle picks up the new growth at once
+addEventListener('tune', () => { if (battle) battle.updateGrowth(); });
 
 // stage over: a win zooms straight out to the next stage; a loss ends the run (Fog, Mist, upgrades kept)
 function endIdleStage(won) {
@@ -2015,6 +2051,7 @@ function frame(now) {
       }
     } else if (!paused && battle.state === 'running' && !tutorHold()) {
       goFlash = Math.max(0, goFlash - dt * 1.1);
+      fullAuto(dt);
       acc += dt * speed * rules.timeScale;
       while (acc >= rules.step) { battle.step(rules.step); if (mode === 'idle') idle.autoTick(battle, rules.step); acc -= rules.step; }
       if (mode === 'idle') idleTick(dt);

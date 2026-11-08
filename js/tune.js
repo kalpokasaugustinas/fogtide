@@ -2,13 +2,15 @@
 // changes write straight into the shared config objects, so everything read at runtime updates live;
 // values marked ↻ are baked in when a battle starts (caps, growth, start troops) and need "restart round".
 // tuned values persist in localStorage, but only apply while ?tune=1 is in the url (normal play = config.js).
-import { rules, buildings, effects, traits, fogTwirl } from './config.js?v=98';
+import { rules, buildings, effects, traits, fogTwirl, testing } from './config.js?v=99';
 
 const store_key = 'fogtide.tune';
 const on = new URLSearchParams(location.search).get('tune') === '1';
 
 // tunable values grouped like config.js: [path, min, max, step, needs restart]
 const groups = {
+  // testing helpers: 0-1 step 1 entries show as an on/off checkbox
+  testing: [['testing.growth', 1, 10, 0.5], ['testing.autoPlay', 0, 1, 1]],
   rules: [
     ['rules.timeScale', 0.3, 2, 0.05], ['rules.armySpeed', 30, 200, 5], ['rules.startTroops', 0, 50, 1, true],
     ['rules.overCapDecay', 0, 5, 0.1], ['rules.fightAt', 0.3, 1, 0.05], ['rules.fightMin', 0, 5, 0.1],
@@ -33,7 +35,7 @@ const groups = {
 };
 
 // path helpers: 'buildings.farm.cost' -> object buildings.farm, key 'cost'
-const roots = { rules, buildings, effects, traits, fogTwirl };
+const roots = { rules, buildings, effects, traits, fogTwirl, testing };
 function target(path) {
   const parts = path.split('.'), key = parts.pop();
   return [parts.slice(1).reduce((o, p) => o[p], roots[parts[0]]), key];
@@ -72,6 +74,7 @@ export function initTune(onRestart) {
     #tune .row { display: grid; grid-template-columns: 1fr 60px; gap: 2px 6px; align-items: center; margin-bottom: 6px; }
     #tune .row label { grid-column: 1 / 3; color: #b8c8cc; }
     #tune .row.changed label { color: #7fe0a0; font-weight: 700; }
+    #tune .row.toggle label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
     #tune input[type=range] { width: 100%; margin: 0; }
     #tune input[type=number] { width: 100%; background: #0008; color: inherit; border: 1px solid #fff3; border-radius: 4px; padding: 2px 4px; }
     #tune .btns { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #fff2; }
@@ -92,6 +95,18 @@ export function initTune(onRestart) {
     for (const [path, min, max, step, restart] of list) {
       const row = document.createElement('div');
       row.className = 'row';
+      // on/off values (0-1, step 1): one checkbox instead of a slider
+      if (min === 0 && max === 1 && step === 1) {
+        row.classList.add('toggle');
+        row.innerHTML = `<label><input type="checkbox"> ${path.split('.').slice(1).join('.')}</label>`;
+        const box = row.querySelector('input');
+        const sync = () => { box.checked = !!get(path); row.classList.toggle('changed', get(path) !== defaults[path]); };
+        box.onchange = () => { set(path, box.checked ? 1 : 0); save(changes()); sync(); dispatchEvent(new Event('tune')); };
+        sync();
+        rows.push(sync);
+        body.appendChild(row);
+        continue;
+      }
       row.innerHTML = `<label>${path.split('.').slice(1).join('.')}${restart ? ' ↻' : ''}</label>`
         + `<input type="range" min="${min}" max="${max}" step="${step}"><input type="number" step="${step}">`;
       const [range, num] = row.querySelectorAll('input');

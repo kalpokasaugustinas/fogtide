@@ -4,8 +4,8 @@
 //                so a big empire doesn't act faster than a small one),
 //                grudge: extra value for player segments,
 //                allow: optional list of building types (balance tests) }
-import { rules, buildings, effects } from './config.js?v=98';
-import { hops } from './mapgen.js?v=98';
+import { rules, buildings, effects } from './config.js?v=99';
+import { hops } from './mapgen.js?v=99';
 
 export const personalities = {
   aggressive: { build: 0.25, risk: 1.15, actions: 2, grudge: 0.3 },

@@ -27,6 +27,12 @@ export const rules = {
   neutralRegrow: 0.2,
 };
 
+// testing helpers for the tuning panel (?tune=1); normal play keeps these at 1 / 0
+export const testing = {
+  growth: 1,      // your foglets' growth x1 ... x10 (all modes), to fast-forward a test
+  autoPlay: 0,    // 1 = full auto: a bot plays your side, idle buys upgrades, end cards move on by themselves
+};
+
 // one building per segment; building costs troops taken from that segment.
 // a captured segment keeps its building (the new owner gets it).
 export const buildings = {

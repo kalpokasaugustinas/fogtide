@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison } from './config.js?v=98';
-import { perks, combineMods } from './expedition.js?v=98';
-import { hops } from './mapgen.js?v=98';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=98';
-import { think } from './ai.js?v=98';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=99';
+import { perks, combineMods } from './expedition.js?v=99';
+import { hops } from './mapgen.js?v=99';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=99';
+import { think } from './ai.js?v=99';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -135,7 +135,8 @@ export class Battle {
         if (n.building === 'hospital') mult += effects.hospitalGrowth * (m.hospital ?? 1);
         if (n.capital) mult += n.bonus.hosp;
       }
-      s.growth = round1(s.baseGrowth * mult * (m.growth ?? 1));
+      // testing.growth: tuning-panel boost for your side only (1 in normal play)
+      s.growth = round1(s.baseGrowth * mult * (m.growth ?? 1) * (s.owner === 0 ? testing.growth : 1));
     }
   }
 
