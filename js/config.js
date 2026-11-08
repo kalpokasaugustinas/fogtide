@@ -75,6 +75,14 @@ export const troopStyles = { soldier: 'Soldiers', knight: 'Knights', viking: 'Vi
 export const buildingStyles = { classic: 'Classic', nordic: 'Nordic', desert: 'Desert', eastern: 'Eastern', tudor: 'Tudor', gothic: 'Gothic', tropical: 'Tropical' };
 export const neutralColor = '#7d8580';
 
+// fog around the island slowly twirls: two cloud layers turn in opposite directions (css, see
+// render.js); the thin top layer drifting over the main one makes soft swirls
+export const fogTwirl = {
+  period: 480,          // seconds per full turn of the main fog layer (clockwise)
+  counterPeriod: 340,   // seconds per turn of the thin top layer (counter-clockwise)
+  counterAlpha: 0.35,   // opacity of the top layer (0 = no swirl, just a slow turn)
+};
+
 // island climates (picked per battle). colours are [r, g, b] except sea (css)
 export const themes = {
   summer: {

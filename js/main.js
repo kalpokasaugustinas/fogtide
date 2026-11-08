@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=91';
-import { generateMap, rng } from './mapgen.js?v=91';
-import { initAnalytics, track } from './analytics.js?v=91';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=91';
-import { Battle } from './battle.js?v=91';
-import { personalities } from './ai.js?v=91';
-import { Campaign } from './campaign.js?v=91';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=91';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=91';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=91';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=91';
-import { previewBuildings } from './structures.js?v=91';
-import { initTune, tuneChanges } from './tune.js?v=91';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=92';
+import { generateMap, rng } from './mapgen.js?v=92';
+import { initAnalytics, track } from './analytics.js?v=92';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=92';
+import { Battle } from './battle.js?v=92';
+import { personalities } from './ai.js?v=92';
+import { Campaign } from './campaign.js?v=92';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=92';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=92';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=92';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=92';
+import { previewBuildings } from './structures.js?v=92';
+import { initTune, tuneChanges } from './tune.js?v=92';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1124,6 +1124,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       const fs = 720 * (s / ratio) ** 0.35, drift = 40 * Math.sin(Math.PI * Math.min(1, t / total));   // back to 0 at the end
       wrap.style.backgroundSize = `${fs}px ${fs}px, auto`;
       wrap.style.backgroundPosition = `calc(50% + ${drift}px) calc(50% + ${drift * 0.6}px), 0 0`;
+      wrap.style.setProperty('--fog-zoom', fs / 720);   // the twirling fog layers shrink alike
       // 2. glow: a gold pulse around the little island
       const gk = phase(t, hold + shrink, glow), pulse = Math.sin(gk * Math.PI);
       snap.style.filter = pulse > 0.01 ? `drop-shadow(0 0 ${2 + 10 * pulse}px rgba(255, 210, 90, ${0.9 * pulse}))` : '';
@@ -1138,6 +1139,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       old.style.opacity = old.style.webkitMaskImage = old.style.maskImage = '';
       wrap.style.backgroundSize = '720px 720px, auto';   // as MapView.setMap sets them
       wrap.style.backgroundPosition = 'center, 0 0';
+      wrap.style.removeProperty('--fog-zoom');
       paused = false;
       setSpeed(speed);
       boostLock = false;

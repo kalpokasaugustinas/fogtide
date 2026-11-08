@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes } from './config.js?v=91';
-import * as structures from './structures.js?v=91';
+import { themes, fogTwirl } from './config.js?v=92';
+import * as structures from './structures.js?v=92';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -88,6 +88,16 @@ export function cloudTexture(t) {
   cloudCache.set(key, url);
   return url;
 }
+
+// fog twirl timing from config (css vars on the page root); re-applied when the tune panel changes it
+function applyFogTwirl() {
+  const s = document.documentElement.style;
+  s.setProperty('--twirl-a', fogTwirl.period + 's');
+  s.setProperty('--twirl-b', fogTwirl.counterPeriod + 's');
+  s.setProperty('--twirl-alpha', fogTwirl.counterAlpha);
+}
+applyFogTwirl();
+addEventListener('tune', applyFogTwirl);
 
 // ---------- outline tracing ----------
 
@@ -242,8 +252,21 @@ export class MapView {
     this.buildOutlines();
     this.placeTrees();
     this.measureIsland();
-    // fog around the island lives on the container, so there's no square edge
-    this.canvas.parentElement.style.background = `url(${cloudTexture(this.theme)}) center / 720px 720px repeat, rgb(${this.theme.fogB})`;
+    // fog around the island lives on the container, so there's no square edge. two oversized cloud
+    // layers on top of it slowly turn in opposite directions (css animation = gpu, no redraws);
+    // the static texture stays underneath for zoomed-out views where the layers don't reach
+    const el = this.canvas.parentElement, url = cloudTexture(this.theme);
+    el.style.background = `url(${url}) center / 720px 720px repeat, rgb(${this.theme.fogB})`;
+    if (!this.twirl) {
+      this.twirl = ['a', 'b'].map((n) => {
+        const d = document.createElement('div');
+        d.className = `fog-twirl ${n}`;
+        d.setAttribute('aria-hidden', 'true');
+        el.prepend(d);   // before the canvas, so the map paints on top
+        return d;
+      });
+    }
+    for (const d of this.twirl) d.style.backgroundImage = `url(${url})`;
     this.styleOf = this.st = null;
     this.bkey = this.okey = null;
     this.size = 0;   // forces resize() to rebuild every cached layer for the new map

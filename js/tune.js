@@ -2,7 +2,7 @@
 // changes write straight into the shared config objects, so everything read at runtime updates live;
 // values marked ↻ are baked in when a battle starts (caps, growth, start troops) and need "restart round".
 // tuned values persist in localStorage, but only apply while ?tune=1 is in the url (normal play = config.js).
-import { rules, buildings, effects, traits } from './config.js?v=91';
+import { rules, buildings, effects, traits, fogTwirl } from './config.js?v=92';
 
 const store_key = 'fogtide.tune';
 const on = new URLSearchParams(location.search).get('tune') === '1';
@@ -27,10 +27,13 @@ const groups = {
     ['traits.highland.def', 0, 1, 0.05], ['traits.forest.def', 0, 1, 0.05],
     ['traits.river.growth', 0, 1, 0.05], ['traits.lakeside.growth', 0, 1, 0.05],
   ],
+  'fog twirl': [
+    ['fogTwirl.period', 60, 1200, 10], ['fogTwirl.counterPeriod', 60, 1200, 10], ['fogTwirl.counterAlpha', 0, 1, 0.05],
+  ],
 };
 
 // path helpers: 'buildings.farm.cost' -> object buildings.farm, key 'cost'
-const roots = { rules, buildings, effects, traits };
+const roots = { rules, buildings, effects, traits, fogTwirl };
 function target(path) {
   const parts = path.split('.'), key = parts.pop();
   return [parts.slice(1).reduce((o, p) => o[p], roots[parts[0]]), key];
@@ -95,7 +98,7 @@ export function initTune(onRestart) {
       // round to the step's decimals so floats like 0.30000000000000004 never show up
       const dec = (String(step).split('.')[1] ?? '').length;
       const sync = () => { range.value = num.value = get(path); row.classList.toggle('changed', get(path) !== defaults[path]); };
-      const apply = (v) => { if (!Number.isFinite(v)) return; set(path, +v.toFixed(dec)); save(changes()); sync(); };
+      const apply = (v) => { if (!Number.isFinite(v)) return; set(path, +v.toFixed(dec)); save(changes()); sync(); dispatchEvent(new Event('tune')); };
       range.oninput = () => apply(+range.value);
       num.onchange = () => apply(+num.value);   // number box can go outside the slider range
       sync();
@@ -114,6 +117,7 @@ export function initTune(onRestart) {
       for (const path in defaults) set(path, defaults[path]);
       save({});
       rows.forEach((sync) => sync());
+      dispatchEvent(new Event('tune'));
       flash(btn, 'done');
     } else if (a === 'restart') {
       onRestart?.();
