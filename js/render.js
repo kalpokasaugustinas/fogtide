@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes } from './config.js?v=90';
-import * as structures from './structures.js?v=90';
+import { themes } from './config.js?v=91';
+import * as structures from './structures.js?v=91';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -26,6 +26,9 @@ export function mix(a, b, t) {
 
 const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 let shadowBlob = null;   // soft cloud-shadow sprite (MapView.drawAmbient), made once
+
+// do two boxes [x0, y0, x1, y1] overlap? (terrain objects vs huts and buildings)
+const boxHit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 
 // deterministic hash + smooth value noise (ground patches, tree placement)
 function hash(x, y, s) {
@@ -405,6 +408,32 @@ export class MapView {
     for (let c = 0; c < g * g; c++) if (ids[c] >= 0) land++;
     const dt = this.map.detail ?? 1;   // zoomed-out maps: smaller trees, more woods
     const clusters = Math.round((land / (g * g)) * 60 * t.trees / Math.sqrt(dt));
+    // no object may cover another: each one is approximated by its on-screen silhouette (an
+    // upright ellipse above its base point, in grid units with the camera tilt applied) and a
+    // new object is only added when its ellipse stays clear of every placed neighbour.
+    // the ellipses sit in a coarse bucket grid so the check only looks at nearby objects.
+    const tilt = 0.8, bucket = 16 * k, bw = Math.ceil(g / bucket), buckets = new Map();
+    const shape = (o) => {
+      if (o.kind === 'rock') return [o.r * (1 + o.a * 0.5) * 1.05, o.r * 0.6];
+      if (o.kind === 'reed') return [o.r * 1.1, o.r * 0.95];
+      return [o.r * 1.05, o.r * (t.tree === 'pine' ? 1.4 : 1.1)];   // crown + trunk
+    };
+    const place = (o) => {
+      const [w, h] = shape(o), cy = o.y * tilt - h, bx = Math.floor(o.x / bucket), by = Math.floor(o.y / bucket);
+      for (let yy = by - 1; yy <= by + 1; yy++) {
+        for (let xx = bx - 1; xx <= bx + 1; xx++) {
+          for (const p of buckets.get(yy * bw + xx) ?? []) {
+            const dx = (p.x - o.x) / (p.w + w), dy = (p.cy - cy) / (p.h + h);
+            if (dx * dx + dy * dy < 1) return false;   // silhouettes would overlap
+          }
+        }
+      }
+      const key = by * bw + bx;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push({ x: o.x, cy, w, h });
+      this.trees.push(o);
+      return true;
+    };
     let i = 0;
     for (let n = 0, tries = 0; n < clusters && tries < clusters * 30; tries++) {
       const cx = hash(i++, 1, this.seed) * g, cy = hash(i++, 2, this.seed) * g;
@@ -412,23 +441,24 @@ export class MapView {
       // forest tiles are filled separately below; elsewhere only the odd copse
       if (segs[ids[Math.floor(cy) * g + Math.floor(cx)]].trait === 'forest' || hash(i++, 7, this.seed) < 0.965) continue;
       n++;
-      // a cluster = a small wood: 6-17 trees packed together
-      const count = 6 + Math.floor(hash(i++, 3, this.seed) * 12);
-      for (let j = 0; j < count; j++) {
-        const a = hash(i++, 4, this.seed) * Math.PI * 2, d = Math.sqrt(hash(i++, 5, this.seed)) * 14 * k * Math.max(0.25, dt);
+      // a cluster = a small wood: 5-11 trees side by side (a few tries each to find a free spot)
+      const count = 5 + Math.floor(hash(i++, 3, this.seed) * 7);
+      for (let j = 0, got = 0; j < count * 4 && got < count; j++) {
+        const a = hash(i++, 4, this.seed) * Math.PI * 2, d = Math.sqrt(hash(i++, 5, this.seed)) * 16 * k * Math.max(0.25, dt);
         const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
-        if (ok(x, y)) this.trees.push({ x, y, r: (3.4 + hash(i++, 6, this.seed) * 2.2) * k * Math.max(0.22, dt), seg: ids[Math.floor(y) * g + Math.floor(x)] });
+        if (ok(x, y) && place({ x, y, r: (3 + hash(i++, 6, this.seed) * 1.8) * k * Math.max(0.22, dt), seg: ids[Math.floor(y) * g + Math.floor(x)] })) got++;
       }
     }
-    // forest tiles: woodland over the whole tile (jittered grid, a few clearings)
-    const sp = 6.5 * k * Math.max(0.25, dt), rock = 12 * k * Math.max(0.25, dt);
+    // forest tiles: woodland over the whole tile (dense jittered candidates, the spacing check
+    // keeps the ones that fit, a few clearings)
+    const sp = 3.2 * k * Math.max(0.25, dt), rock = 12 * k * Math.max(0.25, dt);
     const segAt = (x, y) => segs[ids[Math.floor(y) * g + Math.floor(x)]];
     for (let gy = sp / 2; gy < g; gy += sp * 0.8) {
       for (let gx = sp / 2; gx < g; gx += sp) {
         const x = gx + (hash(i++, 8, this.seed) - 0.5) * sp, y = gy + (hash(i++, 9, this.seed) - 0.5) * sp * 0.8;
         if (!ok(x, y) || segAt(x, y).trait !== 'forest') continue;
         if (vnoise(x / (14 * k), y / (14 * k), this.seed + 6) < 0.28) continue;   // clearing
-        this.trees.push({ x, y, r: (3 + hash(i++, 6, this.seed) * 2) * k * Math.max(0.22, dt), seg: segAt(x, y).id });
+        place({ x, y, r: (3.2 + hash(i++, 6, this.seed) * 1.8) * k * Math.max(0.22, dt), seg: segAt(x, y).id });
       }
     }
     // highland tiles: scattered low-poly boulders
@@ -436,7 +466,7 @@ export class MapView {
       for (let gx = rock / 2; gx < g; gx += rock) {
         const x = gx + (hash(i++, 10, this.seed) - 0.5) * rock, y = gy + (hash(i++, 11, this.seed) - 0.5) * rock * 0.8;
         if (!ok(x, y) || segAt(x, y).trait !== 'highland' || hash(i++, 12, this.seed) < 0.35) continue;
-        this.trees.push({ kind: 'rock', x, y, r: (1.6 + hash(i++, 13, this.seed) * 2) * k * Math.max(0.25, dt), seg: segAt(x, y).id, a: hash(i++, 14, this.seed) });
+        place({ kind: 'rock', x, y, r: (1.6 + hash(i++, 13, this.seed) * 2) * k * Math.max(0.25, dt), seg: segAt(x, y).id, a: hash(i++, 14, this.seed) });
       }
     }
     // reeds: lakeside tiles along the shore, river tiles along the banks
@@ -445,13 +475,13 @@ export class MapView {
     if (near) for (let c = 0; c < g * g; c += 3) {
       if (ids[c] < 0 || segs[ids[c]].trait !== 'lakeside' || near[c] !== 1 || nearType[c] !== 1 || hash(c, 15, this.seed) < 0.75) continue;
       const x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5;
-      if (reedOk(x, y)) this.trees.push({ kind: 'reed', x, y, r: rr, seg: ids[c] });
+      if (reedOk(x, y)) place({ kind: 'reed', x, y, r: rr, seg: ids[c] });
     }
     for (const pts of this.map.rivers ?? []) {
       for (const [j, [rx, ry]] of pts.entries()) {
         if (j % 3 || hash(j, 16, rx | 0) < 0.4) continue;   // points every 0.75 cells
         const side = hash(j, 17, ry | 0) < 0.5 ? -1 : 1, x = rx + side * 4.5 * k, y = ry + (hash(j, 18, rx | 0) - 0.5) * 3 * k;
-        if (reedOk(x, y) && segAt(x, y).trait === 'river') this.trees.push({ kind: 'reed', x, y, r: rr, seg: segAt(x, y).id });
+        if (reedOk(x, y) && segAt(x, y).trait === 'river') place({ kind: 'reed', x, y, r: rr, seg: segAt(x, y).id });
       }
     }
     this.trees.sort((a, b) => a.y - b.y);   // draw back to front
@@ -663,18 +693,36 @@ export class MapView {
     else if (type === 'lab') { add(this.spots(id, 3, u * 6), u * 4, u * 2.6); add(main, u * 6.5, u * 4); }
     else if (type === 'capital') { add(this.spots(id, 7, u * 3.2), u * 3.2, u * 2.2); add(main, u * 8, u * 4.8); }
     else if (type.startsWith('camp')) add(main, u * (4 + Number(type.slice(4)) * 1.3) * Math.max(0.62, this.map.detail ?? 1), u * 3.4);
-    else add(main, u * 4.5, u * 2.8);   // home, relic
+    else if (type === 'home') add(main, u * 6.6, u * 3);   // house + fence + its own tree
+    else add(main, u * 4.5, u * 2.8);   // relic
     const { bdist, grid: g } = this.map, wall = (u * 2.6) / this.scale;
-    return (tr, px, py) => {
+    // buildings stand up from their spot: besides the ground clearing, a box over each building
+    // keeps any tree, boulder or reed silhouette (b) from reaching into it (the field patch is flat)
+    const tall = holes.slice(0, s.trait && type === 'farm' ? -1 : undefined).map(([hx, hy, rx, ry]) => [hx - rx * 0.75, hy - ry * 1.6, hx + rx * 0.75, hy + ry * 0.35]);
+    return (tr, px, py, b) => {
       if (type === 'farm' && !tr.kind && !s.trait) return false;   // plain trees (no kind)
       if (type === 'fort' && bdist[Math.floor(tr.y) * g + Math.floor(tr.x)] < wall) return false;
+      if (b && tall.some((h) => boxHit(b, h))) return false;
       return !holes.some(([hx, hy, rx, ry]) => ((px - hx) / rx) ** 2 + ((py - hy) / ry) ** 2 < 1);
     };
   }
 
-  // trees (and boulders / reeds) of a segment; huts = a few small shacks (neutral tiles: people live there)
+  // trees (and boulders / reeds) of a segment; huts = a few small shacks (neutral tiles: people
+  // live there). huts get a clearing (no object silhouette touches a hut) and are drawn in depth
+  // order between the trees, so a tree behind a hut never pokes through it and none stands in front
   treeSprite(id, huts = false) {
-    return this.cached(`r${id}|${huts ? 1 : 0}`, () => this.sprite(id, this.u * 4, (x) => { this.drawTreesOf(x, id); if (huts) this.drawHuts(x, id); }));
+    return this.cached(`r${id}|${huts ? 1 : 0}`, () => this.sprite(id, this.u * 4, (x) => {
+      if (!huts) { this.drawTreesOf(x, id); return; }
+      const list = this.hutList(id), free = (b) => !list.some((h) => boxHit(b, h.box));
+      let prev = -Infinity;
+      for (const h of list) {
+        const lo = prev;
+        this.drawTreesOf(x, id, (tr, px, py, b) => py > lo && py <= h.y && free(b));
+        this.drawHut(x, h);
+        prev = h.y;
+      }
+      this.drawTreesOf(x, id, (tr, px, py, b) => py > prev && free(b));
+    }));
   }
 
   blit(x, sp) { x.drawImage(sp.c, sp.left, sp.top); }
@@ -954,7 +1002,7 @@ export class MapView {
     for (const tr of this.trees) {
       if (tr.seg !== id) continue;
       const px = this.sx(tr.x), py = this.sy(tr.y), r = Math.max(1.6, tr.r * sc);
-      if (keep && !keep(tr, px, py)) continue;
+      if (keep && !keep(tr, px, py, this.objBox(tr, px, py, r, t.tree === 'pine'))) continue;
       if (tr.kind === 'rock') {
         // low-poly boulder: lit top-left face, shaded right face, small shadow
         const w = r * (1 + tr.a * 0.5), h = r * 0.9;
@@ -1003,15 +1051,32 @@ export class MapView {
     x.restore();
   }
 
-  // 1-3 small shacks (more on bigger tiles): plank walls, straw roof, a wisp of chimney smoke
-  drawHuts(x, id) {
+  // on-screen box [x0, y0, x1, y1] (css px) of a terrain object drawn at base px, py, size r
+  objBox(tr, px, py, r, pine) {
+    if (tr.kind === 'rock') { const w = r * (1 + tr.a * 0.5); return [px - w, py - r * 1.05, px + w, py + r * 0.2]; }
+    if (tr.kind === 'reed') return [px - r * 1.1, py - r * 1.9, px + r * 1.1, py];
+    return [px - r, py - r * (pine ? 2.7 : 2.1), px + r, py + r * 0.3];
+  }
+
+  // 1-3 small shacks (more on bigger tiles), back to front: base spot, size, facing and the box
+  // (roof, walls and a little margin, css px) that terrain objects must stay out of
+  hutList(id) {
     const s = this.map.segs[id], n = 1 + (s.area > this.map.avgArea ? 1 : 0) + (s.area > this.map.avgArea * 1.6 ? 1 : 0);
-    const u = this.u * Math.max(0.6, this.map.detail ?? 1) * 0.95, snow = this.theme.groundA[0] > 215;
+    const u = this.u * Math.max(0.6, this.map.detail ?? 1) * 0.95, pad = u * 0.35;
+    const spots = this.spots(id, n, this.u * 3.5).slice().sort((a, b) => a[1] - b[1]);
+    return spots.map(([px, py], i) => ({
+      x: px, y: py, u, flip: hash(id, i + 40, this.seed) < 0.5 ? -1 : 1,
+      box: [px - u * 1.3 - pad, py - u * 2.5 - pad, px + u * 1.3 + pad, py + u * 0.5],
+    }));
+  }
+
+  // one shack: plank walls, straw roof, a wisp of chimney smoke
+  drawHut(x, { x: px, y: py, u, flip }) {
+    const snow = this.theme.groundA[0] > 215;
     x.save();
     this.cssT(x);
-    const spots = this.spots(id, n, this.u * 3.5).slice().sort((a, b) => a[1] - b[1]);
-    for (const [i, [px, py]] of spots.entries()) {
-      const w = u * 2, h = u * 1.2, flip = hash(id, i + 40, this.seed) < 0.5 ? -1 : 1;
+    {
+      const w = u * 2, h = u * 1.2;
       x.fillStyle = 'rgba(20,30,30,0.22)';
       x.beginPath(); x.ellipse(px + u * 0.4, py + u * 0.1, w * 0.75, u * 0.45, 0, 0, Math.PI * 2); x.fill();
       x.fillStyle = css([150, 112, 76]);

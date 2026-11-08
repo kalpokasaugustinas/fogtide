@@ -429,11 +429,12 @@ export function top(v, x, id, type, owner, skin) {
     }
     x.beginPath(); x.moveTo(p[0] - u * 3, p[1] + u * 0.2); x.lineTo(p[0] - u * 0.1, p[1] + u * 0.2); x.stroke();
     house(x, p[0] + u * 0.6, p[1], u * 1.25, wallWhite, col);
-    shadow(x, p[0] + u * 3.6, p[1] - u * 0.1, u * 0.9, u * 0.35);
+    // the tree stands a step away from the house wall so the two never touch
+    shadow(x, p[0] + u * 4.2, p[1] - u * 0.1, u * 0.9, u * 0.35);
     x.fillStyle = css([96, 72, 54]);
-    x.fillRect(p[0] + u * 3.15, p[1] - u * 1.1, u * 0.3, u * 1.1);
+    x.fillRect(p[0] + u * 3.75, p[1] - u * 1.1, u * 0.3, u * 1.1);
     x.fillStyle = css([74, 112, 76]);
-    x.beginPath(); x.arc(p[0] + u * 3.3, p[1] - u * 1.6, u * 0.95, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.arc(p[0] + u * 3.9, p[1] - u * 1.6, u * 0.95, 0, Math.PI * 2); x.fill();
   } else if (type === 'relic') {
     // standing stones around a tall obelisk with a glowing gold gem
     const [p] = v.spots(id, 1, 0);
