@@ -12,8 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=94';
-import { rng, hops } from './mapgen.js?v=94';
+import { personalities, pickBuilding } from './ai.js?v=95';
+import { rng, hops } from './mapgen.js?v=95';
+import { effects } from './config.js?v=95';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -61,51 +62,80 @@ export const enemyPower = (n) => idleCfg.enemyBase * idleCfg.enemyAtk ** (n - 1)
 const enemyGrowthAt = (n) => idleCfg.enemyGrowthBase * idleCfg.enemyGrowth ** (n - 1);
 export const bossMist = (n) => Math.max(1, Math.round((n / 10) ** idleCfg.mistExp));
 
-// upgrade tree: 5 branches (rows), depth = column. needs = [[id, level], ...]: a node opens once
-// every listed upgrade has that level (some need two branches). cost = base x grow^level in Fog, or
-// in Mist for the advanced nodes at the end of each branch (cur: 'mist'). max = level cap (the root
-// stats have none). value(l) = the effect at level l
+// upgrade tree (compass): your base in the middle, 5 branches go out like spokes and each one forks
+// into two paths (passive-tree style); 5 bridge nodes on the outer ring join neighbouring branches.
+// placement: ring = distance from the centre (0-4), off = degrees left (-) / right (+) of the
+// branch's direction (bridges: ang = their own direction). needs = [[id, level], ...]: a node opens
+// once every listed upgrade has that level; or: true = any one of them is enough (merge and bridge
+// nodes, reachable from either side). cost = base x grow^level in Fog, or in Mist for the keystones
+// (cur: 'mist'). max = level cap (the root stats have none). value(l) = the effect at level l
 const pctUp = (v) => `+${Math.round((v - 1) * 100)}%`;
 const pctDown = (v) => `-${Math.round((1 - v) * 100)}%`;
 export const branches = [
-  { id: 'offense', icon: '⚔️', name: 'Offense' },
-  { id: 'defense', icon: '🛡️', name: 'Defense' },
-  { id: 'growth', icon: '🌱', name: 'Growth' },
-  { id: 'fog', icon: '🌫️', name: 'Fog' },
-  { id: 'command', icon: '🤖', name: 'Command' },
+  { id: 'offense', icon: '⚔️', name: 'Offense', ang: -90, color: '#e2483d' },
+  { id: 'defense', icon: '🛡️', name: 'Defense', ang: -18, color: '#2f74d6' },
+  { id: 'growth', icon: '🌱', name: 'Growth', ang: 54, color: '#33b366' },
+  { id: 'fog', icon: '🌫️', name: 'Fog', ang: 126, color: '#16a3b5' },
+  { id: 'command', icon: '🤖', name: 'Command', ang: 198, color: '#8b55c9' },
 ];
+export const bridgeColor = '#e0961a';   // bridge nodes (between two branches) are gold
 const autoTh = [1, 0.9, 0.8, 0.7, 0.6, 0.5];   // auto-attack: tile fullness that triggers an attack, by level
 const margins = [1.25, 1.18, 1.12, 1.06];       // auto-attack safety margin, by sharp eye level
 export const upgrades = [
-  // offense: attack -> march -> conscription -> archers (+ great walls) -> plunder -> mist blades
-  { id: 'atk', branch: 'offense', col: 0, icon: '🗡️', name: 'Sharper blades', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `attack ${pctUp(v)}` },
-  { id: 'march', branch: 'offense', col: 1, needs: [['atk', 2]], icon: '🥾', name: 'Forced march', base: 120, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `armies move ${pctUp(v)}` },
-  { id: 'conscription', branch: 'offense', col: 2, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
-  { id: 'archers', branch: 'offense', col: 3, needs: [['conscription', 1], ['walls', 1]], icon: '🏹', name: 'Archers', base: 900, grow: 2.4, max: 5, value: (l) => idleCfg.archerRate * l, text: (v, sc) => (v ? `shoot ${fmtRate(v * sc)}/s into each enemy neighbour` : 'your tiles shoot enemy neighbours') },
-  { id: 'plunder', branch: 'offense', col: 4, needs: [['archers', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
-  { id: 'mistblades', branch: 'offense', col: 5, cur: 'mist', needs: [['plunder', 1], ['atk', 6]], icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
-  // defense: shield wall -> great walls -> bigger camp -> mist veil
-  { id: 'def', branch: 'defense', col: 0, icon: '🛡️', name: 'Shield wall', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `defense ${pctUp(v)}` },
-  { id: 'walls', branch: 'defense', col: 1, needs: [['def', 2]], icon: '🧱', name: 'Great walls', base: 150, grow: 2.3, max: 4, value: (l) => 0.12 * l, text: (v) => `capital defense +${Math.round(v * 100)}%` },
-  { id: 'start', branch: 'defense', col: 2, needs: [['walls', 2]], icon: '🏕️', name: 'Bigger camp', base: 400, grow: 2.2, value: (l) => idleCfg.startTroops + 8 * l, text: (v, sc) => `start with ${fmtBig(v * sc)} foglets` },
-  { id: 'mistveil', branch: 'defense', col: 3, cur: 'mist', needs: [['start', 1], ['def', 6]], icon: '🌁', name: 'Mist veil', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
-  // growth: fertile fog -> master builders -> engineers -> deep roots
-  { id: 'growth', branch: 'growth', col: 0, icon: '🌱', name: 'Fertile fog', base: 50, grow: 2, value: (l) => 1.04 ** l, text: (v) => `growth ${pctUp(v)}` },
-  { id: 'granary', branch: 'growth', col: 1, needs: [['growth', 2]], icon: '🌾', name: 'Master builders', base: 160, grow: 2.2, max: 5, value: (l) => 1 + 0.06 * l, text: (v) => `farms, hospitals, labs ${pctUp(v)}` },
-  { id: 'engineers', branch: 'growth', col: 2, needs: [['granary', 2]], icon: '🛠️', name: 'Engineers', base: 450, grow: 2.2, max: 5, value: (l) => 0.96 ** l, text: (v) => `buildings cost ${pctDown(v)}` },
-  { id: 'roots', branch: 'growth', col: 3, cur: 'mist', needs: [['engineers', 1]], icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
-  // fog: harvest -> wells (Fog while you hold tiles) -> horn (Fog in real time) -> drift -> mistborn
-  { id: 'fog', branch: 'fog', col: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Fog ${pctUp(v)}` },
-  { id: 'wells', branch: 'fog', col: 1, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Fog/s per tile held` : 'tiles you hold make Fog') },
-  { id: 'horn', branch: 'fog', col: 2, needs: [['wells', 1]], icon: '📯', name: 'Fog horn', base: 600, grow: 2.5, max: 5, value: (l) => idleCfg.hornRate * l, text: (v, sc, id) => (v ? `gathers ${fmtRate(v * displayScale(Math.max(1, id?.best ?? 1)) * (id?.fogMult ?? 1))} Fog/s, played or away (holds ${idleCfg.hornHours} h)` : 'gathers Fog in real time, even while away') },
-  { id: 'drift', branch: 'fog', col: 3, needs: [['horn', 1], ['wells', 2]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
-  { id: 'mistborn', branch: 'fog', col: 4, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
-  // command (auto-battle): attack -> neutrals -> reinforce -> build (+ master builders) -> sharp eye
-  { id: 'auto', branch: 'command', col: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack enemies from ${Math.round(autoTh[v || 1] * 100)}% full tiles` },
-  { id: 'autoneutral', branch: 'command', col: 1, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
-  { id: 'reinforce', branch: 'command', col: 2, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front' },
-  { id: 'autobuild', branch: 'command', col: 3, needs: [['reinforce', 1], ['granary', 1]], icon: '🏗️', name: 'Auto-build', base: 2500, grow: 1, max: 1, value: (l) => l, text: () => 'full tiles build what pays back fastest' },
-  { id: 'sharpeye', branch: 'command', col: 4, cur: 'mist', needs: [['autobuild', 1]], icon: '👁️', name: 'Sharp eye', base: 1, grow: 2, max: 3, value: (l) => margins[l], text: (v) => `auto-attack sends +${Math.round((v - 1) * 100)}% over what it needs` },
+  // offense: blades, then the blitz path (march -> conscription -> plunder) and the might path
+  // (veterans -> archers -> volley); both lead to mist blades
+  { id: 'atk', branch: 'offense', ring: 0, off: 0, icon: '🗡️', name: 'Sharper blades', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `attack ${pctUp(v)}` },
+  { id: 'march', branch: 'offense', ring: 1, off: -20, needs: [['atk', 2]], icon: '🥾', name: 'Forced march', base: 120, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `armies move ${pctUp(v)}` },
+  { id: 'veterans', branch: 'offense', ring: 1, off: 20, needs: [['atk', 2]], icon: '🎖️', name: 'Veterans', base: 480, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `attack ${pctUp(v)} more` },
+  { id: 'conscription', branch: 'offense', ring: 2, off: -22, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
+  { id: 'archers', branch: 'offense', ring: 2, off: 22, needs: [['veterans', 4]], icon: '🏹', name: 'Archers', base: 1400, grow: 2.4, max: 5, value: (l) => idleCfg.archerRate * l, text: (v, sc) => (v ? `shoot ${fmtRate(v * sc)}/s into each enemy neighbour` : 'your tiles shoot enemy neighbours') },
+  { id: 'plunder', branch: 'offense', ring: 3, off: -22, needs: [['conscription', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
+  { id: 'volley', branch: 'offense', ring: 3, off: 22, needs: [['archers', 2]], icon: '🎯', name: 'Volley', base: 15000, grow: 2.6, max: 4, value: (l) => 1 + 0.15 * l, text: (v) => `archers shoot ${pctUp(v)}` },
+  { id: 'mistblades', branch: 'offense', ring: 4, off: 0, cur: 'mist', or: true, needs: [['plunder', 1], ['volley', 1]], icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
+  // defense: shield wall, then the walls path (great walls -> bigger camp) and the forts path
+  // (stonemasons -> field medics); they meet at stoneskin, then mist veil
+  { id: 'def', branch: 'defense', ring: 0, off: 0, icon: '🛡️', name: 'Shield wall', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `defense ${pctUp(v)}` },
+  { id: 'walls', branch: 'defense', ring: 1, off: -20, needs: [['def', 2]], icon: '🧱', name: 'Great walls', base: 150, grow: 2.3, max: 4, value: (l) => 0.12 * l, text: (v) => `capital defense +${Math.round(v * 100)}%` },
+  { id: 'masons', branch: 'defense', ring: 1, off: 20, needs: [['def', 2]], icon: '🏰', name: 'Stonemasons', base: 480, grow: 2.2, max: 5, value: (l) => effects.fortDefense + 0.05 * l, text: (v) => `forts defend x${v.toFixed(2)}` },
+  { id: 'start', branch: 'defense', ring: 2, off: -22, needs: [['walls', 2]], icon: '🏕️', name: 'Bigger camp', base: 400, grow: 2.2, value: (l) => idleCfg.startTroops + 8 * l, text: (v, sc) => `start with ${fmtBig(v * sc)} foglets` },
+  { id: 'medics', branch: 'defense', ring: 2, off: 22, needs: [['masons', 1]], icon: '⛑️', name: 'Field medics', base: 1350, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `hospitals ${pctUp(v)}` },
+  { id: 'stoneskin', branch: 'defense', ring: 3, off: 0, or: true, needs: [['start', 1], ['medics', 1]], icon: '⛰️', name: 'Stoneskin', base: 7200, grow: 2.2, max: 10, value: (l) => 1.01 ** l, text: (v) => `defense ${pctUp(v)} more` },
+  { id: 'mistveil', branch: 'defense', ring: 4, off: 0, cur: 'mist', needs: [['stoneskin', 1]], icon: '🌁', name: 'Mist veil', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
+  // growth: fertile fog, then the builders path (master builders -> engineers -> deep roots) and the
+  // fields path (spring rains -> scholars -> harvest moon); both lead to evergreen
+  { id: 'growth', branch: 'growth', ring: 0, off: 0, icon: '🌱', name: 'Fertile fog', base: 50, grow: 2, value: (l) => 1.04 ** l, text: (v) => `growth ${pctUp(v)}` },
+  { id: 'granary', branch: 'growth', ring: 1, off: -20, needs: [['growth', 2]], icon: '🌾', name: 'Master builders', base: 160, grow: 2.2, max: 5, value: (l) => 1 + 0.06 * l, text: (v) => `farms, hospitals, labs ${pctUp(v)}` },
+  { id: 'rains', branch: 'growth', ring: 1, off: 20, needs: [['growth', 2]], icon: '🌧️', name: 'Spring rains', base: 540, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `growth ${pctUp(v)} more` },
+  { id: 'engineers', branch: 'growth', ring: 2, off: -22, needs: [['granary', 2]], icon: '🛠️', name: 'Engineers', base: 450, grow: 2.2, max: 5, value: (l) => 0.96 ** l, text: (v) => `buildings cost ${pctDown(v)}` },
+  { id: 'scholars', branch: 'growth', ring: 2, off: 22, needs: [['rains', 2]], icon: '🔬', name: 'Scholars', base: 1500, grow: 2.2, max: 4, value: (l) => 1 + 0.06 * l, text: (v) => `labs ${pctUp(v)}` },
+  { id: 'roots', branch: 'growth', ring: 3, off: -22, cur: 'mist', needs: [['engineers', 1]], icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
+  { id: 'harvest', branch: 'growth', ring: 3, off: 22, needs: [['scholars', 1]], icon: '🌕', name: 'Harvest moon', base: 6000, grow: 2.3, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `farms ${pctUp(v)}` },
+  { id: 'evergreen', branch: 'growth', ring: 4, off: 0, cur: 'mist', or: true, needs: [['roots', 1], ['harvest', 1]], icon: '🌲', name: 'Evergreen', base: 2, grow: 2, max: 5, value: (l) => 1.05 ** l, text: (v) => `growth x${v.toFixed(2)} (on top of fertile fog)` },
+  // fog: harvest, then the wells path (wells -> horn -> deep horn) and the hunters path
+  // (scavengers -> bounty -> mist seeker); fog drift sits between them, then mistborn
+  { id: 'fog', branch: 'fog', ring: 0, off: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Fog ${pctUp(v)}` },
+  { id: 'wells', branch: 'fog', ring: 1, off: -20, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Fog/s per tile held` : 'tiles you hold make Fog') },
+  { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Fog from beaten foglets ${pctUp(v)}` },
+  { id: 'horn', branch: 'fog', ring: 2, off: -22, needs: [['wells', 1]], icon: '📯', name: 'Fog horn', base: 600, grow: 2.5, max: 5, value: (l) => idleCfg.hornRate * l, text: (v, sc, id) => (v ? `gathers ${fmtRate(v * displayScale(Math.max(1, id?.best ?? 1)) * (id?.fogMult ?? 1))} Fog/s, played or away (holds ${id?.hornHours ?? idleCfg.hornHours} h)` : 'gathers Fog in real time, even while away') },
+  { id: 'bounty', branch: 'fog', ring: 2, off: 22, needs: [['scavengers', 2]], icon: '🏆', name: 'Bounty', base: 2700, grow: 2.5, max: 4, value: (l) => 1 + 0.05 * l, text: (v) => `stage clear bonus ${pctUp(v)}` },
+  { id: 'deephorn', branch: 'fog', ring: 3, off: -26, needs: [['horn', 2]], icon: '🐚', name: 'Deep horn', base: 7500, grow: 2.6, max: 3, value: (l) => 2 * l, text: (v) => `the horn holds ${idleCfg.hornHours + v} h` },
+  { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['horn', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
+  { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
+  { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
+  // command (auto-battle): auto-attack, then the expand path (auto-expand -> auto-reinforce) and the
+  // signals path (signal fires -> auto-build); they meet at sharp eye
+  { id: 'auto', branch: 'command', ring: 0, off: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack enemies from ${Math.round(autoTh[v || 1] * 100)}% full tiles` },
+  { id: 'autoneutral', branch: 'command', ring: 1, off: -20, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
+  { id: 'signals', branch: 'command', ring: 1, off: 20, needs: [['auto', 2]], icon: '🔥', name: 'Signal fires', base: 300, grow: 2.5, max: 2, value: (l) => 1 + 0.5 * l, text: (v) => `auto-battle acts ${v === 1 ? 'every second' : `${v.toFixed(1)}x as often`}` },
+  { id: 'reinforce', branch: 'command', ring: 2, off: -22, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front' },
+  { id: 'autobuild', branch: 'command', ring: 2, off: 22, needs: [['signals', 1]], icon: '🏗️', name: 'Auto-build', base: 2500, grow: 1, max: 1, value: (l) => l, text: () => 'full tiles build what pays back fastest' },
+  { id: 'sharpeye', branch: 'command', ring: 3, off: 0, cur: 'mist', or: true, needs: [['reinforce', 1], ['autobuild', 1]], icon: '👁️', name: 'Sharp eye', base: 1, grow: 2, max: 3, value: (l) => margins[l], text: (v) => `auto-attack sends +${Math.round((v - 1) * 100)}% over what it needs` },
+  // bridges: outer ring between two branches, open from the end of either neighbouring path
+  { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
+  { id: 'sanctuary', branch: 'bridge', ring: 4, ang: 18, or: true, needs: [['medics', 1], ['engineers', 1]], icon: '⛪', name: 'Sanctuary', base: 27000, grow: 2.6, max: 5, value: (l) => 1.01 ** l, text: (v) => `growth and defense ${pctUp(v)}` },
+  { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['deephorn', 1]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `fog wells ${pctUp(v)}` },
+  { id: 'patrols', branch: 'bridge', ring: 4, ang: 162, or: true, needs: [['mistseeker', 1], ['reinforce', 1]], icon: '🐎', name: 'Patrols', base: 27000, grow: 2.6, max: 5, value: (l) => l, text: (v) => `armies move +${2 * v}%, Fog from beaten foglets +${3 * v}%` },
+  { id: 'blitz', branch: 'bridge', ring: 4, ang: 234, or: true, needs: [['autobuild', 1], ['plunder', 1]], icon: '⚡', name: 'Blitz', base: 27000, grow: 2.6, max: 5, value: (l) => l, text: (v) => `armies move +${2 * v}%, neutrals defend -${(1.5 * v).toFixed(1).replace('.0', '')}%` },
 ];
 export const upgradeById = Object.fromEntries(upgrades.map((u) => [u.id, u]));
 
@@ -158,7 +188,11 @@ export class Idle {
   wallet(id) { return this.cur(id) === 'mist' ? this.mist : this.fogs; }
   maxed(id) { const u = upgradeById[id]; return u.max !== undefined && this.lvl(id) >= u.max; }
   // the requirements still missing (empty = open)
-  missing(id) { return (upgradeById[id].needs ?? []).filter(([n, l]) => this.lvl(n) < l); }
+  missing(id) {
+    const u = upgradeById[id], miss = (u.needs ?? []).filter(([n, l]) => this.lvl(n) < l);
+    if (this.lvl(id) > 0) return [];   // owned (e.g. bought before the tree changed): stays open
+    return u.or && miss.length < (u.needs ?? []).length ? [] : miss;
+  }
   locked(id) { return this.missing(id).length > 0; }
   canBuy(id) { return !this.maxed(id) && !this.locked(id) && this.wallet(id) >= this.cost(id); }
 
@@ -172,12 +206,19 @@ export class Idle {
 
   // the player's sim modifiers from upgrades (same keys as battle.js / expedition perks)
   mods() {
-    const g = this.val('granary');
-    return {
-      atk: this.val('atk') * this.val('mistblades'), def: this.val('def') * this.val('mistveil'), growth: this.val('growth'), speed: this.val('march'),
-      cost: this.val('engineers'), neutralDef: this.val('conscription'), loot: this.val('plunder'),
-      farm: g, hospital: g, lab: g, capitalDef: this.val('walls'), archers: this.val('archers'), land: this.val('roots'),
+    const g = this.val('granary'), war = this.val('warlord'), sanc = this.val('sanctuary');
+    const patrols = this.lvl('patrols'), blitz = this.lvl('blitz');
+    const m = {
+      atk: this.val('atk') * this.val('veterans') * this.val('mistblades') * war,
+      def: this.val('def') * this.val('stoneskin') * this.val('mistveil') * war * sanc,
+      growth: this.val('growth') * this.val('rains') * this.val('evergreen') * sanc,
+      speed: this.val('march') * (1 + 0.02 * patrols) * (1 + 0.02 * blitz),
+      cost: this.val('engineers'), neutralDef: this.val('conscription') * (1 - 0.015 * blitz), loot: this.val('plunder'),
+      farm: g * this.val('harvest'), hospital: g * this.val('medics'), lab: g * this.val('scholars'),
+      capitalDef: this.val('walls'), archers: this.val('archers') * this.val('volley'), land: this.val('roots'),
     };
+    if (this.lvl('masons')) m.fort = this.val('masons');   // forts: x1.75 unless stonemasons
+    return m;
   }
 
   get scale() { return displayScale(this.stage); }
@@ -189,16 +230,19 @@ export class Idle {
   // Fog for sim foglets killed on the current stage (ghost stages pay double). divided by the
   // stage's enemy growth: stronger enemies field more foglets, each is worth less, so a stage pays
   // about the same share of its display scale however strong the rivals are
-  fogsFor(killed) { return (killed * idleCfg.fogPerKill * this.scale * this.fogMult * (stageSpec(this.stage).ghost ? 2 : 1)) / enemyGrowthAt(this.stage); }
+  fogsFor(killed) { return (killed * idleCfg.fogPerKill * this.scale * this.fogMult * this.killMult * (stageSpec(this.stage).ghost ? 2 : 1)) / enemyGrowthAt(this.stage); }
+  // scavengers and patrols: more Fog per beaten foglet
+  get killMult() { return this.val('scavengers') * (1 + 0.03 * this.lvl('patrols')); }
   // fog wells: Fog for holding tiles over dt game seconds
-  wellFogs(tiles, dt) { return this.val('wells') * tiles * dt * this.scale * this.fogMult; }
-  clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.fogMult * (stageSpec(this.stage).boss ? 3 : 1); }
+  wellFogs(tiles, dt) { return this.val('wells') * this.val('mistgarden') * tiles * dt * this.scale * this.fogMult; }
+  clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.fogMult * this.val('bounty') * (stageSpec(this.stage).boss ? 3 : 1); }
 
   earn(f) { this.fogs += f; this.total += f; this.runFogs += f; }
 
   // ---- fog horn: Fog in real time (ms timestamps), played or away, up to hornHours of it ----
   get hornRate() { return this.val('horn') * displayScale(Math.max(1, this.best)) * this.fogMult; }   // Fog per real second
-  get hornCap() { return this.hornRate * idleCfg.hornHours * 3600; }
+  get hornHours() { return idleCfg.hornHours + this.val('deephorn'); }   // deep horn adds hours
+  get hornCap() { return this.hornRate * this.hornHours * 3600; }
   hornAmount(now = Date.now()) {
     if (!this.lvl('horn')) return 0;
     if (!this.hornAt) this.hornAt = now;
@@ -222,7 +266,7 @@ export class Idle {
   autoTick(b, dt) {
     if (!this.autoOn || b.state !== 'running') return;
     b.autoT = (b.autoT ?? 0) + dt;
-    if (b.autoT < idleCfg.autoEvery) return;
+    if (b.autoT < idleCfg.autoEvery / this.val('signals')) return;   // signal fires: more often
     b.autoT = 0;
     const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0, margin = this.val('sharpeye');
     const mine = b.segs.filter((s) => s.owner === 0);
@@ -283,7 +327,7 @@ export class Idle {
 
   // a stage was won: bonus Fog (and Mist from a boss), next stage. returns { bonus, mist }
   win(secs) {
-    const bonus = this.clearFogs(), mist = stageSpec(this.stage).boss ? bossMist(this.stage) : 0;
+    const bonus = this.clearFogs(), mist = stageSpec(this.stage).boss ? Math.round(bossMist(this.stage) * this.val('mistseeker')) : 0;
     this.earn(bonus);
     this.mist += mist; this.mistTotal += mist;
     this.runTime += secs;

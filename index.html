@@ -25,7 +25,7 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=94">
+  <link rel="stylesheet" href="style.css?v=95">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -154,7 +154,7 @@
       <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 94 · 2026-11-08 20:26</span>
+    <span id="version">build 95 · 2026-11-08 20:55</span>
   </section>
 
   <!-- campaign world map -->
@@ -284,8 +284,7 @@
     <div class="card end-card shop-card">
       <div class="end-ribbon"><h2>Upgrades</h2></div>
       <p id="shop-fogs" class="shop-fogs">🌫️ 0 fogs</p>
-      <div id="shop-tree" class="shop-tree"></div>
-      <div id="shop-detail" class="shop-detail"></div>
+      <div class="shop-body"><div id="shop-tree" class="shop-tree"></div><div id="shop-detail" class="shop-detail"></div></div>
       <div class="end-btns"><button id="shop-close" class="mode green big-btn">Back to battle</button></div>
     </div>
   </div>
@@ -339,6 +338,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=94"></script>
+  <script type="module" src="js/main.js?v=95"></script>
 </body>
 </html>

@@ -502,59 +502,80 @@ html.compact #battle-quit { width: 44px; height: 44px; font-size: 20px; }
 .round.locked { filter: grayscale(1); opacity: 0.55; }
 /* shop: on top of the end card too (later in the page, same layer), lighter backdrop so the battle shows */
 #idle-shop { background: rgba(30, 45, 50, 0.3); backdrop-filter: none; z-index: 11; }
-.shop-card { max-width: 640px; max-height: 100%; display: flex; flex-direction: column; }
+.shop-card { max-width: 1180px; height: 100%; max-height: 660px; display: flex; flex-direction: column; }
 .shop-fogs { margin: 2px 0 8px; font-size: 20px; font-weight: 800; color: #8a5208; font-variant-numeric: tabular-nums; }
-/* upgrade tree in the fog: the battle's cloud texture drifts behind it (--fog / --fog-bg set by js) */
-.shop-tree { position: relative; display: grid; grid-template-columns: 74px repeat(6, 66px); grid-auto-rows: 64px; gap: 8px 12px; padding: 10px 12px;
-  justify-content: center; border-radius: 16px; overflow: auto; overscroll-behavior: contain; min-height: 0; flex: 1 1 auto;
+/* tree on the left, the selected upgrade's card on the right */
+.shop-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; }
+/* zoom buttons over the tree's top-left corner */
+.tree-zoom { position: absolute; left: 10px; top: 10px; z-index: 2; display: flex; flex-direction: column; gap: 6px; }
+.tree-zoom button { width: 44px; height: 44px; border-radius: 50%; border: 0; font-size: 22px; font-weight: 800; color: #23343a; background: #fff; box-shadow: 0 3px 0 rgba(30,40,45,0.3); cursor: pointer; }
+.tree-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(30,40,45,0.3); }
+/* compass tree in the fog: the battle's cloud texture drifts behind it (--fog / --fog-bg set by js);
+   it clears outward from the centre as you buy (--clear on the canvas) */
+.shop-tree { position: relative; flex: 1 1 auto; min-width: 0; border-radius: 18px; overflow: auto; overscroll-behavior: contain; display: flex;
   background: var(--fog) 0 0 / 300px 300px repeat, var(--fog-bg, #c4cdcb); animation: fog-drift 60s linear infinite;
   box-shadow: inset 0 0 0 2px rgba(255,255,255,0.6), inset 0 0 30px rgba(40,60,70,0.25); }
 @keyframes fog-drift { to { background-position: 300px 120px, 0 0; } }
-.shop-links { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; overflow: visible; }
-.shop-links path { fill: none; stroke: rgba(255,255,255,0.55); stroke-width: 3; stroke-dasharray: 2 7; stroke-linecap: round; }
-.shop-links path.met { stroke: #fff; stroke-dasharray: none; stroke-width: 4; filter: drop-shadow(0 0 4px rgba(255,236,170,0.9)); }
-.br-label { grid-column: 1; z-index: 1; align-self: center; display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 12px;
-  color: #2c3a40; text-shadow: 0 1px 0 rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: 0.5px; }
-.br-label span { font-size: 22px; }
-/* nodes: frosted puffs of fog; gold rim = affordable, green = owned, star = maxed */
-.node { position: relative; z-index: 1; width: 66px; height: 64px; padding: 0; border-radius: 22px; border: 3px solid rgba(255,255,255,0.95);
-  background: radial-gradient(circle at 40% 30%, #ffffff, rgba(235,242,242,0.92)); box-shadow: 0 3px 0 rgba(40,60,70,0.25), 0 0 14px rgba(255,255,255,0.7);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.12s; }
-.node:active { transform: scale(0.94); }
-.n-ico { font-size: 24px; line-height: 1; }
-.n-lv { position: absolute; top: -8px; right: -8px; min-width: 22px; height: 20px; padding: 0 5px; border-radius: 10px; font-size: 11px; font-weight: 800;
-  line-height: 20px; background: #55606b; color: #fff; font-variant-numeric: tabular-nums; }
-.n-cost { font-size: 11px; font-weight: 800; color: #6b7a76; margin-top: 3px; font-variant-numeric: tabular-nums; }
-.node.owned { border-color: #4fd394; }
+.tree-size { position: relative; flex: none; margin: auto; }   /* centred while smaller than the box, scrolls when bigger */
+.tree-canvas { position: absolute; left: 0; top: 0; width: 1340px; height: 880px; transform-origin: 0 0;
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(255,246,222,0.95) 0, rgba(255,244,214,0.8) var(--clear), rgba(255,250,236,0) calc(var(--clear) + 22%)); }
+.shop-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.shop-links .ring { fill: none; stroke: rgba(120, 100, 60, 0.22); stroke-width: 2; stroke-dasharray: 4 8; }
+.shop-links path { fill: none; stroke: rgba(255,255,255,0.7); stroke-width: 3; stroke-dasharray: 2 8; stroke-linecap: round; }
+.shop-links path.met { stroke: var(--c); stroke-dasharray: none; stroke-width: 7; filter: drop-shadow(0 0 4px rgba(255,255,255,0.9)); }
+/* your base in the middle: total levels bought */
+.tree-core { position: absolute; left: 670px; top: 440px; width: 104px; height: 104px; margin: -52px 0 0 -52px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 40% 32%, #fff2b8, #e0961a); box-shadow: 0 6px 0 #a3650a, 0 0 0 10px rgba(255, 215, 106, 0.35); }
+.tree-core b { font-family: 'Luckiest Guy', 'Fredoka', sans-serif; font-weight: 400; font-size: 38px; line-height: 1; color: #fff; text-shadow: 0 3px 0 #8a5208; }
+.tree-core small { font-size: 13px; font-weight: 800; color: #6b3c00; text-transform: uppercase; }
+.br-chip { position: absolute; transform: translate(-50%, -50%); padding: 5px 14px; border-radius: 14px; color: #fff; font-weight: 800; font-size: 17px; white-space: nowrap;
+  background: var(--c); box-shadow: 0 3px 0 rgba(0,0,0,0.3); text-transform: uppercase; letter-spacing: 0.5px; pointer-events: none; }
+/* nodes: round badges in the branch colour (white until bought), gold glow = affordable,
+   diamonds = Mist keystones, gold = bridges, clouds = locked */
+.node { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; padding: 0; border-radius: 50%; border: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; background: #fff; box-shadow: 0 4px 0 rgba(30,40,45,0.25), inset 0 0 0 4px var(--c); transition: transform 0.12s; }
+.node:active { transform: scale(0.92); }
+.n-ico { font-size: 28px; line-height: 1; position: relative; }
+.n-lv { position: absolute; top: -8px; right: -10px; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 11px; font-size: 13px; font-weight: 800;
+  line-height: 22px; background: #44515a; color: #fff; font-variant-numeric: tabular-nums; }
+.node.owned { background: radial-gradient(circle at 40% 30%, color-mix(in srgb, var(--c) 50%, #fff), var(--c)); box-shadow: 0 5px 0 color-mix(in srgb, var(--c) 55%, #000), inset 0 3px 0 rgba(255,255,255,0.35); }
 .node.owned .n-lv { background: #23966a; }
-.node.buyable { border-color: #ffc94d; box-shadow: 0 3px 0 #a3650a, 0 0 16px rgba(255,200,80,0.9); }
-.node.buyable .n-cost { color: #a3650a; }
-.node.maxed { border-color: #ffc94d; background: radial-gradient(circle at 40% 30%, #fff7d6, #ffe08a); }
+.node.buyable { animation: node-glow 1.4s ease-in-out infinite; }
+@keyframes node-glow { 50% { box-shadow: 0 4px 0 rgba(30,40,45,0.25), inset 0 0 0 4px var(--c), 0 0 0 5px rgba(255, 201, 77, 0.6), 0 0 24px rgba(255, 201, 77, 0.95); } }
 .node.maxed .n-lv { background: #e0961a; }
-.node.sel { outline: 3px solid #2f74d6; outline-offset: 3px; }
-/* locked: wrapped in the same clouds, only a lock shows through */
-.node.veiled { border-color: rgba(255,255,255,0.5); background: var(--fog) center / 140px 140px, var(--fog-bg, #c4cdcb); box-shadow: 0 0 18px 6px rgba(255,255,255,0.55); }
-.node.veiled .n-ico { opacity: 0.18; filter: blur(2px) grayscale(1); }
-.node.veiled .n-lv { display: none; }
-.n-fog { position: absolute; font-size: 16px; opacity: 0.8; }
+.node.sel { outline: 4px solid #23343a; outline-offset: 4px; }
+/* mist keystones: a diamond drawn behind the icon (the button stays round for tapping and outline) */
+.node.mist { background: none; box-shadow: none; }
+.node.mist::before { content: ''; position: absolute; inset: 4px; border-radius: 12px; transform: rotate(45deg); background: linear-gradient(180deg, #e2ddff, #b3a8ff);
+  box-shadow: 0 4px 0 #6a5cc8, inset 0 0 0 3px #7b6cf0; }
+.node.mist.owned::before { background: linear-gradient(180deg, #b9afff, #6f5ee8); box-shadow: 0 5px 0 #3d2bb0; }
+.node.mist.buyable { animation: none; }
+.node.mist.buyable::before { animation: node-glow 1.4s ease-in-out infinite; }
+.node.bridge { width: 66px; height: 66px; margin: -33px 0 0 -33px; }
+/* locked: wrapped in the battle's clouds, only a lock shows through */
+.node.veiled, .node.mist.veiled { background: var(--fog) center / 140px 140px, var(--fog-bg, #c4cdcb); box-shadow: 0 0 18px 7px rgba(255,255,255,0.7); animation: none; }
+.node.mist.veiled::before { display: none; }
+.node.veiled .n-ico { opacity: 0.15; filter: blur(2px) grayscale(1); }
+.n-fog { position: absolute; font-size: 20px; opacity: 0.85; }
 .node.reveal { animation: reveal 0.7s ease-out; }
 @keyframes reveal { 0% { transform: scale(0.6); filter: blur(6px) brightness(1.6); } 60% { transform: scale(1.12); filter: none; } 100% { transform: scale(1); } }
-/* detail card under the tree */
-.shop-detail { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 14px; padding: 8px 10px; margin-top: 8px; text-align: left; flex: none;
-  box-shadow: 0 2px 0 rgba(30,50,55,0.15); min-height: 58px; }
-.d-ico { font-size: 28px; flex: none; }
-.d-txt { flex: 1; min-width: 0; line-height: 1.3; }
-.d-txt b { font-size: 15px; }
-.d-txt em { font-style: normal; font-size: 12px; font-weight: 700; color: #23966a; }
-.d-txt small { display: block; font-size: 12px; color: var(--muted); }
-.d-needs span { margin-right: 8px; color: #c4342e; font-weight: 700; }
+/* card next to the tree */
+.shop-detail { flex: none; width: 250px; display: flex; flex-direction: column; align-items: center; gap: 6px; background: #fff; border-radius: 18px; padding: 16px 14px; text-align: center;
+  box-shadow: 0 3px 0 rgba(30,50,55,0.15); }
+.d-ico { width: 84px; height: 84px; flex: none; border-radius: 26px; display: grid; place-items: center; font-size: 46px; background: var(--c); box-shadow: 0 5px 0 rgba(0,0,0,0.25), inset 0 3px 0 rgba(255,255,255,0.35); }
+.d-tag { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+.d-txt { flex: 1; min-height: 0; overflow: auto; line-height: 1.35; }
+.d-txt b { font-size: 19px; }
+.d-txt em { font-style: normal; font-size: 13px; font-weight: 700; color: #23966a; }
+.d-txt small { display: block; font-size: 14px; color: var(--muted); margin-top: 6px; }
+.d-needs span { display: block; margin-top: 3px; color: #c4342e; font-weight: 700; }
 .d-needs span.ok { color: #23966a; }
-html.compact .shop-tree { grid-template-columns: 58px repeat(6, 54px); grid-auto-rows: 52px; gap: 6px 10px; padding: 6px 8px; }
-html.compact .node { width: 54px; height: 52px; border-radius: 18px; }
-html.compact .n-ico { font-size: 20px; }
-html.compact .shop-card { padding-top: 26px; }
+.shop-detail .up-buy { width: 100%; min-height: 50px; font-size: 18px; }
+html.compact .shop-card { padding-top: 26px; max-height: none; }
 html.compact .shop-fogs { font-size: 16px; margin: 0 0 4px; }
-html.compact .shop-detail { min-height: 48px; padding: 5px 8px; margin-top: 5px; }
+html.compact .shop-detail { width: 190px; padding: 10px; gap: 4px; }
+html.compact .d-ico { width: 56px; height: 56px; font-size: 30px; border-radius: 18px; }
+html.compact .d-txt b { font-size: 16px; } html.compact .d-txt small { font-size: 12px; }
 html.compact #idle-shop .end-btns { margin-top: 6px; } html.compact #shop-close { padding: 7px 14px; font-size: 15px; }
 #end-shop { min-width: 180px; justify-content: center; font-size: 17px; }
 /* buy button (upgrade tree card) */
