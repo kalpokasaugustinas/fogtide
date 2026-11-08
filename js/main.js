@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=92';
-import { generateMap, rng } from './mapgen.js?v=92';
-import { initAnalytics, track } from './analytics.js?v=92';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=92';
-import { Battle } from './battle.js?v=92';
-import { personalities } from './ai.js?v=92';
-import { Campaign } from './campaign.js?v=92';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=92';
-import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=92';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=92';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=92';
-import { previewBuildings } from './structures.js?v=92';
-import { initTune, tuneChanges } from './tune.js?v=92';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits } from './config.js?v=93';
+import { generateMap, rng } from './mapgen.js?v=93';
+import { initAnalytics, track } from './analytics.js?v=93';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=93';
+import { Battle } from './battle.js?v=93';
+import { personalities } from './ai.js?v=93';
+import { Campaign } from './campaign.js?v=93';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=93';
+import { Idle, fmtBig, upgrades, upgradeById, branches, displayScale } from './idle.js?v=93';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=93';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=93';
+import { previewBuildings } from './structures.js?v=93';
+import { initTune, tuneChanges } from './tune.js?v=93';
 
 const $ = (id) => document.getElementById(id);
 

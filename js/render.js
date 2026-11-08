@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (fog, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=92';
-import * as structures from './structures.js?v=92';
+import { themes, fogTwirl } from './config.js?v=93';
+import * as structures from './structures.js?v=93';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -270,6 +270,7 @@ export class MapView {
     this.styleOf = this.st = null;
     this.bkey = this.okey = null;
     this.size = 0;   // forces resize() to rebuild every cached layer for the new map
+    this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
     this.resize();
   }
 
@@ -884,6 +885,44 @@ export class MapView {
     ctx.restore();
   }
 
+  // river footprint for placing details: every river point with the half-width of its drawn band
+  // (water + foam + shore, same formula as drawRivers) in grid units at the current size, in a
+  // coarse bucket grid. rebuilt when the size changes (rivers are drawn wider on small screens)
+  riverIndex() {
+    if (this.rivIdx && this.rivIdx.size === this.size) return this.rivIdx;
+    const dt = this.map.detail ?? 1, f = Math.max(1, this.size / 700) / this.scale, bs = 8, b = new Map();
+    let maxH = 0;
+    for (const pts of this.map.rivers ?? []) {
+      const len = pts.length;
+      pts.forEach(([x, y], j) => {
+        const piece = Math.min(5, Math.floor((j * 6) / len));   // drawRivers' 6 widening pieces
+        const h = (((3.4 + 6.5 * ((piece + 1) / 6)) * (0.65 + 0.35 * dt) + 5) * f) / 2;
+        if (h > maxH) maxH = h;
+        const key = Math.floor(y / bs) * 4096 + Math.floor(x / bs);
+        (b.get(key) ?? b.set(key, []).get(key)).push([x, y, h]);
+      });
+    }
+    return (this.rivIdx = { size: this.size, b, bs, maxH });
+  }
+
+  // is grid point (x, y) on a river? true when it lies within the band's half-width * k + pad
+  // (grid units). k < 1 allows the outer bank (reeds), pad > 0 keeps a margin (buildings, crowns)
+  nearRiver(x, y, pad = 0, k = 1) {
+    const { b, bs, maxH } = this.riverIndex();
+    if (!b.size) return false;
+    const reach = maxH * k + pad;
+    if (reach <= 0) return false;
+    for (let by = Math.floor((y - reach) / bs); by <= Math.floor((y + reach) / bs); by++) {
+      for (let bx = Math.floor((x - reach) / bs); bx <= Math.floor((x + reach) / bs); bx++) {
+        for (const [rx, ry, h] of b.get(by * 4096 + bx) ?? []) {
+          const r = h * k + pad;
+          if ((rx - x) ** 2 + (ry - y) ** 2 < r * r) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // rivers (visual only): smoothed polylines, drawn in pieces so they widen toward the mouth
   drawRivers(x, px) {
     // same water as the lakes: lake colour, foam rim along the banks, light ripple in the middle
@@ -1025,6 +1064,9 @@ export class MapView {
     for (const tr of this.trees) {
       if (tr.seg !== id) continue;
       const px = this.sx(tr.x), py = this.sy(tr.y), r = Math.max(1.6, tr.r * sc);
+      // nothing stands in a river: trees and boulders keep their crown off the band, reeds may
+      // grow on the outer bank only
+      if (tr.kind === 'reed' ? this.nearRiver(tr.x, tr.y, 0, 0.6) : this.nearRiver(tr.x, tr.y, tr.r * 0.8)) continue;
       if (keep && !keep(tr, px, py, this.objBox(tr, px, py, r, t.tree === 'pine'))) continue;
       if (tr.kind === 'rock') {
         // low-poly boulder: lit top-left face, shaded right face, small shadow
@@ -1125,11 +1167,12 @@ export class MapView {
     const key = `${id}:${n}:${Math.round(sep)}`;
     if (this.spotCache.has(key)) return this.spotCache.get(key);
     const { bdist, grid: g, segs } = this.map, s = segs[id], sc = this.scale, u = this.u / sc;
-    const cand = [];
+    const cand = [], wet = (x, y) => this.nearRiver(x, y, u * 3);   // building footprint margin
     const cells = this.segCells[id];
     for (let i = 0; i < cells.length; i += 2) {
       const c = cells[i], x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5, dx = x - s.x, dy = (y - s.y) * this.tilt;
       if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) continue;
+      if (wet(x, y)) continue;   // no house on a river
       cand.push([Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y]);
     }
     cand.sort((a, b) => b[0] - a[0]);
@@ -1142,8 +1185,12 @@ export class MapView {
     };
     take(cand, sep);
     // small segment: relax (closer together, label area allowed) so there is always at least one spot
+    // (dry cells first; a river cell only as the very last resort)
     if (out.length < n) {
-      take(cells.map((c) => [bdist[c], (c % g) + 0.5, Math.floor(c / g) + 0.5]).sort((a, b) => b[0] - a[0]), sep * 0.4);
+      const all = cells.map((c) => [bdist[c], (c % g) + 0.5, Math.floor(c / g) + 0.5]).sort((a, b) => b[0] - a[0]);
+      take(all.filter(([, x, y]) => !wet(x, y)), sep * 0.4);
+      if (out.length < n) take(all.filter(([, x, y]) => !this.nearRiver(x, y)), sep * 0.4);
+      if (out.length < n) take(all, sep * 0.4);
     }
     const res = out.map((p) => [this.sx(p[0]), this.sy(p[1])]);
     this.spotCache.set(key, res);
@@ -1160,6 +1207,7 @@ export class MapView {
       if (bdist[c] !== ring) continue;
       const x = this.sx((c % g) + 0.5), y = this.sy(Math.floor(c / g) + 0.5);
       if (Math.hypot(x - this.sx(s.x), y - this.sy(s.y)) < clear) continue;
+      if (this.nearRiver((c % g) + 0.5, Math.floor(c / g) + 0.5, (this.u * 1.5) / this.scale)) continue;   // no tower in a river
       if (out.every((p) => Math.hypot(p[0] - x, p[1] - y) >= sep)) out.push([x, y]);
     }
     this.spotCache.set(key, out);
@@ -1178,6 +1226,7 @@ export class MapView {
       const x = this.sx((c % g) + 0.5), y = this.sy(Math.floor(c / g) + 0.5);
       // keep the number badge clear: figures stand upward from their spot, so the zone reaches further down
       if (Math.abs(x - lx) < sp * 3.4 && y - ly > -sp * 1.3 && y - ly < sp * 3.4) continue;
+      if (this.nearRiver((c % g) + 0.5, Math.floor(c / g) + 0.5, (sp * 0.4) / this.scale)) continue;   // no figures in a river
       cand.push([Math.hypot(x - lx, (y - ly) * 1.4) + hash(c, 9, this.seed) * sp * 0.6, x, y]);
     }
     cand.sort((a, b) => a[0] - b[0]);
