@@ -25,7 +25,7 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=99">
+  <link rel="stylesheet" href="style.css?v=100">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -154,7 +154,7 @@
       <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 99 · 2026-11-08 21:21</span>
+    <span id="version">build 100 · 2026-11-08 21:31</span>
   </section>
 
   <!-- campaign world map -->
@@ -297,6 +297,8 @@
       <div class="set-row"><span>🔊 Sound</span><input id="set-sfx" type="range" min="0" max="100" step="5"><b id="set-sfx-v"></b></div>
       <div class="set-row"><span>🔍 Interface</span><span id="set-ui" class="chunky-group">
         <button data-ui="0.85">Small</button><button data-ui="1">Normal</button><button data-ui="1.2">Large</button></span></div>
+      <div class="set-row"><span>🧍 Foglets</span><span id="set-figs" class="chunky-group">
+        <button data-fig="polished">Classic</button><button data-fig="faces">Faces</button><button data-fig="worn">Battle-worn</button></span></div>
       <div class="set-row desktop-only hidden"><span>🖥️ Display</span><span id="set-display" class="chunky-group">
         <button data-full="1">Fullscreen</button><button data-full="0">Window</button></span></div>
       <p class="hint">Keys: Space pause · 1–4 send % · Esc close / back · U upgrades · A auto-attack<span class="desktop-only hidden"> · F11 fullscreen</span></p>
@@ -338,6 +340,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=99"></script>
+  <script type="module" src="js/main.js?v=100"></script>
 </body>
 </html>

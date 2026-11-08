@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=99';
-import * as structures from './structures.js?v=99';
+import { themes, fogTwirl } from './config.js?v=100';
+import * as structures from './structures.js?v=100';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -414,6 +414,36 @@ export class MapView {
     this.boxes = box;
     this.segCells = segs.map(() => []);
     for (let c = 0; c < g * g; c++) if (ids[c] >= 0) this.segCells[ids[c]].push(c);
+    // distance (grid units) from each cell to the nearest fog / lake cell: buildings use it to
+    // stand fully on the island instead of hanging over the coast. two-pass chamfer (1, 1.41)
+    const cd = new Float32Array(g * g), big = 1e6, d2 = Math.SQRT2;
+    for (let c = 0; c < g * g; c++) cd[c] = ids[c] >= 0 || mtn(c) ? big : 0;
+    for (let y = 0; y < g; y++) for (let x = 0; x < g; x++) {
+      const c = y * g + x;
+      if (!cd[c]) continue;
+      let v = cd[c];
+      // outside the grid counts as fog
+      v = Math.min(v, x > 0 ? cd[c - 1] + 1 : 1, y > 0 ? cd[c - g] + 1 : 1);
+      v = Math.min(v, x > 0 && y > 0 ? cd[c - g - 1] + d2 : d2, x < g - 1 && y > 0 ? cd[c - g + 1] + d2 : d2);
+      cd[c] = v;
+    }
+    for (let y = g - 1; y >= 0; y--) for (let x = g - 1; x >= 0; x--) {
+      const c = y * g + x;
+      if (!cd[c]) continue;
+      let v = cd[c];
+      v = Math.min(v, x < g - 1 ? cd[c + 1] + 1 : 1, y < g - 1 ? cd[c + g] + 1 : 1);
+      v = Math.min(v, x < g - 1 && y < g - 1 ? cd[c + g + 1] + d2 : d2, x > 0 && y < g - 1 ? cd[c + g - 1] + d2 : d2);
+      cd[c] = v;
+    }
+    this.coastD = cd;
+  }
+
+  // free land around a css px point: distance to the coast (or a lake) in css px, 0 off the island.
+  // the screen squashes y by the tilt, so the result is the horizontal reach that stays on land
+  clearAt(px, py) {
+    const g = this.map.grid, gx = Math.floor(px / this.scale), gy = Math.floor((py - this.oy) / (this.scale * this.tilt));
+    if (gx < 0 || gy < 0 || gx >= g || gy >= g) return 0;
+    return this.coastD[gy * g + gx] * this.scale;
   }
 
   // tree clusters inside segments, away from borders and number labels
@@ -1124,20 +1154,31 @@ export class MapView {
   }
 
   // n building spots (css px) inside a segment: deep inside, away from the number label and not
-  // just below it (buildings stand upward), at least sep css px apart
+  // just below it (buildings stand upward), at least sep css px apart. every spot must keep its
+  // building on the island: the first spot (the main building: castle, hamlet, keep) wants
+  // mainR of land around it, the others (tents, houses, beds) want secR. spots with less room
+  // to the coast only come after all roomier ones, so nothing hangs over the fog unless the tile
+  // is simply too small (then the scene shrinks to fit, see structures.js)
   spots(id, n, sep) {
     const key = `${id}:${n}:${Math.round(sep)}`;
     if (this.spotCache.has(key)) return this.spotCache.get(key);
     const { bdist, grid: g, segs } = this.map, s = segs[id], sc = this.scale, u = this.u / sc;
-    const cand = [], wet = (x, y) => this.nearRiver(x, y, u * 3);   // building footprint margin
-    const cells = this.segCells[id];
+    const wet = (x, y) => this.nearRiver(x, y, u * 3);   // building footprint margin
+    const cells = this.segCells[id], cd = this.coastD;
+    const mainR = this.u * 6.2 / sc, secR = Math.max(this.u * 2.6, sep * 0.45) / sc;   // grid units
+    // room score: how much of the wanted land radius r the cell has (capped, in 0.5 u steps so
+    // the depth / label rules still decide among cells that all fit)
+    const room = (c, r) => Math.floor(Math.min(cd[c], r) / (u * 0.5));
+    const cand = [], late = [];
     for (let i = 0; i < cells.length; i += 2) {
       const c = cells[i], x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5, dx = x - s.x, dy = (y - s.y) * this.tilt;
-      if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) continue;
       if (wet(x, y)) continue;   // no house on a river
-      cand.push([Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y]);
+      const e = [Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y, c];
+      // the label area is allowed too, but only after every free cell with as much room
+      if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) late.push(e); else cand.push(e);
     }
-    cand.sort((a, b) => b[0] - a[0]);
+    const order = (r) => [...cand.map((e) => [room(e[3], r), 1, e]), ...late.map((e) => [room(e[3], r), 0, e])]
+      .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2][0] - a[2][0]).map((o) => o[2]);
     const out = [];
     const take = (list, gap) => {
       for (const [, x, y] of list) {
@@ -1145,11 +1186,12 @@ export class MapView {
         if (out.every((p) => Math.hypot(this.sx(p[0]) - this.sx(x), this.sy(p[1]) - this.sy(y)) >= gap)) out.push([x, y]);
       }
     };
-    take(cand, sep);
-    // small segment: relax (closer together, label area allowed) so there is always at least one spot
+    take(order(mainR), Infinity);   // main building: the roomiest spot
+    if (n > 1) take(order(secR), sep);
+    // small segment: relax (closer together) so there is always at least one spot
     // (dry cells first; a river cell only as the very last resort)
     if (out.length < n) {
-      const all = cells.map((c) => [bdist[c], (c % g) + 0.5, Math.floor(c / g) + 0.5]).sort((a, b) => b[0] - a[0]);
+      const all = cells.map((c) => [Math.min(cd[c], secR) * 100 + bdist[c], (c % g) + 0.5, Math.floor(c / g) + 0.5]).sort((a, b) => b[0] - a[0]);
       take(all.filter(([, x, y]) => !wet(x, y)), sep * 0.4);
       if (out.length < n) take(all.filter(([, x, y]) => !this.nearRiver(x, y)), sep * 0.4);
       if (out.length < n) take(all, sep * 0.4);
@@ -1315,74 +1357,251 @@ const unitCache = new Map();
 //   cape, quiver, bow · wizard: long flared robe with gold hem, pointed hat with a star, white beard,
 //   staff · pirate: striped shirt, eyepatch, tricorne, cutlass · barbarian: bare chest, fur kilt in
 //   the team colour, fur hood with ears, big club
-export function drawFoglet(x, mx, my, sc, col, style = 'soldier') {
-  const body = css(col), side = css(shade(col, -0.3)), light = css(shade(col, 0.3)), skin = 'rgb(236,206,176)';
-  const R = (l, t, w, h, c) => { x.fillStyle = c; x.fillRect(mx + l * sc, my + t * sc, w * sc, h * sc); };
-  const poly = (c, pts) => { x.fillStyle = c; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, mx + px * sc, my + py * sc)); x.fill(); };
-  const disc = (c, px, py, r) => { x.fillStyle = c; x.beginPath(); x.arc(mx + px * sc, my + py * sc, r * sc, 0, Math.PI * 2); x.fill(); };
-  const line = (c, w, pts) => { x.strokeStyle = c; x.lineWidth = w * sc; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, mx + px * sc, my + py * sc)); x.stroke(); };
-  const steel = '#c4ccd4', steelDark = '#8e98a2', wood = '#7a5230';
-  // behind the body: capes, quivers, staffs
+// figure looks (settings, setFigureStyle): polished (default: 3-tone shading, trims, dot eyes) ·
+// faces (big eyes, brows and a mood per kit) · worn (battle-worn: more gear, muted colours, dirt,
+// scratches). small details only show once a unit is a few pixels big, so the map stays clean
+export const figureStyles = { polished: 'Classic', faces: 'Faces', worn: 'Battle-worn' };
+let figLook = 'polished';
+export function setFigureStyle(s) {
+  figLook = figureStyles[s] ? s : 'polished';
+  unitCache.clear();   // cached map sprites use the old look
+}
+export function drawFoglet(x, mx, my, sc, col, style = 'soldier', opts = {}) {
+  const worn = figLook === 'worn';
+  // pixels per figure unit on screen: decides how much detail is worth drawing
+  const tf = x.getTransform(), ppu = sc * Math.hypot(tf.a, tf.b);
+  const D = ppu < 2.6 ? 0 : worn ? 2 : 1;   // detail level
+  const faceLv = opts.noFace || ppu < 2.2 ? 0 : figLook === 'faces' && ppu >= 4 ? 3 : 1;
+  // colour helper: any colour (rgb array, #hex, css string) -> css, lighter (k > 0) or darker (k < 0);
+  // battle-worn pulls colours toward grey
+  const C = (c, k = 0, a = 1) => {
+    if (typeof c === 'string') { if (c[0] !== '#') return c; c = hexToRgb(c); }
+    let v = c;
+    if (worn) { const m = (v[0] + v[1] + v[2]) / 3; v = mix(v, [m, m, m], 0.25); }
+    return css(k ? shade(v, k) : v, a);
+  };
+  const skin = '#ecceb0', skinD = '#d4b496', steel = '#c4ccd4', steelD = '#8e98a2', wood = '#7a5230', woodD = '#5a3a20', gold = '#ffd76a', fur = '#8a6a48';
+  const X = (px) => mx + px * sc, Y = (py) => my + py * sc;
+  const R = (l, t, w, h, c) => { x.fillStyle = C(c); x.fillRect(X(l), Y(t), w * sc, h * sc); };
+  const poly = (c, pts) => { x.fillStyle = C(c); x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, X(px), Y(py))); x.closePath(); x.fill(); };
+  const disc = (c, px, py, r) => { x.fillStyle = C(c); x.beginPath(); x.arc(X(px), Y(py), r * sc, 0, Math.PI * 2); x.fill(); };
+  const ell = (c, px, py, rx, ry) => { x.fillStyle = C(c); x.beginPath(); x.ellipse(X(px), Y(py), rx * sc, ry * sc, 0, 0, Math.PI * 2); x.fill(); };
+  const line = (c, w, pts, cap = 'round') => { x.strokeStyle = C(c); x.lineCap = cap; x.lineJoin = 'round'; x.lineWidth = w * sc; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, X(px), Y(py))); x.stroke(); };
+  const dash = (on) => x.setLineDash(on ? [0.18 * sc, 0.14 * sc] : []);
+  const body = col, side = C(col, -0.3), light = C(col, 0.3);
+
+  // --- behind the body: capes, quivers, staffs ---
   if (style === 'archer') {
     poly('#2f6a35', [[-1.5, -4.1], [1.5, -4.1], [1.9, -0.2], [-1.9, -0.2]]);   // cape
-    R(-1.9, -5.6, 0.7, 2.6, '#8a5a34'); line('#f2ead8', 0.18, [[-1.75, -5.6], [-1.75, -6.3]]); line('#f2ead8', 0.18, [[-1.4, -5.6], [-1.3, -6.4]]);
+    if (D) for (let i = 0; i < 4; i++) line('#24552a', 0.08, [[-1.3 + i * 0.85, -3.6], [-1.5 + i, -0.3]]);   // folds
+    R(-1.9, -5.6, 0.7, 2.6, '#8a5a34');   // quiver
+    if (D) { R(-1.9, -4.9, 0.7, 0.18, '#5e3b20'); R(-1.9, -3.6, 0.7, 0.18, '#5e3b20'); }
+    for (const [ax, ay] of [[-1.75, -6.4], [-1.4, -6.5], [-1.58, -6.25]]) {   // arrows with team fletching
+      line('#d8c8a0', 0.12, [[ax, -5.6], [ax, ay]]);
+      if (D) poly(C(col, 0.1), [[ax - 0.16, ay + 0.35], [ax, ay - 0.05], [ax + 0.16, ay + 0.35], [ax, ay + 0.2]]);
+    }
   }
-  if (style === 'wizard') { line(wood, 0.32, [[-1.95, -0.2], [-1.95, -5.9]]); disc('#9fe6ff', -1.95, -6.2, 0.5); disc('rgba(255,255,255,0.85)', -2.05, -6.32, 0.17); }
-  // body
+  if (style === 'wizard') {
+    line(wood, 0.32, [[-1.95, -0.2], [-1.95, -5.9]]);
+    if (D) for (let y = -5.4; y < -4.4; y += 0.25) line(woodD, 0.1, [[-2.12, y], [-1.78, y + 0.12]]);   // grip wrap
+    disc('#9fe6ff', -1.95, -6.2, 0.5); disc('rgba(255,255,255,0.9)', -2.08, -6.34, 0.17);
+    if (D) line(gold, 0.12, [[-2.4, -6.0], [-1.95, -5.75], [-1.5, -6.0]]);   // gem claws
+  }
+  if (style === 'pirate' && D) line('#2a2a30', 0.18, [[0.5, -4.3], [1.5, -3]]);   // baldric
+
+  // --- body ---
   if (style === 'wizard') {
     poly(body, [[-1.2, -4.1], [1.2, -4.1], [1.8, 0], [-1.8, 0]]);   // flared robe
     poly(side, [[0.25, -4.1], [1.2, -4.1], [1.8, 0], [0.45, 0]]);
-    R(-1.8, -0.45, 3.6, 0.45, '#ffd76a');
+    R(-1.8, -0.45, 3.6, 0.45, gold);
+    if (D) {
+      for (const [sx, sy] of [[-0.8, -2.8], [-0.2, -1.4], [-1.1, -1.0], [0.9, -2.1], [-0.4, -3.4]])   // stars
+        poly(gold, [[sx, sy - 0.22], [sx + 0.07, sy - 0.07], [sx + 0.22, sy], [sx + 0.07, sy + 0.07], [sx, sy + 0.22], [sx - 0.07, sy + 0.07], [sx - 0.22, sy], [sx - 0.07, sy - 0.07]]);
+      R(-1.3, -2.4, 2.6, 0.3, gold);   // sash
+      for (let i = 0; i < 6; i++) disc('#e8b84a', -1.6 + i * 0.64, -0.23, 0.08);
+    }
   } else if (style === 'barbarian') {
-    R(-1.3, -4, 2.6, 2, skin); R(0.2, -4, 1.1, 2, 'rgb(212,180,150)');   // bare chest
+    R(-1.3, -4, 2.6, 2, skin); R(0.2, -4, 1.1, 2, skinD);   // bare chest
+    if (D) { line('#c8a080', 0.07, [[-0.9, -3.5], [-0.15, -3.3]]); line('#c8a080', 0.07, [[-0.05, -3.3], [0.6, -3.5]]); line('#c8a080', 0.06, [[-0.3, -2.9], [-0.3, -2.2]]); }   // muscles
+    if (D > 1 || faceLv === 3) { line('#3a6ad0', 0.14, [[-1.0, -3.0], [-0.55, -3.0]]); line('#3a6ad0', 0.14, [[-1.0, -2.65], [-0.55, -2.65]]); }   // war paint
     line('#6e4a2c', 0.3, [[-1.2, -3.9], [1.2, -2.2]]);   // strap
+    if (D) {
+      for (let i = 0; i < 4; i++) disc(steel, -0.85 + i * 0.6, -3.58 + i * 0.42, 0.07);   // strap studs
+      line('#5e3b20', 0.06, [[-0.9, -4], [-0.5, -3.55], [0, -3.45], [0.5, -3.55], [0.9, -4]]);   // tooth necklace
+      for (const tx of [-0.5, 0, 0.5]) poly('#f4ead2', [[tx - 0.09, -3.5], [tx + 0.09, -3.5], [tx, -3.18]]);
+    }
     R(-1.3, -2, 2.6, 2, body); R(0.2, -2, 1.1, 2, side);   // fur kilt
     for (let i = 0; i < 4; i++) poly(side, [[-1.3 + i * 0.65, -0.05], [-1 + i * 0.65, 0.35], [-0.65 + i * 0.65, -0.05]]);
+    if (D) for (let i = 0; i < 9; i++) line(C(col, -0.42), 0.06, [[-1.15 + i * 0.29, -1.8 + (i % 2) * 0.2], [-1.2 + i * 0.29, -1.3 + (i % 3) * 0.15]]);   // fur strands
   } else {
     R(-1.3, -4, 2.6, 4, body); R(0.2, -4, 1.1, 4, side);
+    // 3-tone shading: lit strip on the left edge, darker hem
+    R(-1.3, -4, 0.3, 4, light); R(-1.3, -0.35, 2.6, 0.35, C(col, -0.45));
   }
-  if (style === 'pirate') for (const y of [-3.4, -2.4, -1.4]) R(-1.3, y, 2.6, 0.45, 'rgba(255,255,255,0.85)');
-  if (style === 'soldier' || style === 'pirate') R(-1.3, -2, 2.6, 0.4, '#5e3b20');   // belt
-  if (style === 'knight') { R(-1.3, -4, 2.6, 2.3, steel); R(0.2, -4, 1.1, 2.3, steelDark); R(-0.3, -4, 0.6, 4, light); }
-  if (style === 'viking') R(-1.45, -4.1, 2.9, 0.7, '#8a6a48');   // fur collar
-  // head: square with a slightly rounded look (map scale reads as a block)
+  if (style === 'pirate') {
+    for (const y of [-3.4, -2.4, -1.4]) R(-1.3, y, 2.6, 0.45, 'rgba(255,255,255,0.88)');
+    if (D) for (const y of [-3.4, -2.4, -1.4]) R(0.2, y, 1.1, 0.45, 'rgba(0,0,0,0.12)');
+  }
+  if (style === 'soldier' || style === 'pirate') {
+    R(-1.3, -2, 2.6, 0.4, '#5e3b20');   // belt
+    if (D) { R(-0.3, -2.07, 0.6, 0.54, style === 'pirate' ? gold : '#c9a23a'); R(-0.15, -1.93, 0.3, 0.26, '#5e3b20'); }   // buckle
+  }
+  if (style === 'soldier' && D) {
+    line('#6e4a2c', 0.24, [[-1.2, -3.9], [1.2, -2.1]]);   // cross strap
+    R(-1.15, -1.6, 0.75, 0.65, '#6e5030'); R(-1.15, -1.6, 0.75, 0.2, '#56391f');   // pouch
+    if (D > 1) { R(0.45, -1.6, 0.7, 0.65, '#6e5030'); R(0.45, -1.6, 0.7, 0.2, '#56391f'); }
+    for (const y of [-3.3, -2.7]) disc(C(col, -0.5), -0.05, y, 0.08);   // buttons
+  }
+  if (style === 'knight') {
+    R(-1.3, -4, 2.6, 2.3, steel); R(0.2, -4, 1.1, 2.3, steelD); R(-0.3, -4, 0.6, 4, light);   // breastplate + stripe
+    if (D) {
+      line('#a8b2bc', 0.06, [[-1.25, -2.9], [1.25, -2.9]]); line('#a8b2bc', 0.06, [[-1.25, -2.3], [1.25, -2.3]]);   // plate segments
+      for (const [rx, ry] of [[-1.05, -3.75], [1.05, -3.75], [-1.05, -1.95], [1.05, -1.95]]) disc('#eef2f5', rx, ry, 0.08);   // rivets
+      R(-1.3, -1.7, 2.6, 0.3, '#5e3b20'); R(-0.2, -1.75, 0.4, 0.4, gold);   // belt
+      R(-1.15, -4, 0.35, 2.3, 'rgba(255,255,255,0.35)');   // shine
+    }
+  }
+  if (style === 'viking') {
+    R(-1.45, -4.1, 2.9, 0.7, fur);   // fur collar
+    if (D) {
+      for (let i = 0; i < 8; i++) line('#6e5034', 0.07, [[-1.35 + i * 0.37, -4.1], [-1.3 + i * 0.37, -3.5]]);
+      R(-1.3, -1.95, 2.6, 0.35, '#5e3b20'); R(-0.22, -2, 0.44, 0.45, '#b8c0c8');
+    }
+  }
+  if (style === 'archer' && D) { line('#5e3b20', 0.22, [[1.2, -3.9], [-1.2, -1.9]]); R(-1.3, -1.9, 2.6, 0.32, '#5e3b20'); }
+  if (D > 1 && style !== 'barbarian' && style !== 'knight') { dash(1); line(C(col, -0.5), 0.05, [[-0.25, -3.95], [-0.25, -0.5]], 'butt'); dash(0); }   // stitched seam
+
+  // --- head: square with a soft shaded side and a chin shadow ---
   R(-1.15, -6.15, 2.3, 2.25, skin);
   R(0.45, -6.15, 0.7, 2.25, 'rgba(180,140,110,0.35)');
-  // headgear + face kit
+  R(-1.15, -4.12, 2.3, 0.22, 'rgba(160,120,95,0.35)');
+  if (faceLv) drawFace(x, mx, my, sc, style, faceLv);
+
+  // --- headgear + kit ---
   if (style === 'soldier') {
-    line(wood, 0.35, [[1.8, -0.4], [1.8, -6.4]]);
+    line(wood, 0.35, [[1.8, -0.4], [1.8, -6.4]]);   // spear
+    if (D) { line('#3a2414', 0.4, [[1.8, -6.1], [1.8, -6.5]], 'butt'); line(col, 0.22, [[1.8, -5.9], [2.4, -5.6]]); }   // binding + team tie
     poly(steel, [[1.8, -7.15], [1.4, -6.25], [2.2, -6.25]]);
-    x.fillStyle = '#9aa4ae'; x.beginPath(); x.ellipse(mx, my - 6.05 * sc, 1.75 * sc, 0.35 * sc, 0, 0, Math.PI * 2); x.fill();
+    if (D) poly('#eef2f5', [[1.8, -7.0], [1.62, -6.35], [1.8, -6.35]]);
+    ell('#9aa4ae', 0, -6.05, 1.75, 0.35);   // kettle helmet
     R(-0.95, -6.95, 1.9, 0.9, '#9aa4ae');
+    if (D) { R(-0.95, -6.95, 0.35, 0.9, steel); ell('#b4bec8', 0, -6.1, 1.6, 0.18); for (const rx of [-0.6, 0, 0.6]) disc('#e2e8ee', rx, -6.3, 0.07); R(-0.95, -6.55, 1.9, 0.14, col); }
   } else if (style === 'knight') {
-    R(-1.3, -6.5, 2.6, 1.15, steel); R(0.3, -6.5, 1, 1.15, steelDark);   // helm over the brow
-    R(-0.12, -5.5, 0.24, 0.8, steelDark);   // nose guard
+    R(-1.3, -6.5, 2.6, 1.15, steel); R(0.3, -6.5, 1, 1.15, steelD);   // helm over the brow
+    R(-0.12, -5.5, 0.24, 0.8, steelD);   // nose guard
+    if (D) { for (let i = 0; i < 3; i++) R(0.45, -5.95 + i * 0.22, 0.6, 0.08, '#5e6870'); disc('#eef2f5', -1.0, -6.2, 0.07); R(-1.3, -6.5, 2.6, 0.16, '#e2e8ee'); }   // vents, rivet, rim
     poly(body, [[-0.3, -6.5], [0.3, -6.5], [1.1, -7.2], [-0.5, -7.2]]);   // plume
-    R(-2.3, -3.8, 1.3, 2.6, side); R(-2.3, -3.8, 1.3, 0.35, steel); R(-1.8, -3.5, 0.3, 1.9, '#f2f2f2');   // shield
+    if (D) { line(light, 0.07, [[-0.2, -6.7], [0.6, -7.1]]); line(side, 0.07, [[0, -6.55], [0.9, -7.0]]); }
+    R(-2.3, -3.8, 1.3, 2.6, side); R(-2.3, -3.8, 1.3, 0.35, steel);   // shield
+    if (D) {   // team crest with a white cross
+      poly(body, [[-2.15, -3.4], [-1.15, -3.4], [-1.15, -2.0], [-1.65, -1.45], [-2.15, -2.0]]);
+      line('#f2f2f2', 0.2, [[-1.65, -3.25], [-1.65, -1.7]]); line('#f2f2f2', 0.2, [[-2.05, -2.65], [-1.25, -2.65]]);
+      for (const sx of [-2.2, -1.1]) disc(steel, sx, -1.3, 0.07);
+    } else R(-1.8, -3.5, 0.3, 1.9, '#f2f2f2');
   } else if (style === 'viking') {
     R(-1.25, -6.55, 2.5, 0.85, '#8a9096');
-    line('#f4ead2', 0.5, [[-1.1, -6.3], [-1.9, -7.1]]); line('#f4ead2', 0.5, [[1.1, -6.3], [1.9, -7.1]]);
+    if (D) { R(-0.12, -6.55, 0.24, 0.85, '#b4bac0'); for (const rx of [-0.8, 0.8]) disc('#c8ced4', rx, -6.15, 0.07); R(-0.1, -5.7, 0.2, 0.55, '#8a9096'); }
+    line('#f4ead2', 0.5, [[-1.1, -6.3], [-1.9, -7.1]]); line('#f4ead2', 0.5, [[1.1, -6.3], [1.9, -7.1]]);   // horns
+    if (D) { line('#c9b994', 0.52, [[-1.15, -6.3], [-1.32, -6.48]], 'butt'); line('#c9b994', 0.52, [[1.15, -6.3], [1.32, -6.48]], 'butt'); }   // horn rings
     poly('#c8782e', [[-1.15, -4.8], [1.15, -4.8], [0.9, -3.4], [0, -2.9], [-0.9, -3.4]]);   // beard
-    disc('#8a5a34', -1.55, -2.3, 1.2); disc(body, -1.55, -2.3, 0.75); disc('#d8dde2', -1.55, -2.3, 0.25);
+    if (D) {
+      poly('#a85e20', [[0.15, -4.8], [1.15, -4.8], [0.9, -3.4], [0, -2.9]]);
+      line('#e09a50', 0.08, [[-0.5, -4.6], [-0.4, -3.4]]); line('#e09a50', 0.08, [[0.35, -4.5], [0.3, -3.3]]);
+      R(-0.18, -3.15, 0.36, 0.2, steel);   // braid bead
+    }
+    disc('#8a5a34', -1.55, -2.3, 1.2);   // round shield: planks, studs, team ring, boss
+    if (D) {
+      for (let a = 0; a < 4; a++) { const an = a * Math.PI / 4, cx = Math.cos(an) * 1.15, cy = Math.sin(an) * 1.15; line('#6e4426', 0.07, [[-1.55 + cx, -2.3 + cy], [-1.55 - cx, -2.3 - cy]]); }
+      for (let a = 0; a < 10; a++) disc(steel, -1.55 + Math.cos(a * 0.628) * 1.05, -2.3 + Math.sin(a * 0.628) * 1.05, 0.07);
+    }
+    disc(body, -1.55, -2.3, 0.75); disc('#d8dde2', -1.55, -2.3, 0.25);
+    if (D) disc('#ffffff', -1.62, -2.37, 0.08);
   } else if (style === 'archer') {
     poly('#3f7a3c', [[-1.35, -4.4], [-1.35, -6.4], [-0.6, -7.2], [1.35, -6.4], [1.35, -5.6], [-0.4, -5.9], [-0.7, -4.4]]);   // hood
+    if (D) {
+      line('#2f6a35', 0.08, [[-1.1, -6.3], [-0.55, -6.95], [1.1, -6.35]]);
+      dash(1); line('#6aa860', 0.05, [[1.3, -5.65], [-0.38, -5.95], [-0.68, -4.5]], 'butt'); dash(0);   // hood stitching
+      poly('#c03030', [[-0.6, -7.2], [-0.25, -7.6], [-0.15, -7.0]]);   // feather
+    }
     line(wood, 0.4, [[1.4, -6.1], [2.2, -4.6], [2.2, -2.2], [1.4, -0.9]]);   // bow
+    if (D) { line('#c9a23a', 0.44, [[2.2, -3.8], [2.2, -3.0]], 'butt'); line('#e8d8b0', 0.1, [[1.4, -6.1], [1.55, -5.85]]); }   // grip
     line('rgba(240,235,220,0.9)', 0.15, [[1.4, -6.1], [1.4, -0.9]]);
   } else if (style === 'wizard') {
     poly('#f4f4f6', [[-0.9, -4.6], [0.95, -4.6], [0.7, -3], [0, -2.4], [-0.6, -3]]);   // beard
+    if (D) {
+      for (const bx of [-0.4, 0.05, 0.45]) line('#d8d8e0', 0.06, [[bx, -4.5], [bx * 0.6, -2.9]]);
+      line('#f4f4f6', 0.3, [[-0.3, -4.7], [-0.95, -4.4]]); line('#f4f4f6', 0.3, [[0.35, -4.7], [1.0, -4.4]]);   // moustache
+    }
     poly(side, [[-1.7, -6], [1.7, -6], [0.7, -7.2]]);   // hat
+    if (D) { poly(C(col, -0.45), [[0.2, -6], [1.7, -6], [0.7, -7.2]]); poly(side, [[0.7, -7.2], [1.3, -7.35], [1.1, -7.0]]); }   // bent tip
     R(-1.7, -6.15, 3.4, 0.35, side);
-    disc('#ffd76a', 0.35, -6.55, 0.25);
+    if (D) R(-1.0, -6.15, 2.0, 0.22, gold);   // hat band
+    disc(gold, 0.35, -6.55, 0.25);
   } else if (style === 'pirate') {
     R(-1.15, -5.65, 2.3, 0.22, '#1d1d22'); R(0.25, -5.6, 0.6, 0.5, '#1d1d22');   // eyepatch
+    if (D) { disc(gold, -1.18, -4.75, 0.12); line('#3a2414', 0.25, [[-0.8, -4.3], [0, -4.15], [0.8, -4.3]]); }   // earring + moustache
     poly('#2a2a30', [[-1.9, -6.0], [0, -7.25], [1.9, -6.0], [0, -6.45]]);   // tricorne
+    if (D) { line(gold, 0.1, [[-1.9, -6.0], [0, -6.45], [1.9, -6.0]]); poly('#1a1a1f', [[0, -7.25], [1.9, -6.0], [0, -6.45]]); }
     disc('#f2f2f2', 0, -6.75, 0.22);
-    line('#d4dbe2', 0.38, [[1.3, -1.8], [2.3, -3.2], [2.1, -5.2]]); R(1.05, -2, 0.6, 0.35, '#c9a23a');   // cutlass + guard
+    if (D) { disc('#1d1d22', -0.07, -6.78, 0.05); disc('#1d1d22', 0.07, -6.78, 0.05); line('#f2f2f2', 0.06, [[-0.2, -6.5], [0.2, -6.42]]); }   // tiny skull
+    line('#d4dbe2', 0.38, [[1.3, -1.8], [2.3, -3.2], [2.1, -5.2]]);   // cutlass
+    if (D) line('#ffffff', 0.1, [[1.45, -2.0], [2.32, -3.25], [2.17, -4.9]]);
+    R(1.05, -2, 0.6, 0.35, '#c9a23a');
   } else if (style === 'barbarian') {
-    poly('#8a6a48', [[-1.4, -5.1], [-1.4, -6.5], [1.4, -6.5], [1.4, -5.1], [1.05, -5.9], [-1.05, -5.9]]);   // fur hood
-    disc('#8a6a48', -1.05, -6.75, 0.42); disc('#8a6a48', 1.05, -6.75, 0.42);
+    poly(fur, [[-1.4, -5.1], [-1.4, -6.5], [1.4, -6.5], [1.4, -5.1], [1.05, -5.9], [-1.05, -5.9]]);   // fur hood
+    if (D) for (let i = 0; i < 7; i++) line('#6e5034', 0.07, [[-1.25 + i * 0.42, -6.45], [-1.3 + i * 0.42, -6.0]]);
+    disc(fur, -1.05, -6.75, 0.42); disc(fur, 1.05, -6.75, 0.42);
+    if (D) { disc('#c89a7a', -1.05, -6.75, 0.2); disc('#c89a7a', 1.05, -6.75, 0.2); }
     poly('#6e4a2c', [[1.4, -1.4], [1.85, -1.5], [2.45, -5.1], [1.35, -5]]); disc('#6e4a2c', 1.9, -5.3, 0.65);   // club
+    if (D) {
+      line('#4e3218', 0.07, [[1.6, -1.6], [1.75, -4.6]]);
+      for (const [nx, ny] of [[1.45, -5.5], [2.3, -5.6], [1.9, -5.9], [1.55, -4.85], [2.25, -4.95]]) poly(steel, [[nx - 0.1, ny], [nx + 0.1, ny], [nx, ny - 0.3]]);   // spikes
+      line('#3a2414', 0.45, [[1.55, -1.9], [1.75, -1.85]], 'butt');
+    }
   }
+  // battle-worn: dirt rising from the hem, scuffs and scratches (fixed per kit, so units don't flicker)
+  if (worn && ppu >= 2) {
+    const g = x.createLinearGradient(0, Y(-2.2), 0, Y(0));
+    g.addColorStop(0, 'rgba(70,50,30,0)'); g.addColorStop(1, 'rgba(70,50,30,0.5)');
+    x.fillStyle = g; x.fillRect(X(-1.35), Y(-2.2), 2.7 * sc, 2.2 * sc);
+    let seed = style.length * 7.3;
+    const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < 9; i++) {
+      const sx = -1.2 + rnd() * 2.3, sy = -6.4 + rnd() * 6, dx = (rnd() - 0.5) * 0.7, dy = rnd() * 0.4;
+      line(rnd() < 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(30,20,10,0.4)', 0.05, [[sx, sy], [sx + dx, sy + dy]]);
+    }
+    for (let i = 0; i < 16; i++) disc('rgba(60,45,30,0.25)', -1.25 + rnd() * 2.5, -3.5 + rnd() * 3.4, rnd() * 0.12);
+  }
+}
+
+// face on the head (centre ~0, -5): lv 1 dot eyes · lv 3 big eyes, brows, mouth and a mood per kit
+function drawFace(x, mx, my, sc, kit, lv) {
+  const ink = '#2a1e18';
+  const dot = (px, py, r, c = ink) => { x.fillStyle = c; x.beginPath(); x.arc(mx + px * sc, my + py * sc, r * sc, 0, Math.PI * 2); x.fill(); };
+  const ln = (w, pts, c = ink) => { x.strokeStyle = c; x.lineWidth = w * sc; x.lineCap = 'round'; x.beginPath(); pts.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, mx + px * sc, my + py * sc)); x.stroke(); };
+  const ox = kit === 'archer' ? 0.18 : 0.08, ey = kit === 'knight' ? -5.05 : -5.15;
+  const eyes = kit === 'pirate' ? [-0.45 + ox] : [-0.45 + ox, 0.45 + ox];   // pirate: the other eye is patched
+  for (const ex of eyes) {
+    if (lv === 3) { dot(ex, ey, 0.28, '#ffffff'); dot(ex + 0.04, ey + 0.02, 0.2); dot(ex - 0.05, ey - 0.07, 0.06, '#ffffff'); }
+    else dot(ex, ey, 0.13);
+  }
+  if (lv < 3) return;
+  const beard = kit === 'viking' || kit === 'wizard';
+  const mood = { soldier: 'grit', knight: 'proud', viking: 'angry', archer: 'sly', wizard: 'wise', pirate: 'grin', barbarian: 'roar' }[kit];
+  const L = -0.45 + ox, Rr = 0.45 + ox, mx0 = mx + ox * sc;
+  const brow = (ex, tilt) => ln(0.11, [[ex - 0.25, ey - 0.38 - tilt], [ex + 0.25, ey - 0.38 + tilt]]);
+  // brows
+  if (mood === 'angry' || mood === 'roar' || mood === 'grit') { brow(L, -0.12); brow(Rr, 0.12); }
+  else if (mood === 'sly') { brow(L, 0.06); brow(Rr, -0.1); }
+  else if (mood === 'wise') { ln(0.16, [[L - 0.3, ey - 0.4], [L + 0.25, ey - 0.36]], '#f4f4f6'); ln(0.16, [[Rr - 0.25, ey - 0.36], [Rr + 0.3, ey - 0.4]], '#f4f4f6'); }
+  else if (mood === 'grin') brow(L, -0.08);
+  // mouths (bearded kits keep theirs hidden)
+  if (mood === 'grit') { x.fillStyle = '#ffffff'; x.fillRect(mx0 - 0.3 * sc, my - 4.6 * sc, 0.6 * sc, 0.2 * sc); x.strokeStyle = ink; x.lineWidth = 0.05 * sc; x.strokeRect(mx0 - 0.3 * sc, my - 4.6 * sc, 0.6 * sc, 0.2 * sc); }
+  if (mood === 'proud') ln(0.08, [[-0.2 + ox, -4.5], [0.05 + ox, -4.4], [0.3 + ox, -4.55]]);
+  if (mood === 'sly') ln(0.08, [[-0.2 + ox, -4.45], [0.3 + ox, -4.6]]);
+  if (mood === 'grin') { x.fillStyle = ink; x.beginPath(); x.ellipse(mx0 + 0.05 * sc, my - 4.5 * sc, 0.38 * sc, 0.2 * sc, 0, 0, Math.PI); x.fill(); x.fillStyle = '#ffd76a'; x.fillRect(mx0 + 0.15 * sc, my - 4.5 * sc, 0.12 * sc, 0.1 * sc); }
+  if (mood === 'roar') { x.fillStyle = '#7a2a20'; x.beginPath(); x.ellipse(mx0 + 0.05 * sc, my - 4.42 * sc, 0.3 * sc, 0.26 * sc, 0, 0, Math.PI * 2); x.fill(); x.fillStyle = '#fff'; x.fillRect(mx0 - 0.15 * sc, my - 4.66 * sc, 0.4 * sc, 0.08 * sc); }
+  if (!beard && mood !== 'roar') { dot(-0.85 + ox, -4.7, 0.16, 'rgba(240,120,110,0.35)'); dot(0.85 + ox, -4.7, 0.16, 'rgba(240,120,110,0.35)'); }   // blush
 }
 
 export function unitSprite(kind, color, z, dpr, style = 'soldier') {
@@ -1431,39 +1650,4 @@ export function label(ctx, text, x, y, size, color = '#fff', weight = 800) {
   ctx.font = `${weight} ${size}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = Math.max(2, size / 4);
-  ctx.strokeStyle = 'rgba(25,35,40,0.6)';
-  ctx.lineJoin = 'round';
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
-}
-
-// troop count badge: white rounded pill with an owner-coloured rim and a soft drop shadow
-export function pill(ctx, text, x, y, size, rim, ink) {
-  ctx.font = `800 ${size}px system-ui, sans-serif`;
-  const w = Math.max(size * 1.6, ctx.measureText(text).width + size * 0.9), h = size * 1.4;
-  ctx.fillStyle = 'rgba(20,30,35,0.22)';
-  roundRect(ctx, x - w / 2 + 1, y - h / 2 + 2, w, h, h / 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.93)';
-  roundRect(ctx, x - w / 2, y - h / 2, w, h, h / 2);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.5, size * 0.14);
-  ctx.strokeStyle = rim;
-  ctx.stroke();
-  ctx.fillStyle = ink;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, x, y + size * 0.04);
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
+  ctx.lineWidth = Math.max(2, size 

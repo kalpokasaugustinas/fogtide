@@ -4,7 +4,7 @@
 // leaning in at the foe, shaking with rage, and now and then one blasting off like a rocket diagonally
 // across the menu while a new one hops in. each band draws on its own full-screen canvas (so rockets
 // can cross the screen); the band stands in its side strip
-import { drawFoglet, hexToRgb } from './render.js?v=99';
+import { drawFoglet, hexToRgb } from './render.js?v=100';
 
 // taunts: mostly plain war cries; now and then (refShare of the time) a short nod to a game or
 // film, so the jokes stay fresh. launch cries work the same way
@@ -154,7 +154,7 @@ function figure(x, px, gy, s, col, style, f, hop, squash, lean, rage, t, ground 
   x.translate(px, gy - hop);
   x.rotate(lean);
   x.scale(f * (1 + (1 - squash) * 0.6), squash);
-  drawFoglet(x, 0, 0, s, col, style);
+  drawFoglet(x, 0, 0, s, col, style, { noFace: true });   // own animated face below
   // face on the head (centre 0, -5): eyes looking at the foe, brows pulled down, mouth open when shouting
   const ink = 'rgba(30,26,32,0.95)', hy = -5 * s;
   x.fillStyle = ink;

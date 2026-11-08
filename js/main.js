@@ -1,17 +1,17 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=99';
-import { generateMap, rng } from './mapgen.js?v=99';
-import { initAnalytics, track } from './analytics.js?v=99';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=99';
-import { Battle } from './battle.js?v=99';
-import { personalities } from './ai.js?v=99';
-import { Campaign } from './campaign.js?v=99';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=99';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=99';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=99';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture } from './render.js?v=99';
-import { previewBuildings } from './structures.js?v=99';
-import { initTune, tuneChanges } from './tune.js?v=99';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=100';
+import { generateMap, rng } from './mapgen.js?v=100';
+import { initAnalytics, track } from './analytics.js?v=100';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=100';
+import { Battle } from './battle.js?v=100';
+import { personalities } from './ai.js?v=100';
+import { Campaign } from './campaign.js?v=100';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=100';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=100';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=100';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=100';
+import { previewBuildings } from './structures.js?v=100';
+import { initTune, tuneChanges } from './tune.js?v=100';
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,10 +44,12 @@ if (!desktop && !hostOk(location.hostname) || (framedBy !== null && !hostOk(fram
 const params = new URLSearchParams(location.search);
 // ui zoom (1 = designed size 1280x720, 1.5 at 1080p), kept in sync by syncRotation; map labels use it
 let uiK = 1;
-// settings saved in the browser: uiSize = interface size multiplier (0.85 / 1 / 1.2)
+// settings saved in the browser: uiSize = interface size multiplier (0.85 / 1 / 1.2),
+// figures = foglet look (polished = classic default, faces, worn = battle-worn)
 const settings_key = 'frontlines.settings';
 const settings = (() => { try { return { uiSize: 1, ...JSON.parse(localStorage.getItem(settings_key)) }; } catch { return { uiSize: 1 }; } })();
 function saveSettings() { try { localStorage.setItem(settings_key, JSON.stringify(settings)); } catch { /* not saved */ } }
+setFigureStyle(settings.figures);   // apply the saved foglet look before anything is drawn
 const autoplay = params.has('autoplay');   // test mode: the player side is played by a bot too
 
 const colors = factionColors.map(hexToRgb);
@@ -2125,6 +2127,7 @@ function paintSettings() {
     $(`set-${k}-v`).textContent = v ? `${v}%` : 'off';
   }
   for (const b of $('set-ui').children) b.classList.toggle('on', +b.dataset.ui === settings.uiSize);
+  for (const b of $('set-figs').children) b.classList.toggle('on', b.dataset.fig === (settings.figures || 'polished'));
 }
 function paintDisplay(full) { for (const b of $('set-display').children) b.classList.toggle('on', (b.dataset.full === '1') === full); }
 function openSettings() {
@@ -2153,6 +2156,16 @@ $('set-ui').onclick = (e) => {
   syncRotation();
   dispatchEvent(new Event('resize'));   // map labels / layouts that size from the window
   paintSettings();
+};
+// foglet look: redraws map sprites (cache cleared) and the commander previews if open
+$('set-figs').onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  settings.figures = b.dataset.fig;
+  saveSettings();
+  setFigureStyle(settings.figures);
+  paintSettings();
+  sfx.click();
 };
 if (desk) {
   $('set-display').onclick = (e) => { const b = e.target.closest('button'); if (b) desk.setFullscreen(b.dataset.full === '1'); };
