@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=111">
-  <link rel="stylesheet" href="pc.css?v=111">
+  <link rel="stylesheet" href="style.css?v=112">
+  <link rel="stylesheet" href="pc.css?v=112">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -151,7 +151,6 @@
           <b id="hub-horn-amt">0</b>
         </button>
         <span class="hub-bank"><span id="hub-fog">🌫️ 0</span><span id="hub-mist" class="hidden">💠 0</span></span>
-        <button id="hub-shop" class="ibtn wide fog" title="Idle upgrades"><svg class="i"><use href="#i-up"/></svg><span>Upgrade</span></button>
       </div>
       <span class="spacer"></span>
       <button id="btn-install" class="round hidden" title="Install Fogtide as an app">📲</button>
@@ -184,7 +183,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 111 · 2026-11-14 13:03</span>
+    <span id="version">build 112 · 2026-11-14 14:08</span>
   </section>
 
   <!-- campaign world map -->
@@ -369,7 +368,7 @@
       </ul>
       <ul id="help-buildings"></ul>
       <p><b>🧭 Conquest</b> (roguelite): 5 stages from a valley to the whole world. Win a stage and everything you hold collapses into one capital on a bigger map: all your people come along (the capital fills up, the rest waits in a 🏕️ reserve), and each building type becomes a capital bonus = its effect × the share of your segments that had it (4 farms of 10 segments → +60% × 40% = +24% growth). Nothing can be built in a capital. Bots start with part of your strength and their own capitals. Pick a perk at every zoom-out. Lose once and the run ends.</p>
-      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
+      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree during a run (Upgrade or U): the island slides up and keeps fighting, upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
       <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = idle upgrades, A = auto-attack, F11 = fullscreen (desktop app).</p>
@@ -380,6 +379,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=111"></script>
+  <script type="module" src="js/main.js?v=112"></script>
 </body>
 </html>

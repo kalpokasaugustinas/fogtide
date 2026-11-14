@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=111';
-import { generateMap, rng } from './mapgen.js?v=111';
-import { initAnalytics, track } from './analytics.js?v=111';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=111';
-import { Battle } from './battle.js?v=111';
-import { personalities } from './ai.js?v=111';
-import { Campaign } from './campaign.js?v=111';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=111';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=111';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=111';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=111';
-import { previewBuildings } from './structures.js?v=111';
-import { initTune, tuneChanges } from './tune.js?v=111';
-import { initFogNoise } from './fogui.js?v=111';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=112';
+import { generateMap, rng } from './mapgen.js?v=112';
+import { initAnalytics, track } from './analytics.js?v=112';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=112';
+import { Battle } from './battle.js?v=112';
+import { personalities } from './ai.js?v=112';
+import { Campaign } from './campaign.js?v=112';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=112';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=112';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=112';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=112';
+import { previewBuildings } from './structures.js?v=112';
+import { initTune, tuneChanges } from './tune.js?v=112';
+import { initFogNoise } from './fogui.js?v=112';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -142,6 +142,7 @@ $('campaign-canvas').addEventListener('pointerdown', (e) => {
 // ---------- battle screen ----------
 let battle = null, bv = null, mode = 'skirmish', regionId = -1;
 let zoomHolding = false;   // zoom-out: snapshot on screen while the next map is built / awaited
+let zooming = false;   // whole zoom-out (the upgrade tree can't open meanwhile)
 let countdown = 0, goFlash = 0;   // 3-2-1 before a battle starts (s left), 'Conquer!' banner after
 let selected = -1, pct = 0.5, drag = null, hover = -1, speed = 1, paused = false, key = '';
 let userPaused = false;   // paused by the player (pause button, space, leave dialog), not by a transition
@@ -1186,10 +1187,21 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   snap.getContext('2d').drawImage(old, 0, 0);
   // layout px (offset*/client*): unaffected by the page rotation on phones and the camera
   const so = { x: old.offsetLeft, y: old.offsetTop };   // snapshot's place in the wrap
-  Object.assign(snap.style, { position: 'absolute', left: so.x + 'px', top: so.y + 'px', width: old.clientWidth + 'px', height: old.clientHeight + 'px', transformOrigin: '0 0' });
+  // idle upgrade tree open: the map is shown shrunk (css transform). the snapshot starts at that
+  // visible size and place, then the tree closes and the map snaps back to full size unseen
+  const or = old.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  const s0 = old.clientWidth ? or.width / old.clientWidth : 1;   // 1 unless the tree is open
+  const sd = { x: or.left - wr.left - wrap.clientLeft - so.x, y: or.top - wr.top - wrap.clientTop - so.y };   // visible offset from layout place
+  Object.assign(snap.style, { position: 'absolute', left: so.x + 'px', top: so.y + 'px', width: old.clientWidth + 'px', height: old.clientHeight + 'px', transformOrigin: '0 0', transform: `translate(${sd.x}px, ${sd.y}px) scale(${s0})` });
   snap.className = 'zoom-snap';
   wrap.appendChild(snap);
   old.style.opacity = '0';
+  zooming = true;
+  if (shown('idle-shop')) {
+    old.style.transition = 'none';   // back to full size at once, under the snapshot
+    closeShop();
+    requestAnimationFrame(() => requestAnimationFrame(() => { old.style.transition = ''; }));
+  }
   paused = true;
   const w0 = performance.now();
   // the snapshot goes on screen first; the heavy part (new battle, map view, first draw of every
@@ -1211,7 +1223,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
     const box = bv.boxes[capId] ?? [0, 0, g - 1, g - 1];
     const cc = { x: bv.sx((box[0] + box[2] + 1) / 2), y: bv.sy((box[1] + box[3] + 1) / 2), w: (box[2] - box[0] + 1) * bv.scale };
     const ratio = Math.min(1, cc.w / Math.max(1, oc.w));   // old island -> capital tile size
-    const from = { x: so.x + oc.x, y: so.y + oc.y }, to = { x: no.x + cc.x, y: no.y + cc.y };   // island centre on screen
+    const from = { x: so.x + sd.x + s0 * oc.x, y: so.y + sd.y + s0 * oc.y }, to = { x: no.x + cc.x, y: no.y + cc.y };   // island centre on screen
     const farthest = Math.hypot(Math.max(cc.x, nr.width - cc.x), Math.max(cc.y, nr.height - cc.y));   // reveal radius at the end
     const { hold, shrink, glow, reveal } = zoomSteps, total = hold + shrink + glow + reveal;
     const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
@@ -1220,7 +1232,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
     const tick = (now) => {
       const t = (now - t0) / 1000;
       // 1. shrink (scale falls off exponentially, so it reads as a steady pull-back)
-      const k = ease(phase(t, hold, shrink)), s = ratio ** k;
+      const k = ease(phase(t, hold, shrink)), s = s0 * (ratio / s0) ** k;   // s0 (shown size) -> ratio
       const px = from.x + (to.x - from.x) * k, py = from.y + (to.y - from.y) * k;
       snap.style.transform = `translate(${px - so.x - s * oc.x}px, ${py - so.y - s * oc.y}px) scale(${s})`;
       // the fog behind recedes too, slower than the island (parallax: we pull back through the
@@ -1244,6 +1256,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       wrap.style.backgroundSize = '720px 720px, auto';   // as MapView.setMap sets them
       wrap.style.backgroundPosition = 'center, 0 0';
       wrap.style.removeProperty('--fog-zoom');
+      zooming = false;
       paused = false;
       setSpeed(speed);
       boostLock = false;
@@ -1378,7 +1391,7 @@ function endIdleStage(won) {
     const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
     flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Fog` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
     sfx.perk();
-    fogFlow($('toast'), $('idle-shop-btn'), 10, 0);
+    fogRise($('idle-shop-btn'));
     bv.setStorm(false);   // the storm clears as the boss falls
     const pour = mist ? obeliskMist(mist) : 0;   // ms the obelisks need to pour out the Mist
     // the next stage's map has been building in the worker since this stage began (idleNext); the
@@ -1391,6 +1404,7 @@ function endIdleStage(won) {
     }, 1000 + pour);
     return;
   }
+  closeShop();
   const prevBest = idle.best, run = idle.endRun(secs);
   idle.save();
   trackIdleRun(run);
@@ -1398,10 +1412,9 @@ function endIdleStage(won) {
   $('end-stats').innerHTML = (battle.closedIn ? '<p class="next-up">🌫️ The fog closed in: the bigger army took the island</p>' : '')
     + `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
     + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Fog this run · <b>${fmtBig(idle.fogs)}</b> Fog`
-    + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend</div></div>`
+    + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend next run</div></div>`
     + statsHtml(battle);
-  $('end-perks').innerHTML = '<button id="end-shop" class="mode big-btn">Spend Fog</button>';
-  $('end-shop').onclick = openShop;
+  $('end-perks').innerHTML = '';   // Fog is spent during the next run (Upgrade in the top bar)
   $('end-retry').textContent = '▶ New run';
   $('end-retry').classList.remove('hidden');
   $('end-continue').textContent = 'Menu';
@@ -1434,19 +1447,31 @@ function rootPos(u) {
   return [x, rootTop + 4 * rootRow + 10];
 }
 const glyphOf = (u) => (u.cur === 'mist' ? 'g-mist' : u.branch === 'bridge' ? 'g-bridge' : 'g-' + u.branch);
+// the tree only opens during a running idle battle (Fog is spent while playing); it shares the
+// screen with the island, which glides up and keeps running
+let shopCloseT = 0;
+const shopOpen = () => !$('idle-shop').classList.contains('hidden') && !$('idle-shop').classList.contains('closing');
 function openShop() {
+  if (screen !== 'battle' || mode !== 'idle' || shown('end') || zooming) return;
+  clearTimeout(shopCloseT);
   shopKey = '';
-  // in a running battle the tree shares the screen with the island; elsewhere it gets a fog backdrop
-  const inBattle = screen === 'battle' && !shown('end');
-  $('battle').classList.toggle('shop-open', inBattle);
-  $('idle-shop').classList.toggle('backdrop', !inBattle);
-  $('idle-shop').classList.remove('hidden');
+  const el = $('idle-shop');
+  el.classList.remove('closing', 'backdrop');
+  // build the tree first, start the glide on the next frames: the dom / svg work then doesn't eat
+  // the first frames of the animation (that was the stutter)
   renderShop();
+  el.classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (shopOpen()) $('battle').classList.add('shop-open'); }));
 }
 function closeShop() {
-  $('idle-shop').classList.add('hidden');
   $('battle').classList.remove('shop-open');
+  const el = $('idle-shop');
+  if (el.classList.contains('hidden')) return;
+  el.classList.add('closing');   // roots and card fade out with the glide back
+  clearTimeout(shopCloseT);
+  shopCloseT = setTimeout(() => el.classList.replace('closing', 'hidden'), 400);
 }
+const toggleShop = () => (shopOpen() ? closeShop() : openShop());
 function renderShop() {
   const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best;
   $('shop-fogs').innerHTML = `Fog <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
@@ -1471,7 +1496,7 @@ function renderShop() {
       wisps += `<path class="wisp" d="${d}"/>`; lines += `<path class="${idle.lvl(n) >= l ? 'met' : 'dim'}" d="${d}"/>`;
     }
   }
-  svg += wisps + lines + '</svg>';
+  svg += `<g class="wisps">${wisps}</g>` + lines + '</svg>';   // one blur for the whole wisp group (cheaper than per path)
   let h = svg;
   for (const b of colOrder) h += `<span class="root-label" style="left:${colX(b)}px;top:${rootTop - 34}px">${branches.find((x) => x.id === b).name}</span>`;
   for (const u of upgrades) {
@@ -1536,9 +1561,8 @@ function syncIdleButtons() {
   $('idle-auto').classList.toggle('locked', idle.lvl('auto') === 0);
   $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy Auto-attack in the upgrades';
 }
-$('idle-shop-btn').onclick = openShop;
+$('idle-shop-btn').onclick = toggleShop;   // second press closes it
 $('shop-close').onclick = closeShop;
-$('idle-shop').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeShop(); });   // backdrop (menu / end card)
 $('idle-auto').onclick = () => {
   if (!idle.lvl('auto')) { flash('🤖 Buy Auto-attack in ⬆️ upgrades first', 2200); return; }
   idle.auto = !idle.auto;
@@ -1582,10 +1606,9 @@ $('hub-horn').onclick = () => {
   sfx.horn();
   $('hub-horn').classList.remove('blow'); void $('hub-horn').offsetWidth; $('hub-horn').classList.add('blow');
   flash(`📯 +${fmtBig(got)} 🌫️ Fog`, 1800);
-  fogFlow($('hub-horn'), $('hub-shop'), Math.min(18, 6 + Math.round(Math.log10(got + 1) * 2)), 0, () => countBank(before, idle.fogs));
+  fogFlow($('hub-horn'), $('hub-fog'), Math.min(18, 6 + Math.round(Math.log10(got + 1) * 2)), 0, () => countBank(before, idle.fogs));
   tickHub();
 };
-$('hub-shop').onclick = () => { idle = idle ?? Idle.load(); openShop(); };
 // bank count-up after the puffs land
 function countBank(from, to) {
   const el = $('hub-fog'), t0 = performance.now();
@@ -1631,6 +1654,58 @@ function fogFlow(from, to, n, m = 0, done = null) {
     };
     requestAnimationFrame(tick);
   }
+}
+
+// stage won: the Fog lifts off the player's own tiles as soft wisps that drift up, curl and stream
+// together into the target (the Upgrade button). each wisp is a few blurred blobs on the same path
+// with a small lag, so it reads as a trailing ribbon of fog. transform / opacity only (composited)
+function fogRise(to, streams = 22) {
+  if (!to || to.offsetParent === null || !battle) return;
+  const cr = bv.canvas.getBoundingClientRect(), k = cr.width / Math.max(1, bv.canvas.clientWidth);   // map may be shown shrunk
+  const mine = battle.segs.filter((s) => s.owner === 0);
+  if (!mine.length) return;
+  const tr = to.getBoundingClientRect(), bx = tr.left + tr.width / 2, by = tr.top + tr.height / 2;
+  const t0 = performance.now();
+  const layer = document.createElement('div');
+  layer.className = 'fog-rise';
+  document.body.appendChild(layer);
+  const parts = [];
+  for (let i = 0; i < streams; i++) {
+    const s = mine[Math.floor(Math.random() * mine.length)];
+    const sx = cr.left + bv.sx(s.x) * k + (Math.random() - 0.5) * 110 * k, sy = cr.top + bv.sy(s.y) * k + (Math.random() - 0.5) * 70 * k;   // anywhere over the tile
+    // control points: first straight up off the land, then a sideways curl, then into the button
+    const c1 = { x: sx + (Math.random() - 0.5) * 120, y: sy - 90 - Math.random() * 120 };
+    const c2 = { x: bx + (Math.random() - 0.5) * 260, y: by + 60 + Math.random() * 140 };
+    const delay = i * 70 + Math.random() * 120, dur = 1500 + Math.random() * 500, curl = (Math.random() - 0.5) * 70;
+    for (let j = 0; j < 4; j++) {   // head + 3 trailing blobs, each smaller and fainter
+      const el = document.createElement('i'), size = (110 - j * 18) * (0.8 + Math.random() * 0.4);
+      el.style.width = el.style.height = size + 'px';
+      layer.appendChild(el);
+      parts.push({ el, sx, sy, c1, c2, delay: delay + j * 90, dur, curl, size, a: 0.95 - j * 0.17, last: j === 0 });
+    }
+  }
+  let left = parts.length;
+  const tick = (now) => {
+    for (const p of parts) {
+      if (p.done) continue;
+      const q = Math.min(1, Math.max(0, (now - t0 - p.delay) / p.dur)), e = q < 0.5 ? 2 * q * q : 1 - (-2 * q + 2) ** 2 / 2, u = 1 - e;
+      // cubic bezier + a sideways curl that dies out on arrival
+      const x = u ** 3 * p.sx + 3 * u * u * e * p.c1.x + 3 * u * e * e * p.c2.x + e ** 3 * bx + p.curl * Math.sin(e * Math.PI * 2) * u;
+      const y = u ** 3 * p.sy + 3 * u * u * e * p.c1.y + 3 * u * e * e * p.c2.y + e ** 3 * by;
+      // grows as it lifts and spreads, gathers small into the button
+      const sc = (q < 0.2 ? 0.3 + 3.5 * q : 1) * (1.15 - 0.85 * e ** 2);
+      const op = q <= 0 ? 0 : p.a * Math.min(1, q / 0.15) * (q > 0.85 ? (1 - q) / 0.15 : 1);
+      p.el.style.transform = `translate3d(${x - p.size / 2}px, ${y - p.size / 2}px, 0) scale(${sc})`;
+      p.el.style.opacity = op;
+      if (q >= 1) {
+        p.done = true;
+        if (p.last) { to.classList.remove('gulp'); void to.offsetWidth; to.classList.add('gulp'); }
+        if (--left === 0) layer.remove();
+      }
+    }
+    if (left > 0) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 let flashTimer = 0;
@@ -1850,7 +1925,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { if (selected >= 0) selected = -1; else if (!shown('end')) $('battle-quit').click(); }
   // idle mode: u = upgrade tree (open/close), a = auto-battle on/off
   const k = e.key.toLowerCase();
-  if (k === 'u' && shown('idle-shop-btn')) $(shown('idle-shop') ? 'shop-close' : 'idle-shop-btn').click();
+  if (k === 'u' && shown('idle-shop-btn')) toggleShop();
   if (k === 'a' && shown('idle-auto')) $('idle-auto').click();
 });
 addEventListener('resize', () => { if (screen === 'battle' && bv) { bv.resize(); key = ''; } if (screen === 'campaign') cv.resize(), paintCampaign(); });
@@ -2323,6 +2398,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { tuneChanges, setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

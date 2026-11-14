@@ -109,10 +109,7 @@ try:
         r = page.evaluate("({ fogs: __fl.idle.fogs, horn: __fl.idle.hornAmount(), bank: document.querySelector('#hub-fog').textContent })")
         check(r["fogs"] - before > expect * 0.99 and r["horn"] < expect * 0.01 and puffs > 0, f"collect: Fog into the bank, horn empty, {puffs} puffs ({r})")
         page.screenshot(path=str(out / "eco-menu-after.png"))
-        page.click("#hub-shop")
-        page.wait_for_timeout(400)
-        check(page.is_visible("#idle-shop"), "upgrade tree opens from the menu")
-        page.screenshot(path=str(out / "eco-menu-tree.png"))
+        check(page.query_selector("#hub-shop") is None, "no upgrade button on the menu (Fog is spent during a run)")
         page.close()
         # phone landscape menu layout with the hub
         ph = browser.new_page(viewport={"width": 844, "height": 390})

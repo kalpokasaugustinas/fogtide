@@ -325,7 +325,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 /* ---------- idle upgrade tree: roots below the island ----------
    in battle (#battle.shop-open) the map glides up and shrinks and keeps running; the tree layer
    only catches clicks on its own nodes / card. from the menu or the end card it gets a fog backdrop */
-#battle-canvas { transition: transform 0.7s cubic-bezier(.4, 0, .2, 1); transform-origin: 50% 4%; }
+#battle-canvas { transition: transform 0.7s cubic-bezier(.4, 0, .2, 1); transform-origin: 50% 4%; will-change: transform; }
 #battle.shop-open #battle-canvas { transform: scale(0.6); }
 #battle .hud.bl, #battle .hud.bc, #battle .hud.br, #tutor { transition: opacity 0.4s; }
 #battle.shop-open .hud.bl, #battle.shop-open .hud.bc, #battle.shop-open .hud.br { opacity: 0; pointer-events: none; }
@@ -336,12 +336,18 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
   background: radial-gradient(ellipse 70% 60% at 50% 70%, rgba(232,234,229,0.96), rgba(214,219,215,0.92)); }
 /* the roots layer: 1280 logical px wide, bottom of the screen, zoomed with the ui */
 .roots { position: absolute; left: 50%; bottom: 0; width: 1280px; height: 310px; margin-left: -640px; zoom: var(--ui); pointer-events: none;
-  animation: roots-in 0.7s cubic-bezier(.4, 0, .2, 1) both; }
+  animation: roots-in 0.7s cubic-bezier(.4, 0, .2, 1) 0.05s both; will-change: transform, opacity; }
+/* closing: roots and card fade out while the map glides back (main.js closeShop) */
+#idle-shop .roots, #shop-side { transition: opacity 0.35s, transform 0.35s; }
+#idle-shop.closing .roots { animation: none; opacity: 0; transform: translateY(40px); }
+#idle-shop.closing #shop-side { opacity: 0; }
+#idle-shop.closing * { pointer-events: none !important; }
 @keyframes roots-in { from { opacity: 0; transform: translateY(40px); } }
 #idle-shop .roots { left: 50%; }
 .root-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .root-links path { fill: none; stroke-width: 1.4; }
-.root-links .wisp { stroke: rgba(238,239,233,0.85); stroke-width: 24; stroke-linecap: round; filter: blur(8px); }
+.root-links .wisps { filter: blur(8px); }
+.root-links .wisp { stroke: rgba(238,239,233,0.85); stroke-width: 24; stroke-linecap: round; }
 .root-links .root { stroke: rgba(35,42,44,0.45); stroke-width: 1.6; }
 .root-links .met { stroke: rgba(35,42,44,0.6); }
 .root-links .dim { stroke: rgba(35,42,44,0.2); stroke-dasharray: 3 5; }
@@ -384,3 +390,9 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 #idle-shop-btn.ready { background: transparent; box-shadow: none; animation: none; }
 .roots .node .n-lv { background: none; text-shadow: 0 0 3px #eeefe9, 0 0 6px #eeefe9; right: -9px; bottom: -8px; }
 #idle-shop.backdrop .root, #idle-shop.backdrop .rootw { display: none; }   /* no island above them on the menu */
+
+/* stage won: fog wisps lift off the island into the Upgrade button (main.js fogRise) */
+.fog-rise { position: fixed; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
+.fog-rise i { position: absolute; left: 0; top: 0; border-radius: 50%; opacity: 0; will-change: transform, opacity;
+  background: radial-gradient(circle at 45% 45%, rgba(255,255,252,1) 0%, rgba(246,247,243,0.92) 30%, rgba(140,150,153,0.38) 54%, rgba(108,118,121,0) 72%);
+  filter: blur(5px); }   /* bright core, faint ink halo: reads against the pale fog backdrop */
