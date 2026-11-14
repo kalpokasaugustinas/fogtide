@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=110';
-import { generateMap, rng } from './mapgen.js?v=110';
-import { initAnalytics, track } from './analytics.js?v=110';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=110';
-import { Battle } from './battle.js?v=110';
-import { personalities } from './ai.js?v=110';
-import { Campaign } from './campaign.js?v=110';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=110';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=110';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=110';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=110';
-import { previewBuildings } from './structures.js?v=110';
-import { initTune, tuneChanges } from './tune.js?v=110';
-import { initFogNoise } from './fogui.js?v=110';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=111';
+import { generateMap, rng } from './mapgen.js?v=111';
+import { initAnalytics, track } from './analytics.js?v=111';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=111';
+import { Battle } from './battle.js?v=111';
+import { personalities } from './ai.js?v=111';
+import { Campaign } from './campaign.js?v=111';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=111';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=111';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=111';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=111';
+import { previewBuildings } from './structures.js?v=111';
+import { initTune, tuneChanges } from './tune.js?v=111';
+import { initFogNoise } from './fogui.js?v=111';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1054,7 +1054,7 @@ $('end-continue').onclick = () => {
 $('end-retry').onclick = () => {
   if (mode === 'campaign') withLoading(() => startBattle(campaign.battleSetup(regionId), 'campaign', regionId));
   else if (mode === 'expedition') withLoading(startExpedition);
-  else if (mode === 'idle') { $('idle-shop').classList.add('hidden'); withLoading(startIdle); }
+  else if (mode === 'idle') { closeShop(); withLoading(startIdle); }
   else if (mode === 'tutorial') withLoading(() => startTutorial(afterTutor));
   else withLoading(startSkirmish);
 };
@@ -1319,7 +1319,7 @@ function autoAdvance() {
     if (!autoOn() || screen !== 'battle' || $('end').classList.contains('hidden')) return;
     const perk = $('end-perks').querySelector('.perk');
     if (perk) { perk.click(); return; }
-    if (mode === 'idle') { autoBuy(); $('idle-shop').classList.add('hidden'); }
+    if (mode === 'idle') { autoBuy(); closeShop(); }
     if (!$('end-retry').classList.contains('hidden')) $('end-retry').click();
   }, 2500);
 }
@@ -1419,101 +1419,86 @@ function trackIdleRun(run) {
   track(`idle-run-${mins}min-plus`);
 }
 
-// upgrade tree (shop) as a compass: your base in the middle, the 5 branches go out like spokes,
-// fork into two paths each and meet their neighbours through bridge nodes on the outer ring. opened
-// at any time (the battle keeps running), purchases apply at once. the tree sits in the battle's own
-// fog, which clears outward from the centre as you buy; locked upgrades are hidden in clouds until
-// their requirements are met. tap a node for its card on the right
-let shopKey = '', shopSel = 'atk', shopZoom = 0;
-// logical px, scaled to fit (x shopZoom step); rings are squashed ellipses (rx = r x 1.5, ry = r x 0.9)
-const treeW = 1340, treeH = 880, treeRings = [110, 185, 260, 335, 410], treeRX = 1.5, treeRY = 0.9, treeZooms = [1, 1.6, 2.4];
-// node centre in the tree's logical px: branch direction + offset, ring radius, squashed ellipse
-function nodePos(u) {
-  const br = branches.find((b) => b.id === u.branch), a = ((u.ang ?? br.ang + u.off) * Math.PI) / 180, r = treeRings[u.ring];
-  return [treeW / 2 + Math.cos(a) * r * treeRX, treeH / 2 + Math.sin(a) * r * treeRY];
+// upgrade tree (shop) as roots below the island: one column per branch hanging down from the map,
+// opened at any time (the battle keeps running), purchases apply at once. click a node for its card
+let shopKey = '', shopSel = 'atk';
+// layout: one column per branch (in compass order), rows = rings 0-4 going down; bridge upgrades sit
+// on the bottom row between the two columns they join. logical px (the layer is zoomed by --ui)
+const rootW = 1280, rootTop = 46, rootRow = 50, colOrder = ['offense', 'defense', 'growth', 'fog', 'command'];
+const colX = (b) => (rootW / (colOrder.length + 1)) * (colOrder.indexOf(b) + 1);
+function rootPos(u) {
+  if (u.branch !== 'bridge') return [colX(u.branch) + u.off * 1.5, rootTop + u.ring * rootRow];
+  // bridge: halfway between the columns of its two requirements (the wrap-around one sits at the far right)
+  const xs = u.needs.map(([n]) => colX(upgradeById[n].branch)).sort((p, q) => p - q);
+  const x = xs[1] - xs[0] > rootW / 2 ? colX('command') + (rootW / (colOrder.length + 1)) * 0.55 : (xs[0] + xs[1]) / 2;
+  return [x, rootTop + 4 * rootRow + 10];
 }
-const nodeColor = (u) => branches.find((b) => b.id === u.branch)?.color ?? bridgeColor;
+const glyphOf = (u) => (u.cur === 'mist' ? 'g-mist' : u.branch === 'bridge' ? 'g-bridge' : 'g-' + u.branch);
 function openShop() {
-  // fog sky behind the tree: the current battle's cloud texture and fog colour
-  const t = bv?.theme ?? themes.summer;
-  $('shop-tree').style.setProperty('--fog', `url(${cloudTexture(t)})`);
-  $('shop-tree').style.setProperty('--fog-bg', `rgb(${t.fogB})`);
   shopKey = '';
+  // in a running battle the tree shares the screen with the island; elsewhere it gets a fog backdrop
+  const inBattle = screen === 'battle' && !shown('end');
+  $('battle').classList.toggle('shop-open', inBattle);
+  $('idle-shop').classList.toggle('backdrop', !inBattle);
   $('idle-shop').classList.remove('hidden');
   renderShop();
 }
+function closeShop() {
+  $('idle-shop').classList.add('hidden');
+  $('battle').classList.remove('shop-open');
+}
 function renderShop() {
   const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best;
-  $('shop-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)} Fog` + (idle.mistTotal ? ` · 💠 ${idle.mist} Mist` : '');
+  $('shop-fogs').innerHTML = `Fog <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
   if (key === shopKey) return;
   shopKey = key;
-  const tree = $('shop-tree'), owned = upgrades.filter((u) => idle.lvl(u.id)).length, total = upgrades.reduce((s, u) => s + idle.lvl(u.id), 0);
-  // links: requirement -> upgrade (the centre feeds the 5 roots), solid in the node's colour when
-  // met, faint dashes while still unmet; ring guides behind them
-  let svg = `<svg class="shop-links" viewBox="0 0 ${treeW} ${treeH}" width="${treeW}" height="${treeH}">`;
-  for (const r of treeRings) svg += `<ellipse class="ring" cx="${treeW / 2}" cy="${treeH / 2}" rx="${r * treeRX}" ry="${r * treeRY}"/>`;
-  for (const u of upgrades) {
-    const [x2, y2] = nodePos(u), col = nodeColor(u);
-    const from = u.needs?.length ? u.needs.map(([n, l]) => [...nodePos(upgradeById[n]), idle.lvl(n) >= l]) : [[treeW / 2, treeH / 2, true]];
-    for (const [x1, y1, met] of from) svg += `<path class="${met ? 'met' : ''}" style="--c:${col}" d="M${x1},${y1} L${x2},${y2}"/>`;
-  }
-  svg += '</svg>';
-  let h = `<div class="tree-size"><div class="tree-canvas" style="--clear:${20 + (owned / upgrades.length) * 55}%">${svg}`;
-  h += `<div class="tree-core"><b>${total}</b><small>Levels</small></div>`;
-  // branch name chips just past the end of each spoke
-  for (const br of branches) {
-    const a = (br.ang * Math.PI) / 180, x = treeW / 2 + Math.cos(a) * 525 * treeRX, y = treeH / 2 + Math.sin(a) * 525 * treeRY;
-    const cx = Math.min(treeW - 90, Math.max(90, x)), cy = Math.min(treeH - 24, Math.max(24, cx !== x ? y - 60 : y));   // side chips: up, clear of the outer nodes
-    h += `<span class="br-chip" style="left:${cx}px;top:${cy}px;--c:${br.color}">${br.icon} ${br.name}</span>`;
+  const tree = $('shop-tree');
+  // roots from the island down to each column, then requirement links (solid when met, faint dashes
+  // while unmet), each over a soft fog wisp
+  let svg = `<svg class="root-links" viewBox="0 0 ${rootW} 300" width="${rootW}" height="300">`;
+  const curve = (x1, y1, x2, y2) => { const my = (y1 + y2) / 2; return `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`; };
+  let wisps = '', lines = '';
+  for (const b of colOrder) {
+    const d = curve(rootW / 2 + (colX(b) - rootW / 2) * 0.35, -70, colX(b), rootTop - 22);
+    wisps += `<path class="wisp rootw" d="${d}"/>`; lines += `<path class="root" d="${d}"/>`;
   }
   for (const u of upgrades) {
-    const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id), [x, y] = nodePos(u);
+    if (!u.needs?.length) continue;
+    const [x2, y2] = rootPos(u);
+    for (const [n, l] of u.needs) {
+      const [x1, y1] = rootPos(upgradeById[n]), d = curve(x1, y1, x2, y2);
+      if (Math.abs(x2 - x1) > rootW / 2) continue;   // the wrap-around bridge (blitz): its far link would cross the whole tree; the card lists it
+      wisps += `<path class="wisp" d="${d}"/>`; lines += `<path class="${idle.lvl(n) >= l ? 'met' : 'dim'}" d="${d}"/>`;
+    }
+  }
+  svg += wisps + lines + '</svg>';
+  let h = svg;
+  for (const b of colOrder) h += `<span class="root-label" style="left:${colX(b)}px;top:${rootTop - 34}px">${branches.find((x) => x.id === b).name}</span>`;
+  for (const u of upgrades) {
+    const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id), [x, y] = rootPos(u);
     const cls = ['node', u.cur === 'mist' && 'mist', u.branch === 'bridge' && 'bridge', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
-    const lv = u.max ? `${l}/${u.max}` : `${l}`;
-    h += `<button class="${cls}" data-id="${u.id}" style="left:${x}px;top:${y}px;--c:${nodeColor(u)}" title="${u.name}">`
-      + `<span class="n-ico">${u.icon}</span>` + (locked ? '<span class="n-fog">🔒</span>' : `<span class="n-lv">${maxed ? '★' : lv}</span>`) + '</button>';
+    const lv = maxed ? '★' : l ? `${l}` : '';
+    h += `<button class="${cls}" data-id="${u.id}" style="left:${x}px;top:${y}px" title="${u.name}"><svg class="i"><use href="#${glyphOf(u)}"/></svg>${lv ? `<span class="n-lv">${lv}</span>` : ''}</button>`;
   }
-  tree.innerHTML = h + '</div></div>';
-  tree.parentElement.querySelector('.tree-zoom') ?? tree.insertAdjacentHTML('afterend', '<span class="tree-zoom"><button data-z="1" title="Zoom in">＋</button><button data-z="-1" title="Zoom out">－</button></span>');
+  tree.innerHTML = h;
   for (const b of tree.querySelectorAll('.node')) b.onclick = () => { shopSel = b.dataset.id; sfx.click(); renderShop(); };
   renderShopDetail();
-  fitShop();
 }
-// scale the compass to fit its box (layout px: unaffected by the css page rotation on phones); on
-// very small screens it stays readable and the box scrolls instead
-function fitShop() {
-  const tree = $('shop-tree'), size = tree.querySelector('.tree-size'), canvas = tree.querySelector('.tree-canvas');
-  if (!size || $('idle-shop').classList.contains('hidden')) return;
-  // keep the point in the middle of the view in the middle when the zoom changes
-  const cx = (tree.scrollLeft + tree.clientWidth / 2) / Math.max(1, size.offsetWidth), cy = (tree.scrollTop + tree.clientHeight / 2) / Math.max(1, size.offsetHeight);
-  const s = Math.min(tree.clientWidth / treeW, tree.clientHeight / treeH) * treeZooms[shopZoom];
-  canvas.style.transform = `scale(${s})`;
-  size.style.width = treeW * s + 'px';
-  size.style.height = treeH * s + 'px';
-  tree.scrollLeft = cx * treeW * s - tree.clientWidth / 2;
-  tree.scrollTop = cy * treeH * s - tree.clientHeight / 2;
-}
-// zoom buttons in the tree's corner (phones: zoom in, then scroll around)
-$('idle-shop').addEventListener('click', (e) => {
-  const z = e.target.closest?.('.tree-zoom button');
-  if (!z) return;
-  shopZoom = Math.min(treeZooms.length - 1, Math.max(0, shopZoom + Number(z.dataset.z)));
-  sfx.click();
-  fitShop();
-});
+function fitShop() { /* the roots layer has a fixed logical size and follows the --ui zoom */ }
 // card next to the tree: what the selected upgrade does now and next, what it needs, buy button
 function renderShopDetail() {
   // numbers at the running stage's scale (from the menu: the stage the next run starts at)
   const u = upgradeById[shopSel], l = idle.lvl(u.id), sc = mode === 'idle' && screen === 'battle' ? numScale : displayScale(idle.stage), maxed = idle.maxed(u.id);
   const now = l ? u.text(u.value(l), sc, idle) : '', next = u.text(u.value(l + 1), sc, idle);
-  const needs = (u.needs ?? []).map(([n, lv]) => `<span class="${idle.lvl(n) >= lv ? 'ok' : ''}">${upgradeById[n].icon} ${upgradeById[n].name} ${lv}</span>`).join('');
+  const needs = (u.needs ?? []).map(([n, lv]) => `<span class="${idle.lvl(n) >= lv ? 'ok' : ''}">${upgradeById[n].name} ${lv}</span>`).join(', ');
   const what = maxed ? `${now} · <b>max</b>` : l ? `${now} → <b>${next}</b>` : `<b>${next}</b>`;
-  const br = branches.find((b) => b.id === u.branch), tag = br ? `${br.icon} ${br.name}` : '🌉 Bridge';
-  const btn = maxed ? '<button class="up-buy" disabled>MAX</button>'
-    : `<button class="up-buy${u.cur === 'mist' ? ' mist' : ''}" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>${idle.locked(u.id) ? '🔒' : u.cur === 'mist' ? '💠' : '🌫️'} ${fmtBig(idle.cost(u.id))}</button>`;
-  $('shop-detail').innerHTML = `<span class="d-ico" style="--c:${nodeColor(u)}">${u.icon}</span><span class="d-tag" style="color:${nodeColor(u)}">${tag}${u.cur === 'mist' ? ' · Mist' : ''}</span>`
-    + `<span class="d-txt"><b>${u.name}</b> <em>Lv ${u.max ? `${l}/${u.max}` : l}</em>`
-    + `<small>${what}</small>${needs ? `<small class="d-needs">${u.or && u.needs.length > 1 ? 'Needs one of' : 'Needs'}: ${needs}</small>` : ''}</span>${btn}`;
+  const br = branches.find((b) => b.id === u.branch), cur = u.cur === 'mist' ? 'Mist' : 'Fog';
+  const btn = maxed ? '<button class="up-buy" disabled>Max level</button>'
+    : idle.locked(u.id) ? '<button class="up-buy" disabled>Locked</button>'
+    : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>Buy · ${fmtBig(idle.cost(u.id))} ${cur}</button>`;
+  $('shop-detail').innerHTML = `<span class="d-tag">${br ? br.name : 'Bridge'}${u.cur === 'mist' ? ' · Mist' : ''}</span>`
+    + `<h4><span>${u.name}</span><span>Lv ${u.max ? `${l}/${u.max}` : l}</span></h4><p>${what}</p>`
+    + (needs ? `<p class="d-needs">${u.or && u.needs.length > 1 ? 'Needs one of' : 'Needs'}: ${needs}</p>` : '') + btn;
   if ($('shop-buy')) $('shop-buy').onclick = () => buyUpgrade(u.id);
 }
 
@@ -1552,9 +1537,8 @@ function syncIdleButtons() {
   $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy Auto-attack in the upgrades';
 }
 $('idle-shop-btn').onclick = openShop;
-$('shop-close').onclick = () => $('idle-shop').classList.add('hidden');
-$('idle-shop').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('shop-close').click(); });
-addEventListener('resize', () => requestAnimationFrame(fitShop));
+$('shop-close').onclick = closeShop;
+$('idle-shop').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeShop(); });   // backdrop (menu / end card)
 $('idle-auto').onclick = () => {
   if (!idle.lvl('auto')) { flash('🤖 Buy Auto-attack in ⬆️ upgrades first', 2200); return; }
   idle.auto = !idle.auto;
@@ -1822,11 +1806,11 @@ const leaveBattle = () => { $('leave').classList.add('hidden'); if (mode === 'ca
 const withdraw = () => {
   if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave();
   if (mode === 'idle' && battle.state === 'running') { idleTick(0); trackIdleRun(idle.endRun(battle.time / rules.timeScale)); idle.save(); }
-  $('idle-shop').classList.add('hidden');
+  closeShop();
   leaveBattle();
 };
 $('battle-quit').onclick = () => {
-  if (battle.state !== 'running') { $('idle-shop').classList.add('hidden'); leaveBattle(); return; }
+  if (battle.state !== 'running') { closeShop(); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
     : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your Fog, Mist and upgrades are kept.`
