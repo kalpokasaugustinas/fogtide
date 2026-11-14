@@ -109,37 +109,50 @@
   /* ---------- skin b: fog + ink (minimal, quiet, lots of space) ---------- */
   .b { --menu-shade: linear-gradient(90deg, rgba(232,234,229,0.97) 0, rgba(232,234,229,0.9) 33%, rgba(232,234,229,0.25) 62%, rgba(232,234,229,0.1));
     font-family: 'Josefin Sans', sans-serif; color: #232a2c; }
-  /* fog panels: no box. the panel colour sits on a ::before that reaches past the panel; its mask is
-     a solid core + a soft edge band eaten by a cloud-noise texture, so the rim breaks into wisps.
-     the noise layer slides slowly (mask-position), so the wisps drift. noise is made once in js. */
+  /* fog blobs: no box and no plain oval. each panel's fog is a cloud of overlapping soft puffs
+     (radial gradients) that slowly drift and swell, blurred so the lumps melt into one fluid shape.
+     a bigger halo of cloud noise (made once in js) drifts around it, so the rim frays into wisps. */
   .b .panel, .b .res .item, .b .tip { position: relative; isolation: isolate; background: transparent; border: 0; box-shadow: none; }
   .b .hud.panel, .b .tip { position: absolute; }
-  /* ::before = solid fog body with feathered edges (keeps text readable)
-     ::after  = bigger wisp halo: cloud noise ∩ a wider feather, drifting slowly */
   .b .panel::before, .b .res .item::before, .b .tip::before,
-  .b .panel::after, .b .res .item::after, .b .tip::after {
-    content: ''; position: absolute; z-index: -1; pointer-events: none; background: var(--fog-col, rgba(238,239,233,0.94));
-    -webkit-mask-composite: source-in; mask-composite: intersect;
-  }
+  .b .panel::after, .b .res .item::after, .b .tip::after { content: ''; position: absolute; z-index: -1; pointer-events: none; }
+  /* body: one big centre puff + 6 smaller ones around the rim */
   .b .panel::before, .b .res .item::before, .b .tip::before {
-    inset: calc(var(--f, 16px) * -0.6);
-    -webkit-mask-image: linear-gradient(180deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent), linear-gradient(90deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent);
-    mask-image: linear-gradient(180deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent), linear-gradient(90deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent);
+    --c: var(--fog-col, rgba(238,239,233,0.9));
+    inset: -26% -20%;
+    background:
+      radial-gradient(closest-side, var(--c) 74%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent);
+    background-repeat: no-repeat;
+    background-size: 96% 94%, 46% 70%, 42% 64%, 50% 60%, 38% 58%, 44% 66%, 36% 52%;
+    background-position: 50% 50%, 4% 42%, 96% 58%, 30% 6%, 72% 94%, 72% 10%, 22% 92%;
+    filter: blur(calc(var(--f, 16px) * 0.5));
+    animation: puff var(--puff-t, 13s) ease-in-out infinite alternate; animation-delay: var(--wisp-d, 0s);
   }
+  @keyframes puff {
+    50% { background-size: 92% 98%, 52% 62%, 38% 72%, 44% 68%, 46% 50%, 38% 60%, 44% 58%;
+          background-position: 48% 52%, 1% 52%, 99% 46%, 40% 3%, 62% 97%, 80% 18%, 14% 84%; }
+    100% { background-size: 98% 90%, 40% 74%, 48% 58%, 54% 56%, 40% 62%, 48% 70%, 34% 50%;
+           background-position: 52% 48%, 6% 34%, 94% 64%, 22% 9%, 80% 90%, 66% 6%, 28% 96%; }
+  }
+  /* halo: drifting cloud noise inside a soft oval, frays the outline into wisps */
   .b .panel::after, .b .res .item::after, .b .tip::after {
-    inset: calc(var(--f, 16px) * -3); opacity: 0.85;
-    -webkit-mask-image: var(--fog-noise), linear-gradient(180deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent), linear-gradient(90deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent);
-    mask-image: var(--fog-noise), linear-gradient(180deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent), linear-gradient(90deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent);
-    -webkit-mask-composite: source-in, source-in; mask-composite: intersect, intersect;
-    mask-size: 260px 160px, 100% 100%, 100% 100%; mask-repeat: repeat, no-repeat, no-repeat;
+    inset: -42% -30%; opacity: 0.8; background: var(--fog-col, rgba(238,239,233,0.9));
+    -webkit-mask-image: var(--fog-noise), radial-gradient(closest-side, #000 40%, transparent 100%);
+    mask-image: var(--fog-noise), radial-gradient(closest-side, #000 40%, transparent 100%);
+    -webkit-mask-composite: source-in; mask-composite: intersect;
+    mask-size: 260px 160px, 100% 100%; mask-repeat: repeat, no-repeat;
     animation: wisp var(--wisp-t, 30s) linear infinite; animation-delay: var(--wisp-d, 0s);
   }
-  @keyframes wisp { from { mask-position: 0 0, 0 0, 0 0; } to { mask-position: 260px 160px, 0 0, 0 0; } }
-  .b .tip { --fog-col: rgba(35,42,44,0.95); --f: 12px; --wisp-t: 20s; }
+  @keyframes wisp { from { mask-position: 0 0, 0 0; } to { mask-position: 260px 160px, 0 0; } }
+  .b .tip { --fog-col: rgba(35,42,44,0.93); --f: 12px; --wisp-t: 20s; --puff-t: 9s; }
+  .b .tip::before { inset: -18% -11%; } .b .tip::after { inset: -28% -18%; opacity: 0.6; }   /* dark fog: keep it tighter */
   .b .res .item, .b .res .ibtn { --f: 10px; }
   .b .factions { --wisp-d: -7s; } .b .tile { --wisp-d: -13s; } .b .build { --wisp-d: -4s; } .b .ctrl { --wisp-d: -19s; }
   .b .res .item:nth-child(2) { --wisp-d: -5s; } .b .res .item:nth-child(3) { --wisp-d: -11s; } .b .res .item:nth-child(4) { --wisp-d: -17s; }
-  @media (prefers-reduced-motion: reduce) { .b .panel::after, .b .res .item::after, .b .tip::after { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .b .panel::before, .b .panel::after, .b .res .item::before, .b .res .item::after, .b .tip::before, .b .tip::after { animation: none; } }
   .b h3, .b h4, .b h5 { font-weight: 600; text-transform: uppercase; letter-spacing: 2px; font-size: 12px; color: #232a2c; }
   .b h3 { font-size: 14px; }
   .b .res { background: transparent; height: 46px; }
@@ -151,13 +164,25 @@
   .b .slider { height: 3px; } .b .meter span, .b .slider span { background: #232a2c; }
   .b .slider i { background: #232a2c; width: 10px; height: 10px; border-radius: 50%; }
   .b .bslot { background: rgba(240,240,234,0.0); color: #232a2c; width: 66px; }
-  /* selected / hot states: a soft ink smudge instead of a filled square */
-  .b .bslot.hot { background: radial-gradient(ellipse closest-side, rgba(35,42,44,0.95) 55%, rgba(35,42,44,0) 100%); color: #f0f0ea; }
+  /* selected / hot states: an ink blob whose outline keeps morphing (border-radius), softened by blur */
+  .b .bslot.hot, .b .speeds button.on { position: relative; isolation: isolate; background: transparent; color: #f0f0ea; }
+  .b .bslot.hot::before, .b .speeds button.on::before { content: ''; position: absolute; inset: 3px -1px; z-index: -1;
+    background: #232a2c; border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; filter: blur(2.5px);
+    animation: blob 7s ease-in-out infinite alternate; }
+  .b .speeds button.on::before { inset: -2px 4px; animation-delay: -3s; }
   .b .bslot.hot .key, .b .bslot.hot .cost { color: #c9cfcc; }
   .b .speeds button { background: transparent; border: 0; color: #232a2c; }
-  .b .speeds button.on { background: radial-gradient(ellipse closest-side, rgba(35,42,44,0.95) 50%, rgba(35,42,44,0) 100%); color: #f0f0ea; }
+  @keyframes blob {
+    33% { border-radius: 40% 60% 42% 58% / 60% 38% 62% 40%; transform: rotate(7deg) scale(1.04); }
+    66% { border-radius: 62% 38% 60% 40% / 40% 62% 38% 60%; transform: rotate(-5deg) scale(0.98); }
+    100% { border-radius: 48% 52% 36% 64% / 56% 44% 60% 40%; transform: rotate(3deg) scale(1.02); }
+  }
   .b .tip { color: #e9ebe6; } .b .tip h5 { color: #fff; } .b .tip .good { color: #a9d39a; }
-  .b .sel { border: 0; background: radial-gradient(ellipse closest-side, rgba(255,255,255,0) 60%, rgba(255,255,255,0.75) 80%, rgba(255,255,255,0) 100%); }
+  /* map hover: a glowing ring that wobbles like a fog loop, not a perfect ellipse */
+  .b .sel { border: 0; }
+  .b .sel::before { content: ''; position: absolute; inset: 0; border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.75), 0 0 14px 4px rgba(255,255,255,0.55), inset 0 0 12px 2px rgba(255,255,255,0.55);
+    filter: blur(1.2px); animation: blob 6s ease-in-out infinite alternate; }
   .b .menu { width: 420px; }
   .b .logo { font-size: 56px; font-weight: 300; letter-spacing: 16px; text-transform: uppercase; color: #232a2c; }
   .b .sub { text-transform: uppercase; letter-spacing: 6px; font-size: 12px; color: #6c7679; }
