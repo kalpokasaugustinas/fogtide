@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=115';
-import { generateMap, rng } from './mapgen.js?v=115';
-import { initAnalytics, track } from './analytics.js?v=115';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=115';
-import { Battle } from './battle.js?v=115';
-import { personalities } from './ai.js?v=115';
-import { Campaign } from './campaign.js?v=115';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=115';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=115';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=115';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=115';
-import { previewBuildings } from './structures.js?v=115';
-import { initTune, tuneChanges } from './tune.js?v=115';
-import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=115';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=116';
+import { generateMap, rng } from './mapgen.js?v=116';
+import { initAnalytics, track } from './analytics.js?v=116';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=116';
+import { Battle } from './battle.js?v=116';
+import { personalities } from './ai.js?v=116';
+import { Campaign } from './campaign.js?v=116';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=116';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=116';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=116';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=116';
+import { previewBuildings } from './structures.js?v=116';
+import { initTune, tuneChanges } from './tune.js?v=116';
+import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=116';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1596,8 +1596,29 @@ function syncBands() {
   dressBand(bands[1], factionColors[profile.color === 1 ? 0 : 1], others.slice(0, 3));
 }
 syncBands();
+// birthday (party build only): a spinning head above each foglet band, greeting under it.
+// same strip maths as drawBand in foglets.js: band sw px wide at the bottom corner, figure scale s
+let bdayKey = '';
+function placeBday() {
+  const c = $('foglets-l'), w = c.clientWidth, h = c.clientHeight, key = `${w}x${h}`;
+  if (key === bdayKey) return;
+  bdayKey = key;
+  const sw = Math.min(400, w / 2 - 250), hb = Math.min(h * 0.5, 320), s = Math.min(hb / 13.5, sw / (3 * 5.4));
+  for (const [el, cx] of [[$('bday-l'), sw / 2], [$('bday-r'), w - sw / 2]]) {
+    if (!el) continue;   // photo missing: removed
+    el.classList.toggle('hidden', sw < 60);
+    const size = Math.max(56, Math.min(130, sw * 0.42));
+    el.style.setProperty('--size', `${size}px`);
+    el.style.setProperty('--strip', `${sw}px`);
+    el.style.setProperty('--font', `${Math.max(14, Math.min(30, sw / 8.5))}px`);
+    el.style.left = `${cx}px`;
+    el.style.bottom = `${18 + hb * 0.03 + 11 * s + 46}px`;   // above the tallest hat and its speech bubble
+  }
+}
+
 function drawMenu(dt) {
   for (const b of bands) drawBand(b, performance.now() / 1000);
+  placeBday();
   hubTimer -= dt;
   if (hubTimer <= 0) { hubTimer = 0.25; tickHub(); }
   if (!demo || demo.state !== 'running' || demo.time > 240) newDemo();

@@ -24,7 +24,7 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="../fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="../fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=115">
+  <link rel="stylesheet" href="style.css?v=116">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -143,18 +143,21 @@
     <!-- foglet bands shouting at each other across the menu (js/foglets.js) -->
     <canvas id="foglets-l" class="foglets left" aria-hidden="true"></canvas>
     <canvas id="foglets-r" class="foglets right" aria-hidden="true"></canvas>
+    <!-- birthday: spinning head + greeting above each band (hidden if the photo is missing) -->
+    <div id="bday-l" class="bday"><img src="img/bday.png" alt="" onerror="this.parentNode.remove()"><b>Su Gimtadieniu!</b></div>
+    <div id="bday-r" class="bday"><img src="img/bday.png" alt="" onerror="this.parentNode.remove()"><b>Su Gimtadieniu!</b></div>
     <div class="logo">
       <h1>FOGTIDE</h1>
       <div class="ribbon">Unstoppable, like the tide</div>
     </div>
     <div class="modes">
-      <button id="btn-party" class="mode gold pulse"><span class="m-ico">🌐</span><span class="m-txt"><b>Online battle</b><small>Friends on one island</small></span><span class="play">GO</span></button>
+      <button id="btn-party" class="mode blue"><span class="m-ico">🌐</span><span class="m-txt"><b>Online battle</b><small>Friends on one island</small></span><span class="play">GO</span></button>
       <button id="btn-campaign" class="mode blue pulse hidden"><span class="m-ico">🗺️</span><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span><span class="play">PLAY</span></button>
-      <button id="btn-expedition" class="mode sky"><span class="m-ico">🧭</span><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span><span class="play">GO</span></button>
-      <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
+      <button id="btn-expedition" class="mode sky party-off"><span class="m-ico">🧭</span><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span><span class="play">GO</span></button>
+      <button id="btn-idle" class="mode green party-off"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
       <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
     </div>
-    <span id="version">build 115 · 2026-11-14 15:05</span>
+    <span id="version">build 116 · 2026-11-14 15:07</span>
   </section>
 
   <!-- campaign world map -->
@@ -363,6 +366,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=115"></script>
+  <script type="module" src="js/main.js?v=116"></script>
 </body>
 </html>

@@ -684,3 +684,13 @@ html.compact .hub-horn { width: 78px; height: 48px; } html.compact .hub-horn svg
 #party-legend span { display: inline-flex; align-items: center; gap: 4px; }
 #party-legend span.out { opacity: 0.45; text-decoration: line-through; }
 .in-party #speed, .in-party #test-fill, .in-party #test-win { display: none !important; }
+
+/* birthday heads on the menu (party build only) */
+.bday { position: absolute; z-index: 7; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; perspective: 600px; }
+.bday.hidden { display: none; }
+.bday img { width: var(--size, 90px); height: var(--size, 90px); border-radius: 50%; object-fit: cover; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,0.35); animation: bday-spin 3.2s linear infinite; }
+.bday b { font-family: 'Luckiest Guy', 'Fredoka', sans-serif; font-weight: 400; font-size: var(--font, 22px); line-height: 1.05; text-align: center; max-width: var(--strip, 200px); color: #ffd84a; letter-spacing: 1px; text-shadow: 0 2px 0 #7a3b00, 0 0 8px rgba(0,0,0,0.5); -webkit-text-stroke: 1px #7a3b00; animation: bday-bob 1.6s ease-in-out infinite; }
+@keyframes bday-spin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+@keyframes bday-bob { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3px) scale(1.06); } }
+
+.party-off { display: none !important; }   /* party build: only online + quick battle */
