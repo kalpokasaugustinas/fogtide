@@ -46,7 +46,8 @@
   .build { left: 50%; bottom: 14px; transform: translateX(-50%); gap: 6px; padding: 8px; }
   .bslot { position: relative; width: 74px; height: 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; }
   .bslot svg.i { width: 28px; height: 28px; }
-  .bslot .key { position: absolute; left: 5px; top: 3px; font-size: 11px; }
+  .bslot { padding-top: 12px; }
+  .bslot .key { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); font-size: 11px; }   /* hotkey centred above the icon */
   .bslot .cost { font-size: 12px; font-variant-numeric: tabular-nums; }
   .bslot.dim { opacity: 0.45; }
   .tip { position: absolute; left: 50%; bottom: 112px; transform: translateX(-122px); width: 250px; padding: 10px 12px; font-size: 13px; line-height: 1.4; }
@@ -147,8 +148,15 @@
     animation: wisp var(--wisp-t, 30s) linear infinite; animation-delay: var(--wisp-d, 0s);
   }
   @keyframes wisp { from { mask-position: 0 0, 0 0; } to { mask-position: 260px 160px, 0 0; } }
-  .b .tip { --fog-col: rgba(35,42,44,0.93); --f: 12px; --wisp-t: 20s; --puff-t: 9s; }
-  .b .tip::before { inset: -18% -11%; } .b .tip::after { inset: -28% -18%; opacity: 0.6; }   /* dark fog: keep it tighter */
+  .b .tip .muted { color: #b3bcbf; }
+  .b .tip { --fog-col: rgba(35,42,44,0.97); --f: 12px; --wisp-t: 20s; --puff-t: 9s; }
+  /* dark fog: a wider body with a bigger solid centre, so every line of text sits on full ink */
+  .b .tip::before { inset: -34% -16%; background-size: 100% 100%, 46% 70%, 42% 64%, 50% 60%, 38% 58%, 44% 66%, 36% 52%;
+    background-image: radial-gradient(closest-side, var(--c) 86%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
+      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent); animation: none; }
+  .b .tip::after { inset: -46% -24%; opacity: 0.6; }
   .b .res .item, .b .res .ibtn { --f: 10px; }
   .b .factions { --wisp-d: -7s; } .b .tile { --wisp-d: -13s; } .b .build { --wisp-d: -4s; } .b .ctrl { --wisp-d: -19s; }
   .b .res .item:nth-child(2) { --wisp-d: -5s; } .b .res .item:nth-child(3) { --wisp-d: -11s; } .b .res .item:nth-child(4) { --wisp-d: -17s; }
