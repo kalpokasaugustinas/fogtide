@@ -344,7 +344,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 #idle-shop.closing * { pointer-events: none !important; }
 @keyframes roots-in { from { opacity: 0; transform: translateY(40px); } }
 #idle-shop .roots { left: 50%; }
-.root-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.root-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; will-change: transform; }
 .root-links path { fill: none; stroke-width: 1.4; }
 .root-links .wisps { filter: blur(8px); }
 .root-links .wisp { stroke: rgba(238,239,233,0.85); stroke-width: 24; stroke-linecap: round; }
@@ -352,24 +352,27 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .root-links .met { stroke: rgba(35,42,44,0.6); }
 .root-links .dim { stroke: rgba(35,42,44,0.2); stroke-dasharray: 3 5; }
 .root-label { position: absolute; transform: translate(-50%, -50%); text-transform: uppercase; letter-spacing: 3px; font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap; isolation: isolate; }
-.root-label::before { content: ''; position: absolute; inset: -8px -14px; z-index: -1; background: rgba(238,239,233,0.85); filter: blur(7px); border-radius: 50%; }
+.root-label::before { content: ''; position: absolute; inset: -10px -18px; z-index: -1; background: radial-gradient(closest-side, rgba(238,239,233,0.9) 55%, rgba(238,239,233,0)); }
 /* nodes: owned = ink blob with its level, buyable = breathing ink ring, veiled = faint in the fog */
 .roots .node { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none;
   display: grid; place-items: center; color: var(--ink); cursor: pointer; isolation: isolate; pointer-events: auto; transform: none; }
-.roots .node::before { content: ''; position: absolute; inset: -8px; z-index: -1; background: rgba(238,239,233,0.9); filter: blur(6px); border-radius: 50%; }
+.roots .node::before { content: ''; position: absolute; inset: -12px; z-index: -1; background: radial-gradient(closest-side, rgba(238,239,233,0.92) 58%, rgba(238,239,233,0)); }
 .roots .node.owned { color: #f0f0ea; }
-.roots .node.owned::after { content: ''; position: absolute; inset: 2px; z-index: -1; background: var(--ink); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; filter: blur(1px); }
-.roots .node.buyable { box-shadow: inset 0 0 0 1.5px var(--ink); animation: node-breathe 2.4s ease-in-out infinite; }
+.roots .node.owned::after { content: ''; position: absolute; inset: 2px; z-index: -1; background: var(--ink); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+.roots .node.buyable { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.roots .node.buyable:not(.owned)::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid rgba(35,42,44,0.35);
+  animation: node-breathe 2.4s ease-out infinite; will-change: transform, opacity; }
+.roots .node.mist.buyable:not(.owned)::after { border-color: rgba(107,120,201,0.5); }
 .roots .node.owned.buyable { box-shadow: 0 0 0 3px rgba(238,239,233,0.9), 0 0 0 4.5px var(--ink); }
 .roots .node.veiled { color: rgba(35,42,44,0.3); }
-.roots .node.veiled::before { background: rgba(238,239,233,0.55); }
+.roots .node.veiled::before { background: radial-gradient(closest-side, rgba(238,239,233,0.6) 58%, rgba(238,239,233,0)); }
 .roots .node.mist:not(.owned) { color: #4b57a8; }
 .roots .node.mist.buyable { box-shadow: inset 0 0 0 1.5px #6b78c9; }
 .roots .node.sel { outline: 1px solid var(--ink); outline-offset: 6px; }
 .roots .node.reveal { animation: node-reveal 0.6s ease-out; }
 .roots .node .n-lv { position: absolute; right: -7px; bottom: -5px; font-size: 10px; font-weight: 600; color: var(--ink); background: rgba(238,239,233,0.95); border-radius: 8px; padding: 0 4px; line-height: 15px; }
 .roots .node svg.i { width: 18px; height: 18px; }
-@keyframes node-breathe { 50% { box-shadow: inset 0 0 0 1.5px var(--ink), 0 0 0 5px rgba(35,42,44,0.1); } }
+@keyframes node-breathe { 0% { transform: scale(0.95); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1.45); opacity: 0; } }
 @keyframes node-reveal { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.15); } }
 /* card: fog blob top right, beside the shrunken island */
 #shop-side { position: absolute; right: 30px; top: 74px; width: 260px; padding: 14px 16px; zoom: var(--ui); pointer-events: auto; font-size: 13px; line-height: 1.45; --fog-d: -9s; }
