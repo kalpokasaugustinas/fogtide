@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide PC UI</title>
+<!-- mockup only: fonts from google fonts; the real game would bundle the chosen ones in fonts/ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Alegreya+Sans:wght@400;500;700&family=Josefin+Sans:wght@300;400;600&family=Marcellus&family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+  /* pc ui style mockup: one 1280x720 frame (scaled to fit any screen), same layout in 3 skins.
+     tabs pick the skin (a/b/c) and the screen (battle/menu). sample data only. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101417; color: #ddd; font-family: system-ui, sans-serif; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #161c20; }
+  .top b { margin-right: 8px; font-size: 14px; }
+  .top button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a464d; background: #222b30; color: #cfd8dc; cursor: pointer; }
+  .top button.on { background: #c9a45c; color: #1a1408; border-color: #c9a45c; font-weight: 700; }
+  .top .sep { width: 1px; height: 22px; background: #3a464d; margin: 0 6px; }
+  .top small { color: #8a979d; font-size: 12px; flex-basis: 100%; }
+  /* fixed wrapper: the frame is scaled into whatever space is left under the tab bar */
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 70px); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden;
+    background: url(img/battle-bg.jpg) center / cover; font-size: 14px; }
+  .frame.menu-screen::before { content: ''; position: absolute; inset: 0; background: var(--menu-shade); }
+  svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ---------- shared layout (positions only; skins below set the look) ---------- */
+  .hud { position: absolute; display: flex; align-items: center; }
+  .res { left: 0; top: 0; right: 0; height: 42px; padding: 0 14px; gap: 22px; }
+  .res .item { display: flex; align-items: center; gap: 7px; }
+  .res .item b { font-variant-numeric: tabular-nums; }
+  .res .grow { flex: 1; }
+  .res .ibtn { width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer; }
+  .factions { right: 14px; top: 56px; width: 210px; flex-direction: column; align-items: stretch; padding: 10px 12px; gap: 7px; }
+  .factions h4 { margin: 0 0 2px; }
+  .fac { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+  .fac i { width: 10px; height: 10px; display: block; }
+  .fac .bar { grid-column: 2 / 4; height: 4px; margin-top: -3px; }
+  .fac .bar span { display: block; height: 100%; }
+  .tile { left: 14px; bottom: 14px; width: 270px; flex-direction: column; align-items: stretch; padding: 12px 14px; gap: 6px; }
+  .tile h3 { margin: 0; display: flex; justify-content: space-between; align-items: baseline; }
+  .tile .row { display: flex; justify-content: space-between; font-size: 13px; }
+  .tile .meter { height: 6px; margin: 2px 0 4px; }
+  .tile .meter span { display: block; height: 100%; width: 68%; }
+  .build { left: 50%; bottom: 14px; transform: translateX(-50%); gap: 6px; padding: 8px; }
+  .bslot { position: relative; width: 74px; height: 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; }
+  .bslot svg.i { width: 28px; height: 28px; }
+  .bslot .key { position: absolute; left: 5px; top: 3px; font-size: 11px; }
+  .bslot .cost { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .bslot.dim { opacity: 0.45; }
+  .tip { position: absolute; left: 50%; bottom: 112px; transform: translateX(-122px); width: 250px; padding: 10px 12px; font-size: 13px; line-height: 1.4; }
+  .tip h5 { margin: 0 0 4px; display: flex; justify-content: space-between; }
+  .tip p { margin: 0 0 6px; }
+  .tip .stat { display: flex; justify-content: space-between; }
+  .ctrl { right: 14px; bottom: 14px; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; width: 230px; }
+  .ctrl .lbl { display: flex; justify-content: space-between; font-size: 13px; }
+  .slider { position: relative; height: 6px; }
+  .slider span { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; }
+  .slider i { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); }
+  .speeds { display: flex; gap: 4px; }
+  .speeds button { flex: 1; height: 30px; display: grid; place-items: center; font: inherit; font-size: 13px; cursor: pointer; }
+  .keys { font-size: 11px; display: flex; justify-content: space-between; }
+  /* hover ring over a map tile, to show what the tooltip/selection would look like */
+  .sel { position: absolute; left: 676px; top: 382px; width: 120px; height: 60px; border-radius: 50%; pointer-events: none; }
+
+  /* menu screen */
+  .menu { position: absolute; left: 90px; top: 0; bottom: 0; width: 360px; flex-direction: column; align-items: stretch; justify-content: center; padding: 0 34px; gap: 6px; }
+  .menu .logo { margin: 0 0 4px; }
+  .menu .sub { margin: 0 0 30px; }
+  .menu .mi { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; }
+  .menu .mi small { display: block; font-size: 12px; margin-top: 1px; }
+  .menu .gap { height: 14px; }
+  .menu .foot { position: absolute; bottom: 22px; left: 34px; right: 34px; font-size: 11px; display: flex; justify-content: space-between; }
+  .news { right: 40px; bottom: 40px; width: 300px; flex-direction: column; align-items: stretch; padding: 14px 16px; gap: 6px; font-size: 13px; }
+  .news h4 { margin: 0; }
+  .news p { margin: 0; line-height: 1.45; }
+  .battle-only, .menu-only { display: contents; }
+  .frame.menu-screen .battle-only, .frame:not(.menu-screen) .menu-only { display: none; }
+
+  /* ---------- skin a: carved wood + bronze (warm, heavy, northern) ---------- */
+  .a { --menu-shade: linear-gradient(90deg, rgba(20,12,6,0.92) 0, rgba(20,12,6,0.75) 32%, rgba(20,12,6,0.15) 60%, rgba(20,12,6,0.05));
+    font-family: 'Alegreya Sans', serif; color: #eadcc2; }
+  .a .panel { background: linear-gradient(180deg, #3b2a1d, #2a1d14); border: 1px solid #120b06;
+    box-shadow: inset 0 0 0 1px #8a6a3c, inset 0 0 0 3px #2a1d14, inset 0 0 0 4px #5a4326, 0 6px 16px rgba(0,0,0,0.5); }
+  .a h3, .a h4, .a h5, .a .logo { font-family: 'Cinzel', serif; color: #e6c27a; letter-spacing: 0.5px; }
+  .a h4 { font-size: 13px; }
+  .a .res { background: linear-gradient(180deg, #2f2117, #1f150e); border-bottom: 2px solid #8a6a3c; box-shadow: 0 4px 12px rgba(0,0,0,0.45); }
+  .a .res .item svg { color: #c9a45c; } .a .res .ibtn { color: #c9a45c; border: 1px solid #5a4326; border-radius: 3px; }
+  .a .muted, .a .keys, .a .bslot .key, .a .menu .mi small, .a .menu .foot { color: #a99273; }
+  .a .bar, .a .meter, .a .slider { background: #160e08; box-shadow: inset 0 0 0 1px #5a4326; }
+  .a .meter span { background: linear-gradient(90deg, #8a6a3c, #e6c27a); }
+  .a .slider span { background: #a8823f; } .a .slider i { background: #e6c27a; border: 2px solid #3b2a1d; transform: translate(-50%,-50%) rotate(45deg); }
+  .a .bslot { background: linear-gradient(180deg, #4a3524, #33241a); border: 1px solid #120b06; box-shadow: inset 0 0 0 1px #6e5230; color: #e6c27a; border-radius: 2px; }
+  .a .bslot.hot { box-shadow: inset 0 0 0 2px #e6c27a, 0 0 12px rgba(230,194,122,0.35); }
+  .a .speeds button { background: #33241a; color: #e6c27a; border: 1px solid #6e5230; border-radius: 2px; }
+  .a .speeds button.on { background: #8a6a3c; color: #1f150e; }
+  .a .tip { background: #1f150e; border: 1px solid #8a6a3c; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+  .a .tip .good { color: #9fc27a; }
+  .a .sel { border: 2px solid #e6c27a; box-shadow: 0 0 18px rgba(230,194,122,0.6); }
+  .a .logo { font-size: 54px; font-weight: 700; letter-spacing: 6px; text-shadow: 0 2px 0 #3b2a1d, 0 4px 14px rgba(0,0,0,0.7); }
+  .a .sub { font-family: 'Cinzel', serif; color: #a99273; letter-spacing: 3px; font-size: 13px; border-top: 1px solid #5a4326; padding-top: 10px; }
+  .a .menu .mi { font-family: 'Cinzel', serif; font-size: 18px; color: #eadcc2; border-left: 3px solid transparent; }
+  .a .menu .mi small { font-family: 'Alegreya Sans', serif; }
+  .a .menu .mi svg { color: #8a6a3c; }
+  .a .menu .mi.hot { background: linear-gradient(90deg, rgba(138,106,60,0.35), transparent); border-left-color: #e6c27a; color: #e6c27a; }
+  .a .menu .mi.hot svg { color: #e6c27a; }
+
+  /* ---------- skin b: fog + ink (minimal, quiet, lots of space) ---------- */
+  .b { --menu-shade: linear-gradient(90deg, rgba(232,234,229,0.97) 0, rgba(232,234,229,0.9) 33%, rgba(232,234,229,0.25) 62%, rgba(232,234,229,0.1));
+    font-family: 'Josefin Sans', sans-serif; color: #232a2c; }
+  .b .panel { background: rgba(240,240,234,0.86); backdrop-filter: blur(6px); border: 0; box-shadow: 0 1px 0 rgba(0,0,0,0.08); }
+  .b h3, .b h4, .b h5 { font-weight: 600; text-transform: uppercase; letter-spacing: 2px; font-size: 12px; color: #232a2c; }
+  .b h3 { font-size: 14px; }
+  .b .res { background: transparent; height: 46px; }
+  .b .res .item { background: rgba(240,240,234,0.86); padding: 6px 12px; }
+  .b .res .ibtn { background: rgba(240,240,234,0.86); color: #232a2c; }
+  .b .muted, .b .keys, .b .bslot .key, .b .menu .mi small, .b .menu .foot { color: #6c7679; }
+  .b .bar, .b .meter, .b .slider { background: rgba(35,42,44,0.14); height: 3px; }
+  .b .slider { height: 3px; } .b .meter span, .b .slider span { background: #232a2c; }
+  .b .slider i { background: #232a2c; width: 10px; height: 10px; border-radius: 50%; }
+  .b .bslot { background: rgba(240,240,234,0.0); color: #232a2c; width: 66px; }
+  .b .bslot.hot { background: #232a2c; color: #f0f0ea; } .b .bslot.hot .key, .b .bslot.hot .cost { color: #c9cfcc; }
+  .b .speeds button { background: transparent; border: 1px solid rgba(35,42,44,0.25); color: #232a2c; }
+  .b .speeds button.on { background: #232a2c; color: #f0f0ea; }
+  .b .tip { background: #232a2c; color: #e9ebe6; } .b .tip h5 { color: #fff; } .b .tip .good { color: #a9d39a; }
+  .b .sel { border: 1.5px dashed #232a2c; }
+  .b .factions { background: transparent; box-shadow: none; backdrop-filter: none; }
+  .b .menu { width: 420px; }
+  .b .logo { font-size: 56px; font-weight: 300; letter-spacing: 16px; text-transform: uppercase; color: #232a2c; }
+  .b .sub { text-transform: uppercase; letter-spacing: 6px; font-size: 12px; color: #6c7679; }
+  .b .menu .mi { text-transform: uppercase; letter-spacing: 4px; font-size: 17px; padding: 9px 0; }
+  .b .menu .mi svg, .b .menu .mi small { display: none; }
+  .b .menu .mi.hot { letter-spacing: 6px; }
+  .b .menu .mi.hot::before { content: ''; width: 26px; height: 1px; background: #232a2c; }
+  .b .news { background: transparent; box-shadow: none; backdrop-filter: none; text-align: right; }
+
+  /* ---------- skin c: slate + iron (dark, dense, strategy table) ---------- */
+  .c { --menu-shade: linear-gradient(90deg, rgba(12,16,19,0.94) 0, rgba(12,16,19,0.8) 30%, rgba(12,16,19,0.2) 62%, rgba(12,16,19,0.1));
+    font-family: 'Source Sans 3', sans-serif; color: #d4dadc; }
+  .c .panel { background: rgba(22,28,32,0.9); border: 1px solid #3c474d; border-top-color: #56646b; box-shadow: 0 8px 20px rgba(0,0,0,0.45);
+    clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+  .c h3, .c h4, .c h5, .c .logo { font-family: 'Marcellus', serif; color: #e9edee; font-weight: 400; letter-spacing: 1px; }
+  .c h4 { font-size: 12px; text-transform: uppercase; color: #9aa7ad; letter-spacing: 2px; }
+  .c .res { background: rgba(14,18,21,0.92); border-bottom: 1px solid #3c474d; }
+  .c .res .item svg { color: #b9a06a; } .c .res .ibtn { color: #9aa7ad; border: 1px solid #3c474d; }
+  .c .muted, .c .keys, .c .bslot .key, .c .menu .mi small, .c .menu .foot { color: #7f8c92; }
+  .c .bar, .c .meter, .c .slider { background: #0e1215; border: 1px solid #2c353a; }
+  .c .meter span { background: #b9a06a; } .c .slider span { background: #6f7f86; }
+  .c .slider i { background: #d4dadc; width: 6px; height: 16px; }
+  .c .bslot { background: #1b2226; border: 1px solid #3c474d; color: #d4dadc; }
+  .c .bslot.hot { border-color: #b9a06a; color: #e7cf95; background: #232b2f; }
+  .c .speeds button { background: #1b2226; border: 1px solid #3c474d; color: #d4dadc; }
+  .c .speeds button.on { border-color: #b9a06a; color: #e7cf95; }
+  .c .tip { background: #0e1215; border: 1px solid #56646b; box-shadow: 0 8px 20px rgba(0,0,0,0.6); } .c .tip .good { color: #8fc28a; }
+  .c .sel { border: 1px solid #e7cf95; box-shadow: 0 0 0 4px rgba(231,207,149,0.18); }
+  .c .logo { font-size: 52px; letter-spacing: 10px; }
+  .c .sub { color: #7f8c92; letter-spacing: 3px; text-transform: uppercase; font-size: 12px; }
+  .c .menu .mi { font-family: 'Marcellus', serif; font-size: 18px; border: 1px solid transparent; }
+  .c .menu .mi small { font-family: 'Source Sans 3', sans-serif; }
+  .c .menu .mi svg { color: #6f7f86; }
+  .c .menu .mi.hot { border-color: #3c474d; background: rgba(185,160,106,0.08); color: #e7cf95; }
+  .c .menu .mi.hot svg { color: #b9a06a; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>PC UI style</b>
+    <button data-skin="a" class="on">A Carved wood</button>
+    <button data-skin="b">B Fog &amp; ink</button>
+    <button data-skin="c">C Slate &amp; iron</button>
+    <span class="sep"></span>
+    <button data-scr="battle" class="on">Battle</button>
+    <button data-scr="menu">Main menu</button>
+    <small>Same layout in 3 skins, over a real battle screenshot. Map numbers/badges still use the current style (they would follow the chosen skin). Sample data.</small>
+  </div>
+
+  <!-- line icons, reused via <use> -->
+  <svg width="0" height="0" style="position:absolute">
+    <symbol id="i-farm" viewBox="0 0 24 24"><path d="M12 21V8M12 8c-2-1-3-3-3-5 2 0 3 2 3 5zm0 0c2-1 3-3 3-5-2 0-3 2-3 5zM12 13c-2-1-3-3-3-5 2 0 3 2 3 5zm0 0c2-1 3-3 3-5-2 0-3 2-3 5zM12 18c-2-1-3-3-3-5 2 0 3 2 3 5zm0 0c2-1 3-3 3-5-2 0-3 2-3 5z"/></symbol>
+    <symbol id="i-fort" viewBox="0 0 24 24"><path d="M5 21V8h3V5h2v3h4V5h2v3h3v13zM10 21v-5h4v5"/></symbol>
+    <symbol id="i-barracks" viewBox="0 0 24 24"><path d="M5 19L17 5l2 0 0 2L5 19zM19 19L7 5 5 5l0 2 14 12zM4 17l3 3M20 17l-3 3"/></symbol>
+    <symbol id="i-hospital" viewBox="0 0 24 24"><path d="M12 21s-8-4.5-8-11a4.5 4.5 0 018-2.8A4.5 4.5 0 0120 10c0 6.5-8 11-8 11zM12 9v6M9 12h6"/></symbol>
+    <symbol id="i-lab" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 10a1.5 1.5 0 001.3 2h11.4a1.5 1.5 0 001.3-2l-5-10V3M7.5 15h9"/></symbol>
+    <symbol id="i-troops" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 5a3 3 0 010 6M18 14c2 .7 3 2.8 3 6"/></symbol>
+    <symbol id="i-land" viewBox="0 0 24 24"><path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2zM9 4v14M15 6v14"/></symbol>
+    <symbol id="i-time" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-fog" viewBox="0 0 24 24"><path d="M4 10h11a3 3 0 100-6M2 14h16a3 3 0 110 6M6 17h8"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="M12 21s-7-6-7-11a7 7 0 0114 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
+    <symbol id="i-swords" viewBox="0 0 24 24"><path d="M5 19L17 5l2 0 0 2L5 19zM19 19L7 5 5 5l0 2 14 12z"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></symbol>
+  </svg>
+
+  <div class="stage" id="stage">
+    <div class="frame a" id="frame">
+
+      <!-- ===== battle hud ===== -->
+      <div class="battle-only">
+        <div class="hud res">
+          <span class="item"><svg class="i"><use href="#i-time"/></svg><b>4:12</b></span>
+          <span class="item"><svg class="i"><use href="#i-land"/></svg>Land <b>7 / 31</b></span>
+          <span class="item"><svg class="i"><use href="#i-troops"/></svg>Foglets <b>1,284</b> <span class="muted">+9.6/s</span></span>
+          <span class="item"><svg class="i"><use href="#i-fog"/></svg>Fog <b>3.4K</b></span>
+          <span class="grow"></span>
+          <span class="item muted">Skirmish · Summer isle</span>
+          <span class="ibtn panel" title="Upgrades (U)"><svg class="i"><use href="#i-up"/></svg></span>
+          <span class="ibtn panel" title="Music"><svg class="i"><use href="#i-music"/></svg></span>
+          <span class="ibtn panel" title="Settings (Esc)"><svg class="i"><use href="#i-gear"/></svg></span>
+        </div>
+
+        <div class="hud factions panel">
+          <h4>Rivals</h4>
+          <div class="fac"><i style="background:#3b7be0"></i><span>You</span><b>1,284</b><div class="bar"><span style="width:62%;background:#3b7be0"></span></div></div>
+          <div class="fac"><i style="background:#d9413b"></i><span>Ashen Court</span><b>1,630</b><div class="bar"><span style="width:78%;background:#d9413b"></span></div></div>
+          <div class="fac"><i style="background:#e09a1c"></i><span>Amber Reach</span><b>1,102</b><div class="bar"><span style="width:52%;background:#e09a1c"></span></div></div>
+          <div class="fac"><i style="background:#8a55d6"></i><span>Violet Hold</span><b>640</b><div class="bar"><span style="width:30%;background:#8a55d6"></span></div></div>
+        </div>
+
+        <div class="sel"></div>
+
+        <div class="hud tile panel">
+          <h3>Lakeshore meadow <span class="muted" style="font-size:12px">Yours</span></h3>
+          <div class="row"><span>Foglets</span><b>82 / 120</b></div>
+          <div class="meter"><span></span></div>
+          <div class="row"><span class="muted">Growth</span><span>+1.2/s</span></div>
+          <div class="row"><span class="muted">Terrain</span><span>Meadow · no bonus</span></div>
+          <div class="row"><span class="muted">Building</span><span>None</span></div>
+          <div class="row"><span class="muted">Borders</span><span>2 rivals, 1 neutral</span></div>
+        </div>
+
+        <div class="hud build panel">
+          <div class="bslot hot"><span class="key">1</span><svg class="i"><use href="#i-farm"/></svg><span class="cost">40</span></div>
+          <div class="bslot"><span class="key">2</span><svg class="i"><use href="#i-hospital"/></svg><span class="cost">70</span></div>
+          <div class="bslot"><span class="key">3</span><svg class="i"><use href="#i-barracks"/></svg><span class="cost">25</span></div>
+          <div class="bslot"><span class="key">4</span><svg class="i"><use href="#i-fort"/></svg><span class="cost">60</span></div>
+          <div class="bslot dim"><span class="key">5</span><svg class="i"><use href="#i-lab"/></svg><span class="cost">90</span></div>
+        </div>
+        <div class="tip">
+          <h5>Farm <span class="muted">Key 1 · 40</span></h5>
+          <p>Fields around the huts. This tile grows faster.</p>
+          <div class="stat"><span class="muted">Growth</span><span class="good">+1.2 → +2.0/s</span></div>
+          <div class="stat"><span class="muted">Pays back in</span><span>~28 s</span></div>
+        </div>
+
+        <div class="hud ctrl panel">
+          <div class="lbl"><span>Send</span><b>50%</b></div>
+          <div class="slider"><span></span><i></i></div>
+          <div class="speeds"><button>❚❚</button><button class="on">1×</button><button>2×</button><button>3×</button></div>
+          <div class="keys"><span>Right click: attack</span><span>Space: pause</span></div>
+        </div>
+      </div>
+
+      <!-- ===== main menu ===== -->
+      <div class="menu-only">
+        <div class="hud menu">
+          <h1 class="logo">Fogtide</h1>
+          <p class="sub">Islands in the mist</p>
+          <div class="mi hot"><svg class="i"><use href="#i-compass"/></svg><span>Conquest<small>Valley to world, one run</small></span></div>
+          <div class="mi"><svg class="i"><use href="#i-map"/></svg><span>Campaign<small>34 regions · 4 empires</small></span></div>
+          <div class="mi"><svg class="i"><use href="#i-fog"/></svg><span>Idle<small>Endless climb · upgrades</small></span></div>
+          <div class="mi"><svg class="i"><use href="#i-swords"/></svg><span>Skirmish<small>Random island · 3 rivals</small></span></div>
+          <div class="gap"></div>
+          <div class="mi"><svg class="i"><use href="#i-user"/></svg><span>Commander</span></div>
+          <div class="mi"><svg class="i"><use href="#i-gear"/></svg><span>Settings</span></div>
+          <div class="mi"><svg class="i"><use href="#i-door"/></svg><span>Quit</span></div>
+          <div class="foot"><span>build 104</span><span>Press F1 for help</span></div>
+        </div>
+        <div class="hud news panel">
+          <h4>Continue conquest</h4>
+          <p>Stage 6 · Highland coast · 3 perks</p>
+          <p class="muted">Last played 2026-11-13</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+  // fit the 1280x720 frame into the space under the tab bar (works on pc and phone)
+  const frame = document.getElementById('frame'), stage = document.getElementById('stage'), bar = document.getElementById('bar');
+  function fit() {
+    document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px');
+    const s = Math.min(stage.clientWidth / 1280, stage.clientHeight / 720);
+    frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  }
+  addEventListener('resize', fit); fit();
+  // tabs: skin (a/b/c) and screen (battle/menu)
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.skin) {
+      bar.querySelectorAll('[data-skin]').forEach(x => x.classList.toggle('on', x === b));
+      frame.classList.remove('a', 'b', 'c'); frame.classList.add(b.dataset.skin);
+    } else {
+      bar.querySelectorAll('[data-scr]').forEach(x => x.classList.toggle('on', x === b));
+      frame.classList.toggle('menu-screen', b.dataset.scr === 'menu');
+    }
+    fit();
+  });
+</script>
+</body>
+</html>
