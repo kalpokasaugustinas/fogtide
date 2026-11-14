@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=118';
-import { generateMap, rng } from './mapgen.js?v=118';
-import { initAnalytics, track } from './analytics.js?v=118';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=118';
-import { Battle } from './battle.js?v=118';
-import { personalities } from './ai.js?v=118';
-import { Campaign } from './campaign.js?v=118';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=118';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=118';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=118';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=118';
-import { previewBuildings } from './structures.js?v=118';
-import { initTune, tuneChanges } from './tune.js?v=118';
-import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=118';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=119';
+import { generateMap, rng } from './mapgen.js?v=119';
+import { initAnalytics, track } from './analytics.js?v=119';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=119';
+import { Battle } from './battle.js?v=119';
+import { personalities } from './ai.js?v=119';
+import { Campaign } from './campaign.js?v=119';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=119';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=119';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=119';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=119';
+import { previewBuildings } from './structures.js?v=119';
+import { initTune, tuneChanges } from './tune.js?v=119';
+import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=119';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1618,14 +1618,10 @@ function placeBday() {
   }
 }
 
-// tap his face: one of his voice snips (shuffled, no repeat until all have played)
-const bdaySnips = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `audio/bday${i}.mp3`);
-let bdayBag = [], bdayAudio = null;
+// tap his face: it pops
 for (const img of document.querySelectorAll('.bday img')) {
   img.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
-    if (!bdayBag.length) bdayBag = [...bdaySnips].sort(() => Math.random() - 0.5);
-    try { bdayAudio?.pause(); bdayAudio = new Audio(bdayBag.pop()); bdayAudio.volume = 1; bdayAudio.play().catch(() => {}); } catch { /* no audio */ }
     img.classList.remove('talk'); void img.offsetWidth; img.classList.add('talk');
   });
 }
