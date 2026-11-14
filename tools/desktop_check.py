@@ -25,6 +25,7 @@ ap.add_argument("--out", default=str(root / "tools" / "shots" / "desktop.png"), 
 ap.add_argument("--seconds", type=float, default=4, help="how long to measure fps / collect console")
 ap.add_argument("--eval", default="", help="js expression to evaluate and print (e.g. window.__fogtide)")
 ap.add_argument("--setup", default="", help="js to run before measuring fps (e.g. __fl.startSkirmish())")
+ap.add_argument("--script", default="", help="python file run with the live page in scope (page, json, time) after setup, e.g. a play-through")
 ap.add_argument("--click", action="append", default=[], help="click x,y in the window before measuring (repeatable)")
 ap.add_argument("--bundled", action="store_true", help="use the files packed into the build, not the working tree")
 ap.add_argument("--fullscreen", action="store_true", help="run fullscreen (default: 1280x720 window)")
@@ -83,6 +84,8 @@ try:
         if a.setup:                        # e.g. start a battle, so the fps below are measured in it
             page.evaluate(a.setup)
             page.wait_for_timeout(1500)
+        if a.script:                       # scripted play-through in the real app window
+            exec(Path(a.script).read_text(encoding="utf-8"), {"page": page, "json": json, "time": time, "errors": errors})
 
         # fps inside the app window: count rAF frames and track the slowest frame
         fps = page.evaluate("""(ms) => new Promise(res => {

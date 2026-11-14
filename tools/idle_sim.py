@@ -48,12 +48,18 @@ async def main():
         async with async_playwright() as p:
             browser = await p.chromium.launch()
 
-            async def one(i):
+            # pages load the modules one after another (parallel loads from the simple http server
+            # sometimes fail), then the careers run in parallel
+            pages = []
+            for i in range(args.careers):
                 page = await browser.new_page()
                 page.on("pageerror", lambda e: print("page error:", e))
                 await page.goto(f"http://localhost:{port}/tools/")
                 await page.evaluate("async (o) => { window.sim = await import('/tools/idle_sim.js'); sim.tune(o); }", over)
-                r = await page.evaluate("(o) => sim.career(o)", {"maxRuns": args.runs, "target": args.target, "stageCap": args.cap, "seed": 1000 + i * 7919})
+                pages.append(page)
+
+            async def one(i):
+                r = await pages[i].evaluate("(o) => sim.career(o)", {"maxRuns": args.runs, "target": args.target, "stageCap": args.cap, "seed": 1000 + i * 7919})
                 results.append(r)
                 print(f"career {i + 1} done ({time.time() - t0:.0f}s)", flush=True)
 

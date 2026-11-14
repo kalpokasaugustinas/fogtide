@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=109';
-import { generateMap, rng } from './mapgen.js?v=109';
-import { initAnalytics, track } from './analytics.js?v=109';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=109';
-import { Battle } from './battle.js?v=109';
-import { personalities } from './ai.js?v=109';
-import { Campaign } from './campaign.js?v=109';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=109';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=109';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=109';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=109';
-import { previewBuildings } from './structures.js?v=109';
-import { initTune, tuneChanges } from './tune.js?v=109';
-import { initFogNoise } from './fogui.js?v=109';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=110';
+import { generateMap, rng } from './mapgen.js?v=110';
+import { initAnalytics, track } from './analytics.js?v=110';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=110';
+import { Battle } from './battle.js?v=110';
+import { personalities } from './ai.js?v=110';
+import { Campaign } from './campaign.js?v=110';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=110';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=110';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=110';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=110';
+import { previewBuildings } from './structures.js?v=110';
+import { initTune, tuneChanges } from './tune.js?v=110';
+import { initFogNoise } from './fogui.js?v=110';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -141,6 +141,7 @@ $('campaign-canvas').addEventListener('pointerdown', (e) => {
 
 // ---------- battle screen ----------
 let battle = null, bv = null, mode = 'skirmish', regionId = -1;
+let zoomHolding = false;   // zoom-out: snapshot on screen while the next map is built / awaited
 let countdown = 0, goFlash = 0;   // 3-2-1 before a battle starts (s left), 'Conquer!' banner after
 let selected = -1, pct = 0.5, drag = null, hover = -1, speed = 1, paused = false, key = '';
 let userPaused = false;   // paused by the player (pause button, space, leave dialog), not by a transition
@@ -176,19 +177,35 @@ function dress(factions, seed, withPlayer = true) {
 
 // next conquest map, built in a worker while the perk card is up; startBattle takes it when it
 // matches (else, or without worker support, it generates the map itself as before)
-let nextMap = null;   // { key, map | null }
+let nextMap = null;   // { key, map | null, ready: promise that settles when the worker is done }
 const mapOpts = (setup) => ({ seed: setup.seed, cells: setup.cells, grid: rules.grid, shape: setup.shape ?? 'random', obstacles: true, detail: setup.detail ?? 1, stamp: setup.stamp ?? null });
 const mapKey = (o) => `${o.seed}|${o.cells}|${o.detail}|${o.shape}`;
-function preloadMap(setup) {
-  const opts = mapOpts(setup), key = mapKey(opts);
-  nextMap = { key, map: null };
+// one worker for the whole session (its modules load once, not on every stage); jobs are matched
+// by key, so a late answer for an older stage is ignored
+let mapWorker = null, mapWorkerFailed = false;
+const mapJobs = new Map();   // key -> resolve
+function getMapWorker() {
+  if (mapWorker || mapWorkerFailed) return mapWorker;
   try {
     // same ?v= build stamp as this module, so the worker never mixes old and new files
-    const w = new Worker(new URL('./mapworker.js' + new URL(import.meta.url).search, import.meta.url), { type: 'module' });
-    w.onmessage = (e) => { if (nextMap?.key === key) nextMap.map = e.data; w.terminate(); };
-    w.onerror = () => w.terminate();
-    w.postMessage(opts);
-  } catch { /* no module workers: the stage generates its map on start */ }
+    mapWorker = new Worker(new URL('./mapworker.js' + new URL(import.meta.url).search, import.meta.url), { type: 'module' });
+    mapWorker.onmessage = (e) => { const { key, map } = e.data; mapJobs.get(key)?.(map); mapJobs.delete(key); };
+    mapWorker.onerror = (e) => { console.warn('map worker failed:', e.message); mapWorkerFailed = true; mapWorker = null; for (const r of mapJobs.values()) r(null); mapJobs.clear(); };
+  } catch { mapWorkerFailed = true; }   // no module workers: the stage generates its map on start
+  return mapWorker;
+}
+function preloadMap(setup) {
+  const opts = mapOpts(setup), key = mapKey(opts), w = getMapWorker();
+  const job = { key, map: null };
+  job.ready = w ? new Promise((res) => mapJobs.set(key, (map) => { job.map = map; res(); })) : Promise.resolve();
+  nextMap = job;
+  w?.postMessage({ key, opts });
+}
+// the zoom-out waits (behind its snapshot) for a map the worker is still building, at most 7 s
+function mapReady(setup) {
+  const key = mapKey(mapOpts(setup));
+  if (nextMap?.key !== key || nextMap.map) return Promise.resolve();
+  return Promise.race([nextMap.ready, new Promise((r) => setTimeout(r, 7000))]);
 }
 
 let lastStart = null;   // tuning panel: 'restart round' replays the last battle setup
@@ -225,6 +242,7 @@ function startBattle(setup, m, rid = -1) {
   $('end').classList.add('hidden');
   renderWheel();
   show('battle');
+  if (m === 'idle') preloadIdleNext();   // next stage's map builds in the worker during this stage
 }
 
 function startSkirmish() {
@@ -476,72 +494,57 @@ function drawBattle() {
   if ((countdown > 0 && (!paused || userPaused)) || goFlash > 0) drawCountdown(ctx);
 }
 
-// 3-2-1 countdown: a gold-rimmed shield medallion with a big number that pops in and settles,
-// over a soft dark vignette; then a 'Conquer!' ribbon banner that fades as the battle starts
+// 3-2-1 countdown: a thin ink number that pops in and settles,
+// in a drifting fog blob with a draining ring; then 'CONQUER' in spaced ink capitals that fades
 function drawCountdown(ctx) {
   const w = bv.canvas.width / bv.dpr, h = bv.canvas.height / bv.dpr, cx = w / 2, cy = h * 0.46, R = Math.min(w, h) * 0.13;
+  const now = performance.now() / 1000, ink = '#232a2c';
   ctx.save();
-  const fade = countdown > 0 ? 1 : goFlash;
-  // soft dark halo behind the medallion (fades out well inside the canvas, so no square edge)
-  const vig = ctx.createRadialGradient(cx, cy, R * 0.8, cx, cy, R * 2.6);
-  vig.addColorStop(0, `rgba(20,30,40,${0.3 * fade})`);
-  vig.addColorStop(1, 'rgba(20,30,40,0)');
-  ctx.fillStyle = vig;
-  ctx.beginPath(); ctx.arc(cx, cy, R * 2.6, 0, Math.PI * 2); ctx.fill();
+  // fog blob: a few soft pale puffs drifting slowly around the centre (rx, ry stretch it)
+  const fog = (alpha, rx, ry) => {
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.26 + now * 0.35, d = i ? 0.38 : 0;
+      const x = cx + Math.cos(a) * R * d * rx, y = cy + Math.sin(a * 1.3) * R * d * ry * 0.7, r = R * (i ? 0.95 : 1.35) * Math.max(rx, ry) * 0.75;
+      const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+      g.addColorStop(0, `rgba(238,239,233,${alpha})`);
+      g.addColorStop(0.6, `rgba(238,239,233,${alpha * 0.7})`);
+      g.addColorStop(1, 'rgba(238,239,233,0)');
+      ctx.fillStyle = g;
+      ctx.save(); ctx.translate(x, y); ctx.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry)); ctx.translate(-x, -y);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  };
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if (countdown > 0) {
     const n = Math.ceil(countdown), f = n - countdown;   // f: 0 -> 1 within each second
     // paused: the number holds still at full size
-    const pop = userPaused ? 1 : 1 + 0.35 * Math.max(0, 1 - f * 5) ** 2 - 0.06 * Math.max(0, f - 0.8) * 5;
+    const pop = userPaused ? 1 : 1 + 0.18 * Math.max(0, 1 - f * 5) ** 2;
     const alpha = f > 0.85 && !userPaused ? (1 - f) / 0.15 : 1;
+    fog(0.85, 1.1, 1);
     ctx.globalAlpha = alpha;
     ctx.translate(cx, cy);
     ctx.scale(pop, pop);
-    // medallion: drop shadow, gold rim, parchment face, inner ring, crossed-sword ticks
-    ctx.fillStyle = 'rgba(20,30,30,0.3)';
-    ctx.beginPath(); ctx.ellipse(R * 0.08, R * 1.05, R * 0.9, R * 0.22, 0, 0, Math.PI * 2); ctx.fill();
-    const rim = ctx.createLinearGradient(0, -R, 0, R);
-    rim.addColorStop(0, '#ffe7a0'); rim.addColorStop(0.5, '#e0a43a'); rim.addColorStop(1, '#9a6420');
-    ctx.fillStyle = rim;
-    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
-    const face = ctx.createRadialGradient(-R * 0.3, -R * 0.4, R * 0.1, 0, 0, R * 0.86);
-    face.addColorStop(0, '#fffaf0'); face.addColorStop(1, '#e8dcc0');
-    ctx.fillStyle = face;
-    ctx.beginPath(); ctx.arc(0, 0, R * 0.84, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(154,100,32,0.55)';
-    ctx.lineWidth = Math.max(1.5, R * 0.03);
-    ctx.beginPath(); ctx.arc(0, 0, R * 0.74, 0, Math.PI * 2); ctx.stroke();
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      ctx.beginPath(); ctx.moveTo(Math.cos(a) * R * 0.76, Math.sin(a) * R * 0.76); ctx.lineTo(Math.cos(a) * R * 0.82, Math.sin(a) * R * 0.82); ctx.stroke();
-    }
-    ctx.font = `900 ${R * 1.15}px Georgia, 'Times New Roman', serif`;
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = R * 0.08;
-    ctx.strokeStyle = '#fffaf0';
-    ctx.strokeText(n, 0, R * 0.06);
-    ctx.fillStyle = factionColors[battle.factions[0].color];
-    ctx.fillText(n, 0, R * 0.06);
+    // draining ring: faint full circle + the part of this second that is left
+    ctx.lineWidth = Math.max(1.2, R * 0.018);
+    ctx.strokeStyle = 'rgba(35,42,44,0.14)';
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.92, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(35,42,44,0.7)';
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.92, -Math.PI / 2, -Math.PI / 2 + (userPaused ? 1 : 1 - f) * Math.PI * 2); ctx.stroke();
+    ctx.font = `300 ${R * 1.2}px 'Josefin Sans', system-ui, sans-serif`;
+    ctx.fillStyle = ink;
+    ctx.fillText(n, 0, R * 0.1);   // josefin sits a little high: nudge to the optical centre
   } else {
-    // ribbon banner sliding up a little as it fades
-    ctx.globalAlpha = Math.min(1, goFlash * 1.6);
-    ctx.translate(cx, cy - (1 - goFlash) * R * 0.4);
-    const bw = R * 3.4, bh = R * 0.85;
-    ctx.fillStyle = '#9a2f2a';
-    for (const s of [-1, 1]) {   // ribbon tails
-      ctx.beginPath(); ctx.moveTo(s * bw * 0.42, -bh * 0.3); ctx.lineTo(s * bw * 0.62, -bh * 0.3); ctx.lineTo(s * bw * 0.54, bh * 0.05); ctx.lineTo(s * bw * 0.62, bh * 0.4); ctx.lineTo(s * bw * 0.42, bh * 0.4); ctx.fill();
-    }
-    const band = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
-    band.addColorStop(0, '#e2554c'); band.addColorStop(1, '#b8382f');
-    ctx.fillStyle = band;
-    ctx.beginPath(); ctx.moveTo(-bw / 2, -bh / 2); ctx.quadraticCurveTo(0, -bh * 0.75, bw / 2, -bh / 2); ctx.lineTo(bw / 2, bh / 2); ctx.quadraticCurveTo(0, bh * 0.25, -bw / 2, bh / 2); ctx.fill();
-    ctx.strokeStyle = '#ffd76a';
-    ctx.lineWidth = Math.max(1.5, R * 0.035);
-    ctx.stroke();
-    ctx.font = `900 ${R * 0.5}px Georgia, 'Times New Roman', serif`;
-    ctx.fillStyle = '#fff6dc';
-    ctx.fillText('Conquer!', 0, -bh * 0.08);
+    // 'CONQUER': spaced ink capitals on a fog band; letters drift apart as it fades and rises
+    const k = goFlash, spread = 1 - k;
+    ctx.globalAlpha = Math.min(1, k * 1.6);
+    fog(0.8, 2.6, 0.7);
+    ctx.translate(cx, cy - spread * R * 0.3);
+    ctx.font = `400 ${R * 0.5}px 'Josefin Sans', system-ui, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${R * (0.22 + spread * 0.25)}px`;
+    ctx.fillStyle = ink;
+    ctx.fillText('CONQUER', R * (0.11 + spread * 0.12), R * 0.05);   // shift by half a spacing: letterSpacing pads the right side
   }
   ctx.restore();
 }
@@ -1046,7 +1049,7 @@ function endBattle() {
 $('end-continue').onclick = () => {
   if (mode === 'campaign') show('campaign');
   else if (mode === 'tutorial' && afterTutor) withLoading(afterTutor);
-  else show('menu');
+  else withLoading(() => show('menu'));   // loading screen covers the menu's first frame
 };
 $('end-retry').onclick = () => {
   if (mode === 'campaign') withLoading(() => startBattle(campaign.battleSetup(regionId), 'campaign', regionId));
@@ -1191,9 +1194,12 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   const w0 = performance.now();
   // the snapshot goes on screen first; the heavy part (new battle, map view, first draw of every
   // layer, ~0.5-1 s on big maps) runs behind it and counts as the hold, instead of adding to it
-  requestAnimationFrame(() => setTimeout(() => {
+  requestAnimationFrame(() => setTimeout(async () => {
     next.save();   // the new stage is where a reload picks up
     const setup = next.setup();
+    zoomHolding = true;
+    await mapReady(setup);
+    zoomHolding = false;   // map still in the worker: wait for it instead of building it again here
     // the new map renders straight away at the resolution of the zoom its camera glides to, so its
     // layers are built once (not again when the glide ends)
     bv.boost = boostFor(1 / mapScale({ detail: setup.detail }));
@@ -1252,6 +1258,14 @@ let idle = null, idleKilled = 0, idleSaveT = 0;
 const idleMilestones = new Set([2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200]);   // analytics: stage reached
 
 // menu / new run. a run saved mid-way (closed tab) picks up at the start of its stage
+// idle: as soon as a stage's battle exists, the next stage's map starts building in the worker. the
+// outline stamp only depends on this map, so it is known now; the win reuses seed + stamp
+let idleNext = null;   // { stage, seed }
+function preloadIdleNext() {
+  if (mode !== 'idle' || !battle) return;
+  idleNext = { stage: idle.stage + 1, seed: Math.floor(Math.random() * 1e9) };
+  preloadMap(idle.setup(islandShape(battle), idleNext.seed, idleNext.stage));
+}
 function startIdle() {
   track('play-idle');
   idle = idle ?? Idle.load();
@@ -1367,9 +1381,12 @@ function endIdleStage(won) {
     fogFlow($('toast'), $('idle-shop-btn'), 10, 0);
     bv.setStorm(false);   // the storm clears as the boss falls
     const pour = mist ? obeliskMist(mist) : 0;   // ms the obelisks need to pour out the Mist
+    // the next stage's map has been building in the worker since this stage began (idleNext); the
+    // zoom-out uses the same seed, so startBattle finds it ready instead of generating it here
+    const seed = idleNext?.stage === idle.stage ? idleNext.seed : Math.floor(Math.random() * 1e9);
     setTimeout(() => {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
-      zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp), mode: 'idle' });
+      zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp, seed), mode: 'idle' });
       setTimeout(idleIntro, 5200);   // after the zoom-out
     }, 1000 + pour);
     return;
@@ -1383,7 +1400,7 @@ function endIdleStage(won) {
     + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Fog this run · <b>${fmtBig(idle.fogs)}</b> Fog`
     + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend</div></div>`
     + statsHtml(battle);
-  $('end-perks').innerHTML = '<button id="end-shop" class="mode blue big-btn">⬆️ Spend Fog</button>';
+  $('end-perks').innerHTML = '<button id="end-shop" class="mode big-btn">Spend Fog</button>';
   $('end-shop').onclick = openShop;
   $('end-retry').textContent = '▶ New run';
   $('end-retry').classList.remove('hidden');
@@ -1799,7 +1816,7 @@ $('test-win').onclick = () => {
 };
 // leave: a finished battle goes straight back; a running one asks first (and pauses meanwhile)
 let pausedBeforeLeave = false;
-const leaveBattle = () => { $('leave').classList.add('hidden'); show(mode === 'campaign' ? 'campaign' : 'menu'); };
+const leaveBattle = () => { $('leave').classList.add('hidden'); if (mode === 'campaign') show('campaign'); else withLoading(() => show('menu')); };
 // withdrawing from a running conquest battle ends the run (as the dialog says)
 // idle: withdrawing ends the run (Fog, Mist and upgrades are kept)
 const withdraw = () => {
@@ -2206,7 +2223,7 @@ function frame(now) {
     if (tutorWanted && countdown <= 0 && !loading) { tutorWanted = false; startTutor(); }
     if (tutor) tutorTick(dt);
     playBattleSounds(dt);
-    drawBattle();
+    if (!zoomHolding) drawBattle();   // zoom-out hold: the snapshot covers the map, no need to redraw it
     uiTimer -= dt;
     if (uiTimer <= 0) { updatePanel(); uiTimer = 0.15; }
   } else if (screen === 'campaign') drawCampaign();
@@ -2322,6 +2339,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { tuneChanges, setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { tuneChanges, setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

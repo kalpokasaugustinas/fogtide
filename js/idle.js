@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=109';
-import { rng, hops } from './mapgen.js?v=109';
-import { effects } from './config.js?v=109';
+import { personalities, pickBuilding } from './ai.js?v=110';
+import { rng, hops } from './mapgen.js?v=110';
+import { effects } from './config.js?v=110';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -27,7 +27,9 @@ export const idleCfg = {
   fogPerKill: 1,      // Fog per defeated sim foglet (then x display scale x fog upgrades)
   clearBonus: 20,     // stage win: 20 x stage x display scale Fog (boss x3)
   bossEvery: 10,      // stage 10, 20, 30...: boss stage (one rival much stronger, bonus x3, drops Mist)
-  bossPower: 1.35,    // boss attack / defense on top of the stage's enemy strength
+  bossPower: 1.15,    // boss attack / defense on top of the stage's enemy strength (sim 2026-11-14: 1.35 made stage 10 a 6-run wall)
+  rival2: 5, rival3: 11, rival4: 21,   // stage where the 2nd / 3rd / 4th rival joins (the stage after a boss, not on it)
+  bossTroops: 2,      // the boss capital starts with 2x the normal troops
   mistExp: 1.5,       // Mist per boss = round((stage / 10) ^ 1.5): 1, 3, 5, 8, 11 ... deeper bosses pay more
   ghostEvery: 10, ghostAt: 5,   // stage 5, 15, 25...: one rival plays another player's profile
   startTroops: 10,    // capital troops at the start of a stage (+ the camp upgrade)
@@ -45,7 +47,7 @@ export const idleCfg = {
 const climates = ['summer', 'autumn', 'moor', 'desert', 'winter'];
 export function stageSpec(n) {
   const cells = Math.min(24, 4 + n);                       // stage 1: 5 tiles ... stage 20+: 24
-  const bots = n < 5 ? 1 : n < 10 ? 2 : n < 20 ? 3 : 4;
+  const bots = n < idleCfg.rival2 ? 1 : n < idleCfg.rival3 ? 2 : n < idleCfg.rival4 ? 3 : 4;
   return {
     cells, bots,
     detail: Math.max(0.42, Math.min(1, 1 - ((cells - 12) / 15) * 0.68)),   // big maps zoom out (battalions)
@@ -296,9 +298,10 @@ export class Idle {
     }
   }
 
-  // battle setup for the current stage. stamp = the previous island's outline (zoom-out), if any
-  setup(stamp = null, seed = Math.floor(Math.random() * 1e9)) {
-    const n = this.stage, st = stageSpec(n), r = rng(seed), types = Object.keys(personalities);
+  // battle setup for the current stage (or stage n: main.js pre-builds the next stage's map).
+  // stamp = the previous island's outline (zoom-out), if any
+  setup(stamp = null, seed = Math.floor(Math.random() * 1e9), n = this.stage) {
+    const st = stageSpec(n), r = rng(seed), types = Object.keys(personalities);
     const E = enemyPower(n), G = enemyGrowthAt(n);
     const ghostAt = st.ghost ? Math.floor(r() * st.bots) : -1, ghost = st.ghost ? sampleProfiles[Math.floor(r() * sampleProfiles.length)] : null;
     const bots = [];
@@ -309,7 +312,7 @@ export class Idle {
         ai: true, color: i + 1, think: Math.max(1.5, 3 - n * 0.05),
         personality: personalities[boss ? 'aggressive' : types[Math.floor(r() * types.length)]],
         mods: { atk: E * p * lean.atk, def: E * p * lean.def, growth: G * lean.growth, archers: idleCfg.archerRate * st.archers },
-        capital: { troops: idleCfg.startTroops * (boss ? 3 : 1), bonus: {} },
+        capital: { troops: idleCfg.startTroops * (boss ? idleCfg.bossTroops : 1), bonus: {} },
         name: i === ghostAt ? ghost.name : boss ? 'Boss' : undefined,
         boss, ghost: i === ghostAt,
       });

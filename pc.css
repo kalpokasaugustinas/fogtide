@@ -272,3 +272,52 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .card .menu-btn::before { content: ''; position: absolute; inset: 0 6px; z-index: -1; background: var(--ink); clip-path: none; box-shadow: none;
   border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; filter: blur(2.5px); }
 .card .menu-btn::after { display: none; }
+
+/* icon + word buttons (idle Upgrade): the icon stays, the label says what it does */
+.ibtn.wide { width: auto; padding: 0 12px; display: inline-flex; gap: 7px; font-size: 13px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; }
+.hud.top .ibtn.wide { margin-left: -4px; margin-right: 8px; }
+/* menu idle hub: fog / mist bank and the upgrade button as fog items */
+.idle-hub { gap: 18px; }
+.hub-bank span { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------- end cards: tighter stats, plain boxes, perk choices on fog ---------- */
+.stats { gap: 2px 7px; margin: 4px 0; }
+.stats > div { padding: 4px 0 !important; }
+.carry-box, .score-box { background: none; border-radius: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px 4px; }
+.score-total b, .carry-box b { color: var(--ink); }
+.next-up { font-weight: 600; letter-spacing: 1px; }
+/* perk choices: three fog cards; hover = ink blob behind, picked = it rises and fades */
+#end-perks { gap: 14px; margin-top: 4px; }
+.perk { position: relative; isolation: isolate; background: none; box-shadow: none; color: var(--ink); border-radius: 0; padding: 12px 10px; cursor: pointer; }
+.perk::before { content: ''; position: absolute; inset: -4px; z-index: -1; background: rgba(255, 255, 255, 0.55); filter: blur(8px);
+  border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%; transition: background 0.2s; }
+.perk:hover { color: #f0f0ea; }
+.perk:hover::before { background: var(--ink); animation: blob 7s ease-in-out infinite alternate; filter: blur(4px); }
+.perk:hover small { color: #c9cfcc; }
+.perk .ico { background: none; font-size: 26px; width: 40px; height: 40px; }
+.perk b { font-weight: 600; text-transform: uppercase; letter-spacing: 2px; font-size: 14px; text-shadow: none; }
+.perk small { color: var(--ink-soft); }
+.perk:active { transform: none; box-shadow: none; }
+@keyframes perk-pick {
+  0% { transform: scale(1); }
+  30% { transform: translateY(-8px) scale(1.08); }
+  100% { transform: translateY(-36px) scale(0.85); opacity: 0; }
+}
+.perk.picked::after { display: none; }
+/* end screen scrolls when it is taller than the window (perk cards stay reachable) */
+#end { align-items: flex-start; padding-top: 24px; padding-bottom: 24px; }
+
+/* menu idle hub: plain fog items, no gold */
+.hub-bank { background: none; box-shadow: none; padding: 6px 12px; position: relative; isolation: isolate; flex-direction: row; gap: 14px; font-weight: 600; }
+.hub-bank::before { content: ''; position: absolute; inset: -6px -10px; z-index: -1; background: var(--paper); filter: blur(8px); border-radius: 50%; }
+#hub-shop, #hub-shop.ready { background: transparent; box-shadow: none; }
+#hub-fog, #hub-mist { color: var(--ink); }
+
+/* commander: plain swatches and option cards on the fog; the chosen one gets a thin ink ring / underline */
+.pf-swatch { border: 0; box-shadow: none; width: 34px; height: 34px; }
+.pf-swatch.on { outline: 1.5px solid var(--ink); outline-offset: 4px; transform: none; }
+.pf-card { background: none; box-shadow: none !important; border-radius: 0; color: var(--ink); font-weight: 400; letter-spacing: 1px; }
+.pf-card canvas { background: radial-gradient(ellipse closest-side, rgba(255,255,255,0.7), rgba(255,255,255,0)); border-radius: 0; }
+.pf-card.on { background: none; box-shadow: none; }
+.pf-card.on span, .pf-card.on { text-decoration: underline; text-underline-offset: 5px; font-weight: 600; }
+.profile-card h3 { color: var(--ink-soft); letter-spacing: 3px; font-weight: 600; }

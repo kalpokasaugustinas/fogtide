@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide upgrade tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600&display=swap">
+<style>
+  /* upgrade tree mockup: 3 ways to make the tree part of the battle (no separate screen).
+     1280x720 frame scaled to fit; real upgrade names, sample levels. the battle keeps running. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101417; font-family: 'Josefin Sans', system-ui, sans-serif; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #161c20; color: #ddd; }
+  .top b { margin-right: 8px; font-size: 14px; }
+  .top button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a464d; background: #222b30; color: #cfd8dc; cursor: pointer; }
+  .top button.on { background: #c9a45c; color: #1a1408; border-color: #c9a45c; font-weight: 600; }
+  .top small { color: #8a979d; font-size: 12px; flex-basis: 100%; }
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 70px); overflow: hidden; }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; color: #232a2c; font-size: 14px;
+    background: #aab7bf; }
+  /* the battle map: moves / shrinks per option to make room for the tree (it keeps running) */
+  .map { position: absolute; inset: 0; background: url(img/idle-bg.jpg) center / cover; transition: transform 0.8s cubic-bezier(.4,0,.2,1);
+    -webkit-mask-image: radial-gradient(ellipse 48% 50% at 50% 50%, #000 62%, transparent 100%); mask-image: radial-gradient(ellipse 48% 50% at 50% 50%, #000 62%, transparent 100%); }
+  /* fog sky behind the moved map (the same clouds, softened), so no picture edge shows */
+  .frame::before { content: ''; position: absolute; inset: 0; background:
+    radial-gradient(ellipse 30% 22% at 18% 24%, rgba(255,255,255,0.35), transparent), radial-gradient(ellipse 34% 26% at 82% 70%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(ellipse 26% 20% at 70% 18%, rgba(255,255,255,0.28), transparent), radial-gradient(ellipse 30% 24% at 24% 80%, rgba(255,255,255,0.3), transparent), #a8b4bc; }
+  .A .map { transform: scale(0.62); }
+  .B .map { transform: translate(-190px, 0) scale(0.92); }
+  .C .map { transform: translate(0, -150px) scale(0.6); }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* top bar (same as the game) with the Upgrade button pressed */
+  .bar { position: absolute; left: 0; right: 0; top: 8px; display: flex; gap: 24px; align-items: center; padding: 0 20px; font-size: 13px; z-index: 4; }
+  .bar .it { display: flex; gap: 6px; align-items: center; padding: 5px 10px; position: relative; isolation: isolate; }
+  .bar .it::before { content: ''; position: absolute; inset: -6px -12px; z-index: -1; background: rgba(238,239,233,0.9); filter: blur(7px); border-radius: 50%; }
+  .bar b { font-weight: 600; }
+  .bar .grow { flex: 1; }
+  .bar .up { color: #f0f0ea; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+  .bar .up::before { background: #232a2c; filter: blur(3px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; inset: -2px -8px; }
+
+  /* tree layer */
+  .tree { position: absolute; inset: 0; z-index: 2; }
+  .tree svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .tree path.link { fill: none; stroke: rgba(35,42,44,0.55); stroke-width: 1.4; }
+  .tree path.link.dim { stroke: rgba(35,42,44,0.18); stroke-dasharray: 3 5; }
+  .tree path.wisp { fill: none; stroke: rgba(238,239,233,0.85); stroke-width: 26; stroke-linecap: round; filter: blur(9px); }
+  /* nodes: owned = ink disc with level, open = ink ring (buyable), locked = faint in the fog */
+  .node { position: absolute; width: 38px; height: 38px; margin: -19px 0 0 -19px; display: grid; place-items: center; border-radius: 50%; cursor: pointer; isolation: isolate; }
+  .node::before { content: ''; position: absolute; inset: -9px; z-index: -1; background: rgba(238,239,233,0.9); filter: blur(6px); border-radius: 50%; }
+  .node.own { color: #f0f0ea; }
+  .node.own::after { content: ''; position: absolute; inset: 2px; z-index: -1; background: #232a2c; border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; filter: blur(1px); }
+  .node.open { color: #232a2c; box-shadow: inset 0 0 0 1.5px #232a2c; animation: breathe 2.4s ease-in-out infinite; }
+  .node.lock { color: rgba(35,42,44,0.3); }
+  .node.lock::before { background: rgba(238,239,233,0.55); }
+  .node.mist { box-shadow: inset 0 0 0 1.5px #6b78c9; color: #4b57a8; }
+  .node .lv { position: absolute; right: -6px; bottom: -4px; font-size: 10px; font-weight: 600; color: #232a2c; background: rgba(238,239,233,0.95); border-radius: 8px; padding: 0 4px; }
+  .node.sel { outline: 1px solid #232a2c; outline-offset: 6px; }
+  @keyframes breathe { 50% { box-shadow: inset 0 0 0 1.5px #232a2c, 0 0 0 5px rgba(35,42,44,0.1); } }
+  .blabel { position: absolute; transform: translate(-50%, -50%); text-transform: uppercase; letter-spacing: 3px; font-size: 11px; font-weight: 600; color: #232a2c; white-space: nowrap; }
+  .blabel::before { content: ''; position: absolute; inset: -8px -14px; z-index: -1; background: rgba(238,239,233,0.85); filter: blur(7px); border-radius: 50%; }
+
+  /* detail card (fog blob) */
+  .card { position: absolute; width: 250px; padding: 14px 16px; z-index: 3; isolation: isolate; font-size: 13px; line-height: 1.45; }
+  .card::before { content: ''; position: absolute; inset: -14% -10%; z-index: -1; background: rgba(238,239,233,0.94); filter: blur(12px); border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%; }
+  .card h4 { margin: 0 0 2px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; }
+  .card .br { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #6c7679; }
+  .card p { margin: 6px 0; }
+  .card .row { display: flex; justify-content: space-between; color: #6c7679; }
+  .card .buy { margin-top: 10px; display: inline-flex; gap: 8px; align-items: center; position: relative; isolation: isolate; padding: 8px 16px; color: #f0f0ea; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600; font-size: 12px; }
+  .card .buy::before { content: ''; position: absolute; inset: 0; z-index: -1; background: #232a2c; filter: blur(2.5px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+  .A .card { right: 26px; bottom: 26px; }
+  .C .card { right: 30px; top: 70px; }
+  .bank { position: absolute; z-index: 3; font-size: 13px; letter-spacing: 1px; }
+  .A .bank { left: 26px; bottom: 30px; } .C .bank { left: 30px; top: 76px; }
+  .bank b { font-weight: 600; }
+
+  /* option B: right drawer */
+  .drawer { position: absolute; right: 0; top: 0; bottom: 0; width: 470px; z-index: 3; padding: 70px 34px 26px 50px; isolation: isolate; display: none; }
+  .B .drawer { display: block; }
+  .drawer::before { content: ''; position: absolute; inset: 0 -30px 0 0; z-index: -1; background: linear-gradient(90deg, rgba(232,234,229,0) 0, rgba(232,234,229,0.92) 60px, rgba(232,234,229,0.96)); }
+  .drawer h3 { margin: 0 0 4px; font-weight: 300; letter-spacing: 8px; text-transform: uppercase; font-size: 22px; }
+  .drawer .tabs { display: flex; gap: 18px; margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; }
+  .drawer .tabs span { padding-bottom: 4px; color: #6c7679; cursor: pointer; }
+  .drawer .tabs span.on { color: #232a2c; border-bottom: 1.5px solid #232a2c; font-weight: 600; }
+  .drawer .path { position: relative; height: 330px; }
+  .drawer .card { position: static; width: auto; margin-top: 4px; padding: 10px 0 0; border-top: 1px solid rgba(35,42,44,0.16); }
+  .drawer .card::before { display: none; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>Upgrade tree in the battle</b>
+    <button data-o="A" class="on">A Wisps around the island</button>
+    <button data-o="B">B Fog drawer</button>
+    <button data-o="C">C Roots below</button>
+    <small>Pressing Upgrade (or U) doesn't open a new screen: the battle keeps running and the tree grows out of the fog. Click a node for its card. Real upgrade names, sample levels.</small>
+  </div>
+  <svg width="0" height="0" style="position:absolute">
+    <symbol id="g-offense" viewBox="0 0 24 24"><path d="M5 19L17 5h2v2L5 19zM4 17l3 3"/></symbol>
+    <symbol id="g-defense" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></symbol>
+    <symbol id="g-growth" viewBox="0 0 24 24"><path d="M12 21V10M12 10c-4 0-6-3-6-6 4 0 6 3 6 6zm0 3c3 0 5-2 5-5-3 0-5 2-5 5z"/></symbol>
+    <symbol id="g-fog" viewBox="0 0 24 24"><path d="M4 10h11a3 3 0 100-6M2 14h16a3 3 0 110 6M6 17h8"/></symbol>
+    <symbol id="g-command" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></symbol>
+    <symbol id="g-mist" viewBox="0 0 24 24"><path d="M12 3l6 9-6 9-6-9z"/></symbol>
+    <symbol id="g-up" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></symbol>
+  </svg>
+
+  <div class="stage" id="stage">
+    <div class="frame A" id="frame">
+      <div class="map"></div>
+      <div class="bar">
+        <span class="it">Stage 7</span><span class="it">3:12</span><span class="it">Land <b>4 / 11</b></span><span class="it">Fog <b>2.4K</b></span>
+        <span class="grow"></span><span class="it up"><svg class="i"><use href="#g-up"/></svg>Upgrade</span>
+      </div>
+      <div class="tree" id="tree"><svg class="lines" id="lines"></svg></div>
+      <div class="bank" id="bank">Fog <b>2.4K</b> · Mist <b>1</b></div>
+      <div class="card" id="card"></div>
+      <div class="drawer" id="drawer">
+        <h3>Upgrades</h3>
+        <div>Fog <b>2.4K</b> · Mist <b>1</b></div>
+        <div class="tabs" id="tabs"></div>
+        <div class="path" id="dpath"><svg class="lines" id="dlines" style="position:absolute;inset:0;width:100%;height:100%"></svg></div>
+        <div class="card" id="dcard"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // fit the 1280x720 frame under the tab bar
+  const frame = document.getElementById('frame'), stage = document.getElementById('stage'), bar = document.getElementById('bar');
+  function fit() {
+    document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px');
+    const s = Math.min(stage.clientWidth / 1280, stage.clientHeight / 720);
+    frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  }
+  addEventListener('resize', fit); fit();
+
+  // real tree (names, branches, links) with sample levels: lv = owned level, st = own / open / lock
+  const B = {
+    offense: { name: 'Offense', ang: -90, nodes: [['atk', 'Sharper blades', 'attack +5% per level', 6, 'own'], ['march', 'Forced march', 'armies move 10% faster', 2, 'own', 'atk'], ['veterans', 'Veterans', 'attack +12% when you outnumber them', 0, 'open', 'atk'], ['conscription', 'Conscription', 'captured tiles keep part of their people', 0, 'open', 'march'], ['archers', 'Archers', 'your tiles shoot enemy neighbours', 0, 'lock', 'veterans'], ['plunder', 'Plunder', 'loot foglets from every capture', 0, 'lock', 'conscription'], ['volley', 'Volley', 'archers fire twice as often', 0, 'lock', 'archers'], ['mistblades', 'Mist blades', 'Mist: attack x1.5 for the first 30 s', 0, 'lock mist', 'plunder']] },
+    defense: { name: 'Defense', ang: -18, nodes: [['def', 'Shield wall', 'defense +5% per level', 5, 'own'], ['walls', 'Great walls', 'forts +1 level', 1, 'own', 'def'], ['masons', 'Stonemasons', 'forts cost less', 0, 'open', 'def'], ['start', 'Bigger camp', 'start with more foglets', 0, 'open', 'walls'], ['medics', 'Field medics', 'tiles under attack still grow', 0, 'lock', 'masons'], ['stoneskin', 'Stoneskin', 'capitals x1.5 defense', 0, 'lock', 'start'], ['mistveil', 'Mist veil', 'Mist: rivals see half your numbers', 0, 'lock mist', 'stoneskin']] },
+    growth: { name: 'Growth', ang: 54, nodes: [['growth', 'Fertile fog', 'growth +4% per level', 4, 'own'], ['granary', 'Master builders', 'buildings cost less', 1, 'own', 'growth'], ['rains', 'Spring rains', 'river tiles grow more', 0, 'open', 'growth'], ['engineers', 'Engineers', 'build faster', 0, 'lock', 'granary'], ['scholars', 'Scholars', 'labs twice as strong', 0, 'lock', 'rains'], ['harvest', 'Harvest moon', 'growth x2 every 60 s for 10 s', 0, 'lock', 'scholars'], ['evergreen', 'Evergreen', 'Mist: land never runs dry', 0, 'lock mist', 'harvest']] },
+    fog: { name: 'Fog', ang: 126, nodes: [['fog', 'Fog harvest', 'Fog +5% per level', 3, 'own'], ['wells', 'Fog wells', 'every tile you hold drips Fog', 0, 'open', 'fog'], ['scavengers', 'Scavengers', 'more Fog from fallen rivals', 0, 'open', 'fog'], ['horn', 'Fog horn', 'gathers Fog while you are away', 0, 'lock', 'wells'], ['bounty', 'Bounty', 'stage wins pay more', 0, 'lock', 'scavengers'], ['drift', 'Fog drift', 'Fog floats to your capital', 0, 'lock', 'horn'], ['mistborn', 'Mistborn', 'Mist: bosses drop more Mist', 0, 'lock mist', 'drift']] },
+    command: { name: 'Command', ang: 198, nodes: [['auto', 'Auto-attack', 'full tiles attack on their own', 1, 'own'], ['autoneutral', 'Auto-expand', 'auto-attack takes neutral land', 0, 'lock', 'auto'], ['signals', 'Signal fires', 'auto acts faster', 0, 'lock', 'auto'], ['reinforce', 'Auto-reinforce', 'back tiles feed the front', 0, 'lock', 'autoneutral'], ['autobuild', 'Auto-build', 'empty tiles build farms', 0, 'lock', 'signals']] },
+  };
+  const ringOf = (bk, i) => [0, 1, 1, 2, 2, 3, 3, 4][i];
+  const offOf = (i) => [0, -1, 1, -1, 1, -1, 1, 0][i];
+
+  let sel = ['offense', 2];
+  function cardHtml(bk, i) {
+    const [id, name, txt, lv, st] = B[bk].nodes[i], mist = st.includes('mist');
+    const cost = mist ? '1 Mist' : `${Math.round(40 * 1.9 ** (lv + i))} Fog`;
+    return `<div class="br">${B[bk].name}</div><h4><span>${name}</span><span>Lv ${lv}</span></h4><p>${txt[0].toUpperCase() + txt.slice(1)}.</p>
+      <div class="row"><span>${st.includes('lock') ? 'Needs the upgrade before it' : 'Next level'}</span><span>${cost}</span></div>
+      ${st.includes('lock') ? '' : `<span class="buy"><svg class="i"><use href="#g-up"/></svg>Buy · ${cost}</span>`}`;
+  }
+  function nodeEl(bk, i, x, y) {
+    const [id, name, txt, lv, st] = B[bk].nodes[i];
+    const n = document.createElement('div');
+    n.className = `node ${st}${sel[0] === bk && sel[1] === i ? ' sel' : ''}`;
+    n.style.left = x + 'px'; n.style.top = y + 'px'; n.title = name;
+    n.innerHTML = `<svg class="i"><use href="#g-${st.includes('mist') ? 'mist' : bk}"/></svg>${lv ? `<span class="lv">${lv}</span>` : ''}`;
+    n.onclick = () => { sel = [bk, i]; render(); };
+    return n;
+  }
+  // curved link a -> b, plus a soft fog wisp under it
+  const link = (svg, a, b, dim) => {
+    const mx = (a[0] + b[0]) / 2 + (b[1] - a[1]) * 0.15, my = (a[1] + b[1]) / 2 - (b[0] - a[0]) * 0.15;
+    svg.insertAdjacentHTML('afterbegin', `<path class="wisp" d="M${a[0]},${a[1]} Q${mx},${my} ${b[0]},${b[1]}"/>`);
+    svg.insertAdjacentHTML('beforeend', `<path class="link${dim ? ' dim' : ''}" d="M${a[0]},${a[1]} Q${mx},${my} ${b[0]},${b[1]}"/>`);
+  };
+
+  function render() {
+    const o = frame.classList.contains('A') ? 'A' : frame.classList.contains('B') ? 'B' : 'C';
+    const tree = document.getElementById('tree'), svg = document.getElementById('lines');
+    tree.querySelectorAll('.node, .blabel').forEach((e) => e.remove());
+    svg.innerHTML = '';
+    document.getElementById('card').innerHTML = o === 'B' ? '' : cardHtml(...sel);
+    document.getElementById('card').style.display = o === 'B' ? 'none' : '';
+    document.getElementById('bank').style.display = o === 'B' ? 'none' : '';
+    if (o === 'A') {
+      // branches radiate from the (shrunken) island's rim out into the fog, on a squashed ellipse
+      const cx = 640, cy = 398, rx0 = 300, ry0 = 190, step = 1.13;
+      for (const bk of Object.keys(B)) {
+        const br = B[bk], pos = [];
+        br.nodes.forEach((nd, i) => {
+          const r = ringOf(bk, i), a = ((br.ang + offOf(i) * (13 - r * 1.5)) * Math.PI) / 180, k = step ** r;
+          pos[i] = [cx + Math.cos(a) * rx0 * k, cy + Math.sin(a) * ry0 * k];
+        });
+        br.nodes.forEach((nd, i) => {
+          const par = nd[5] ? br.nodes.findIndex((m) => m[0] === nd[5]) : -1;
+          const from = par >= 0 ? pos[par] : [cx + Math.cos(br.ang * Math.PI / 180) * rx0 * 0.78, cy + Math.sin(br.ang * Math.PI / 180) * ry0 * 0.78];
+          link(svg, from, pos[i], nd[4].includes('lock'));
+          tree.appendChild(nodeEl(bk, i, ...pos[i]));
+        });
+        const la = br.ang * Math.PI / 180, l = document.createElement('div');
+        l.className = 'blabel'; l.textContent = br.name;
+        l.style.left = cx + Math.cos(la) * rx0 * 0.86 + 'px'; l.style.top = cy + Math.sin(la) * ry0 * 0.86 + 'px';
+        tree.appendChild(l);
+      }
+    }
+    if (o === 'C') {
+      // roots: the 5 branches hang below the island and fork downward into the mist
+      const top = 452, cols = Object.keys(B), w = 1280 / (cols.length + 1);
+      cols.forEach((bk, c) => {
+        const br = B[bk], x0 = w * (c + 1), pos = [];
+        br.nodes.forEach((nd, i) => { const r = ringOf(bk, i); pos[i] = [x0 + offOf(i) * (28 + r * 6), top + 30 + r * 50]; });
+        br.nodes.forEach((nd, i) => {
+          const par = nd[5] ? br.nodes.findIndex((m) => m[0] === nd[5]) : -1;
+          link(svg, par >= 0 ? pos[par] : [x0 + (640 - x0) * 0.4, top - 70], pos[i], nd[4].includes('lock'));
+          tree.appendChild(nodeEl(bk, i, ...pos[i]));
+        });
+        const l = document.createElement('div'); l.className = 'blabel'; l.textContent = br.name; l.style.left = x0 + 'px'; l.style.top = top - 4 + 'px'; tree.appendChild(l);
+      });
+    }
+    if (o === 'B') {
+      // drawer: one branch at a time, its path drawn top to bottom; tabs switch branch
+      document.getElementById('tabs').innerHTML = Object.keys(B).map((bk) => `<span data-b="${bk}" class="${sel[0] === bk ? 'on' : ''}">${B[bk].name}</span>`).join('');
+      document.querySelectorAll('#tabs span').forEach((t) => t.onclick = () => { sel = [t.dataset.b, 0]; render(); });
+      const dp = document.getElementById('dpath'), ds = document.getElementById('dlines');
+      dp.querySelectorAll('.node').forEach((e) => e.remove()); ds.innerHTML = '';
+      const br = B[sel[0]], pos = [];
+      br.nodes.forEach((nd, i) => { const r = ringOf(sel[0], i); pos[i] = [190 + offOf(i) * 95, 26 + r * 74]; });
+      br.nodes.forEach((nd, i) => {
+        const par = nd[5] ? br.nodes.findIndex((m) => m[0] === nd[5]) : -1;
+        if (par >= 0) link(ds, pos[par], pos[i], nd[4].includes('lock'));
+        const n = nodeEl(sel[0], i, ...pos[i]); dp.appendChild(n);
+        const lab = document.createElement('div'); lab.className = 'blabel'; lab.style.fontSize = '10px'; lab.style.letterSpacing = '1.5px';
+        lab.textContent = nd[1]; lab.style.left = pos[i][0] + 'px'; lab.style.top = pos[i][1] + 32 + 'px'; lab.style.position = 'absolute'; dp.appendChild(lab); lab.classList.add('node-lab');
+      });
+      dp.querySelectorAll('.node-lab').forEach((e, k) => { if (k >= br.nodes.length) e.remove(); });
+      document.getElementById('dcard').innerHTML = cardHtml(...sel);
+    }
+  }
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-o]'); if (!b) return;
+    bar.querySelectorAll('button[data-o]').forEach((x) => x.classList.toggle('on', x === b));
+    frame.classList.remove('A', 'B', 'C'); frame.classList.add(b.dataset.o);
+    document.querySelectorAll('#dpath .node-lab').forEach((e) => e.remove());
+    render(); fit();
+  });
+  render();
+</script>
+</body>
+</html>

@@ -5,8 +5,8 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=109';
-import * as structures from './structures.js?v=109';
+import { themes, fogTwirl } from './config.js?v=110';
+import * as structures from './structures.js?v=110';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -1697,36 +1697,79 @@ export function pageRect(el) {
   return rotated() ? { left: r.top, top: window.innerWidth - r.right, width: r.height, height: r.width } : r;
 }
 
-// outlined text, readable on any colour
+// outlined text, readable on any colour. drawn once per look into a sprite (outlined emoji are
+// slow to draw, and relic icons are drawn every frame), then stamped; same cache idea as pill
+const labelCache = new Map();
 export function label(ctx, text, x, y, size, color = '#fff', weight = 800) {
-  ctx.font = `${weight} ${size}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineWidth = Math.max(2, size / 4);
-  ctx.strokeStyle = 'rgba(25,35,40,0.6)';
-  ctx.lineJoin = 'round';
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
+  const k = ctx.getTransform().a;
+  const key = `${text}|${size.toFixed(2)}|${color}|${weight}|${k.toFixed(3)}`;
+  let p = labelCache.get(key);
+  if (!p) {
+    if (labelCache.size > 600) labelCache.clear();
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = `${weight} ${size}px system-ui, sans-serif`;
+    const lw = Math.max(2, size / 4), w = m.measureText(text).width + lw * 2 + 4, h = size * 1.5 + lw * 2;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(w * k); c.height = Math.ceil(h * k);
+    const x2 = c.getContext('2d');
+    x2.setTransform(k, 0, 0, k, 0, 0);
+    x2.font = m.font;
+    x2.textAlign = 'center';
+    x2.textBaseline = 'middle';
+    x2.lineWidth = lw;
+    x2.strokeStyle = 'rgba(25,35,40,0.6)';
+    x2.lineJoin = 'round';
+    x2.strokeText(text, w / 2, h / 2);
+    x2.fillStyle = color;
+    x2.fillText(text, w / 2, h / 2);
+    p = { c, w: c.width / k, h: c.height / k, ox: w / 2, oy: h / 2 };
+    labelCache.set(key, p);
+  }
+  ctx.drawImage(p.c, x - p.ox, y - p.oy, p.w, p.h);
 }
 
-// troop count badge: white rounded pill with an owner-coloured rim and a soft drop shadow
+// troop count badge: white rounded pill with an owner-coloured rim and a soft drop shadow.
+// every tile and army draws one each frame, so each look (text, size, colours, pixel density) is
+// drawn once into a small sprite and stamped from then on (font setup + text drawing were the
+// biggest cost of a frame on maps with many tiles). the cache is emptied when it grows large
+const pillCache = new Map();
 export function pill(ctx, text, x, y, size, rim, ink) {
-  ctx.font = `800 ${size}px system-ui, sans-serif`;
-  const w = Math.max(size * 1.6, ctx.measureText(text).width + size * 0.9), h = size * 1.4;
-  ctx.fillStyle = 'rgba(20,30,35,0.22)';
-  roundRect(ctx, x - w / 2 + 1, y - h / 2 + 2, w, h, h / 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.93)';
-  roundRect(ctx, x - w / 2, y - h / 2, w, h, h / 2);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.5, size * 0.14);
-  ctx.strokeStyle = rim;
-  ctx.stroke();
-  ctx.fillStyle = ink;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, x, y + size * 0.04);
+  const k = ctx.getTransform().a;   // device px per css px of the current transform
+  const key = `${text}|${size.toFixed(2)}|${rim}|${ink}|${k.toFixed(3)}`;
+  let p = pillCache.get(key);
+  if (!p) {
+    if (pillCache.size > 1500) pillCache.clear();
+    p = pillSprite(text, size, rim, ink, k);
+    pillCache.set(key, p);
+  }
+  ctx.drawImage(p.c, x - p.ox, y - p.oy, p.w, p.h);
+}
+// one badge drawn at scale k; ox / oy = where the badge centre sits in the sprite (css px)
+function pillSprite(text, size, rim, ink, k) {
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = `800 ${size}px system-ui, sans-serif`;
+  const w = Math.max(size * 1.6, m.measureText(text).width + size * 0.9), h = size * 1.4, pad = Math.max(3, size * 0.15);
+  const W = w + pad * 2, H = h + pad * 2 + 2;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(W * k); c.height = Math.ceil(H * k);
+  const x = c.getContext('2d');
+  x.setTransform(k, 0, 0, k, 0, 0);
+  const cx = W / 2, cy = pad + h / 2;
+  x.font = m.font;
+  x.fillStyle = 'rgba(20,30,35,0.22)';
+  roundRect(x, cx - w / 2 + 1, cy - h / 2 + 2, w, h, h / 2);
+  x.fill();
+  x.fillStyle = 'rgba(255,255,255,0.93)';
+  roundRect(x, cx - w / 2, cy - h / 2, w, h, h / 2);
+  x.fill();
+  x.lineWidth = Math.max(1.5, size * 0.14);
+  x.strokeStyle = rim;
+  x.stroke();
+  x.fillStyle = ink;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText(text, cx, cy + size * 0.04);
+  return { c, w: c.width / k, h: c.height / k, ox: cx, oy: cy };
 }
 
 function roundRect(ctx, x, y, w, h, r) {

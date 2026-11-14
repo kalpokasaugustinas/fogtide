@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=109">
-  <link rel="stylesheet" href="pc.css?v=109">
+  <link rel="stylesheet" href="style.css?v=110">
+  <link rel="stylesheet" href="pc.css?v=110">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -144,7 +144,7 @@
           <b id="hub-horn-amt">0</b>
         </button>
         <span class="hub-bank"><span id="hub-fog">🌫️ 0</span><span id="hub-mist" class="hidden">💠 0</span></span>
-        <button id="hub-shop" class="round" title="Idle upgrades">⬆️</button>
+        <button id="hub-shop" class="ibtn wide fog" title="Idle upgrades"><svg class="i"><use href="#i-up"/></svg><span>Upgrade</span></button>
       </div>
       <span class="spacer"></span>
       <button id="btn-install" class="round hidden" title="Install Fogtide as an app">📲</button>
@@ -177,7 +177,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 109 · 2026-11-14 11:17</span>
+    <span id="version">build 110 · 2026-11-14 12:47</span>
   </section>
 
   <!-- campaign world map -->
@@ -213,7 +213,7 @@
       <span class="grow"></span>
       <button id="test-fill" class="ibtn fog" title="Test: fill all my tiles to their cap">F</button>
       <button id="test-win" class="ibtn fog" title="Test: win this battle now">W</button>
-      <button id="idle-shop-btn" class="ibtn fog hidden" title="Upgrades (U)"><svg class="i"><use href="#i-up"/></svg></button>
+      <button id="idle-shop-btn" class="ibtn wide fog hidden" title="Upgrades (U)"><svg class="i"><use href="#i-up"/></svg><span>Upgrade</span></button>
       <button id="idle-auto" class="ibtn fog hidden" title="Auto-battle (A)"><svg class="i"><use href="#i-auto"/></svg></button>
       <button id="bar-music" class="ibtn fog toggle" title="Music on/off"><svg class="i"><use href="#i-music"/></svg></button>
       <button id="bar-settings" class="ibtn fog" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
@@ -303,7 +303,7 @@
   <!-- conquest leaderboard: your best runs on this device -->
   <div id="board" class="overlay hidden">
     <div class="card scroll">
-      <h2>🏅 Conquest leaderboard</h2>
+      <h2>Conquest leaderboard</h2>
       <div id="board-list"></div>
       <p class="hint">Per stage (×1 Valley … ×5 World): clear 500 · each ★ 150 · speed up to 400 (less the slower; 0 after 10 min) · plus 15 × √foglets defeated.</p>
       <button id="board-close" class="primary">Close</button>
@@ -371,6 +371,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=109"></script>
+  <script type="module" src="js/main.js?v=110"></script>
 </body>
 </html>
