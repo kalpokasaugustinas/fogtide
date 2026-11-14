@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=117';
-import { generateMap, rng } from './mapgen.js?v=117';
-import { initAnalytics, track } from './analytics.js?v=117';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=117';
-import { Battle } from './battle.js?v=117';
-import { personalities } from './ai.js?v=117';
-import { Campaign } from './campaign.js?v=117';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=117';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=117';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=117';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=117';
-import { previewBuildings } from './structures.js?v=117';
-import { initTune, tuneChanges } from './tune.js?v=117';
-import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=117';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=118';
+import { generateMap, rng } from './mapgen.js?v=118';
+import { initAnalytics, track } from './analytics.js?v=118';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=118';
+import { Battle } from './battle.js?v=118';
+import { personalities } from './ai.js?v=118';
+import { Campaign } from './campaign.js?v=118';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=118';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=118';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=118';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=118';
+import { previewBuildings } from './structures.js?v=118';
+import { initTune, tuneChanges } from './tune.js?v=118';
+import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=118';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1607,13 +1607,27 @@ function placeBday() {
   for (const [el, cx] of [[$('bday-l'), sw / 2], [$('bday-r'), w - sw / 2]]) {
     if (!el) continue;   // photo missing: removed
     el.classList.toggle('hidden', sw < 60);
-    const size = Math.max(56, Math.min(130, sw * 0.42));
+    // as big as the strip allows, but the oval head (1.34 x as tall) + greeting must fit above the band
+    const bottom = 18 + hb * 0.03 + 11 * s + 46, room = (h - bottom - 40 - 64) / 1.34;   // 64 = clear of the round buttons at the top
+    const size = Math.max(60, Math.min(210, sw * 0.7, room));
     el.style.setProperty('--size', `${size}px`);
     el.style.setProperty('--strip', `${sw}px`);
     el.style.setProperty('--font', `${Math.max(13, Math.min(30, sw / 9.5))}px`);
     el.style.left = `${cx}px`;
     el.style.bottom = `${18 + hb * 0.03 + 11 * s + 46}px`;   // above the tallest hat and its speech bubble
   }
+}
+
+// tap his face: one of his voice snips (shuffled, no repeat until all have played)
+const bdaySnips = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `audio/bday${i}.mp3`);
+let bdayBag = [], bdayAudio = null;
+for (const img of document.querySelectorAll('.bday img')) {
+  img.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (!bdayBag.length) bdayBag = [...bdaySnips].sort(() => Math.random() - 0.5);
+    try { bdayAudio?.pause(); bdayAudio = new Audio(bdayBag.pop()); bdayAudio.volume = 1; bdayAudio.play().catch(() => {}); } catch { /* no audio */ }
+    img.classList.remove('talk'); void img.offsetWidth; img.classList.add('talk');
+  });
 }
 
 function drawMenu(dt) {
