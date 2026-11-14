@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=113';
-import { generateMap, rng } from './mapgen.js?v=113';
-import { initAnalytics, track } from './analytics.js?v=113';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=113';
-import { Battle } from './battle.js?v=113';
-import { personalities } from './ai.js?v=113';
-import { Campaign } from './campaign.js?v=113';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=113';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=113';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=113';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=113';
-import { previewBuildings } from './structures.js?v=113';
-import { initTune, tuneChanges } from './tune.js?v=113';
-import { initFogNoise } from './fogui.js?v=113';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=114';
+import { generateMap, rng } from './mapgen.js?v=114';
+import { initAnalytics, track } from './analytics.js?v=114';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=114';
+import { Battle } from './battle.js?v=114';
+import { personalities } from './ai.js?v=114';
+import { Campaign } from './campaign.js?v=114';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=114';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=114';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=114';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=114';
+import { previewBuildings } from './structures.js?v=114';
+import { initTune, tuneChanges } from './tune.js?v=114';
+import { initFogNoise } from './fogui.js?v=114';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -244,6 +244,7 @@ function startBattle(setup, m, rid = -1) {
   renderWheel();
   show('battle');
   if (m === 'idle') preloadIdleNext();   // next stage's map builds in the worker during this stage
+  if (m === 'idle') setTimeout(() => { if (!shopOpen()) renderShop(); }, 1500);   // tree dom ready before the first open (it is hidden until then)
 }
 
 function startSkirmish() {
@@ -1457,17 +1458,23 @@ function openShop() {
   shopKey = '';
   const el = $('idle-shop');
   el.classList.remove('closing', 'backdrop');
-  // build the tree first, start the glide on the next frames: the dom / svg work then doesn't eat
-  // the first frames of the animation (that was the stutter)
+  el.inert = false;
+  // build the tree first, start the glide on the next frames, so the dom work doesn't eat the
+  // first frames of the animation
   renderShop();
   el.classList.remove('hidden');
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (shopOpen()) $('battle').classList.add('shop-open'); }));
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (shopOpen()) { $('battle').classList.add('shop-open'); hudInert(true); } }));
 }
+// faded bottom hud can't be clicked while the tree is open. inert on the 3 panels instead of a css
+// "panel *" rule: that restyled every hud element on the first glide frame (~70 ms freeze)
+const hudInert = (on) => { for (const e of document.querySelectorAll('#battle .hud.bl, #battle .hud.bc, #battle .hud.br')) e.inert = on; };
 function closeShop() {
   $('battle').classList.remove('shop-open');
+  hudInert(false);
   const el = $('idle-shop');
   if (el.classList.contains('hidden')) return;
   el.classList.add('closing');   // roots and card fade out with the glide back
+  el.inert = true;   // no clicks on the fading tree
   clearTimeout(shopCloseT);
   shopCloseT = setTimeout(() => el.classList.replace('closing', 'hidden'), 400);
 }
