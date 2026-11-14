@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=119';
-import { generateMap, rng } from './mapgen.js?v=119';
-import { initAnalytics, track } from './analytics.js?v=119';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=119';
-import { Battle } from './battle.js?v=119';
-import { personalities } from './ai.js?v=119';
-import { Campaign } from './campaign.js?v=119';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=119';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=119';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=119';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=119';
-import { previewBuildings } from './structures.js?v=119';
-import { initTune, tuneChanges } from './tune.js?v=119';
-import { initFogNoise } from './fogui.js?v=119';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=120';
+import { generateMap, rng } from './mapgen.js?v=120';
+import { initAnalytics, track } from './analytics.js?v=120';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=120';
+import { Battle } from './battle.js?v=120';
+import { personalities } from './ai.js?v=120';
+import { Campaign } from './campaign.js?v=120';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=120';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=120';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=120';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=120';
+import { previewBuildings } from './structures.js?v=120';
+import { initTune, tuneChanges } from './tune.js?v=120';
+import { initFogNoise } from './fogui.js?v=120';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);

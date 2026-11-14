@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=119';
-import { generateMap, rng } from './mapgen.js?v=119';
-import { initAnalytics, track } from './analytics.js?v=119';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=119';
-import { Battle } from './battle.js?v=119';
-import { personalities } from './ai.js?v=119';
-import { Campaign } from './campaign.js?v=119';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=119';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=119';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=119';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=119';
-import { previewBuildings } from './structures.js?v=119';
-import { initTune, tuneChanges } from './tune.js?v=119';
-import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=119';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=120';
+import { generateMap, rng } from './mapgen.js?v=120';
+import { initAnalytics, track } from './analytics.js?v=120';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=120';
+import { Battle } from './battle.js?v=120';
+import { personalities } from './ai.js?v=120';
+import { Campaign } from './campaign.js?v=120';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=120';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=120';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=120';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=120';
+import { previewBuildings } from './structures.js?v=120';
+import { initTune, tuneChanges } from './tune.js?v=120';
+import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=120';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1596,25 +1596,38 @@ function syncBands() {
   dressBand(bands[1], factionColors[profile.color === 1 ? 0 : 1], others.slice(0, 3));
 }
 syncBands();
-// birthday (party build only): a spinning head above each foglet band, greeting under it.
-// same strip maths as drawBand in foglets.js: band sw px wide at the bottom corner, figure scale s
+// birthday (party build only): two spinning heads with the greeting under them, wandering
+// around the whole menu (on top of everything, bouncing off the edges)
 let bdayKey = '';
-function placeBday() {
+const bdayFly = [];   // per head: { el, x, y, a (heading, rad), turn (rad/s) }
+function placeBday(dt) {
   const c = $('foglets-l'), w = c.clientWidth, h = c.clientHeight, key = `${w}x${h}`;
-  if (key === bdayKey) return;
-  bdayKey = key;
-  const sw = Math.min(400, w / 2 - 250), hb = Math.min(h * 0.5, 320), s = Math.min(hb / 13.5, sw / (3 * 5.4));
-  for (const [el, cx] of [[$('bday-l'), sw / 2], [$('bday-r'), w - sw / 2]]) {
-    if (!el) continue;   // photo missing: removed
-    el.classList.toggle('hidden', sw < 60);
-    // as big as the strip allows, but the oval head (1.34 x as tall) + greeting must fit above the band
-    const bottom = 18 + hb * 0.03 + 11 * s + 46, room = (h - bottom - 40 - 64) / 1.34;   // 64 = clear of the round buttons at the top
-    const size = Math.max(60, Math.min(210, sw * 0.7, room));
-    el.style.setProperty('--size', `${size}px`);
-    el.style.setProperty('--strip', `${sw}px`);
-    el.style.setProperty('--font', `${Math.max(13, Math.min(30, sw / 9.5))}px`);
-    el.style.left = `${cx}px`;
-    el.style.bottom = `${18 + hb * 0.03 + 11 * s + 46}px`;   // above the tallest hat and its speech bubble
+  if (!w || !h) return;
+  if (key !== bdayKey) {
+    bdayKey = key;
+    // size: as before (fits a side strip), now 10% bigger
+    const sw = Math.max(120, Math.min(400, w / 2 - 250)), hb = Math.min(h * 0.5, 320), s = Math.min(hb / 13.5, sw / (3 * 5.4));
+    const bottom = 18 + hb * 0.03 + 11 * s + 46, room = (h - bottom - 40 - 64) / 1.34;
+    const size = 1.1 * Math.max(60, Math.min(210, sw * 0.7, room));
+    for (const el of [$('bday-l'), $('bday-r')]) {
+      if (!el) continue;   // photo missing: removed
+      el.style.setProperty('--size', `${size}px`);
+      el.style.setProperty('--font', `${Math.max(13, Math.min(30, sw / 9.5))}px`);
+    }
+    if (!bdayFly.length) [$('bday-l'), $('bday-r')].forEach((el, i) => el && bdayFly.push({ el, x: i ? w * 0.75 : w * 0.1, y: h * 0.3, a: Math.random() * 6.28, turn: 0 }));
+  }
+  const speed = Math.max(w, h) * 0.13;   // px per second
+  for (const f of bdayFly) {
+    const ew = f.el.offsetWidth, eh = f.el.offsetHeight;
+    // wander: the heading drifts, with a new random turn rate now and then
+    if (Math.random() < dt * 0.8) f.turn = (Math.random() - 0.5) * 3;
+    f.a += f.turn * dt;
+    f.x += Math.cos(f.a) * speed * dt;
+    f.y += Math.sin(f.a) * speed * dt;
+    // bounce off the screen edges
+    if (f.x < 0) { f.x = 0; f.a = Math.PI - f.a; } else if (f.x > w - ew) { f.x = Math.max(0, w - ew); f.a = Math.PI - f.a; }
+    if (f.y < 0) { f.y = 0; f.a = -f.a; } else if (f.y > h - eh) { f.y = Math.max(0, h - eh); f.a = -f.a; }
+    f.el.style.transform = `translate3d(${f.x.toFixed(1)}px, ${f.y.toFixed(1)}px, 0)`;
   }
 }
 
@@ -1628,7 +1641,7 @@ for (const img of document.querySelectorAll('.bday img')) {
 
 function drawMenu(dt) {
   for (const b of bands) drawBand(b, performance.now() / 1000);
-  placeBday();
+  placeBday(dt);
   hubTimer -= dt;
   if (hubTimer <= 0) { hubTimer = 0.25; tickHub(); }
   if (!demo || demo.state !== 'running' || demo.time > 240) newDemo();
