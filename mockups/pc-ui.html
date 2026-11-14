@@ -109,23 +109,55 @@
   /* ---------- skin b: fog + ink (minimal, quiet, lots of space) ---------- */
   .b { --menu-shade: linear-gradient(90deg, rgba(232,234,229,0.97) 0, rgba(232,234,229,0.9) 33%, rgba(232,234,229,0.25) 62%, rgba(232,234,229,0.1));
     font-family: 'Josefin Sans', sans-serif; color: #232a2c; }
-  .b .panel { background: rgba(240,240,234,0.86); backdrop-filter: blur(6px); border: 0; box-shadow: 0 1px 0 rgba(0,0,0,0.08); }
+  /* fog panels: no box. the panel colour sits on a ::before that reaches past the panel; its mask is
+     a solid core + a soft edge band eaten by a cloud-noise texture, so the rim breaks into wisps.
+     the noise layer slides slowly (mask-position), so the wisps drift. noise is made once in js. */
+  .b .panel, .b .res .item, .b .tip { position: relative; isolation: isolate; background: transparent; border: 0; box-shadow: none; }
+  .b .hud.panel, .b .tip { position: absolute; }
+  /* ::before = solid fog body with feathered edges (keeps text readable)
+     ::after  = bigger wisp halo: cloud noise ∩ a wider feather, drifting slowly */
+  .b .panel::before, .b .res .item::before, .b .tip::before,
+  .b .panel::after, .b .res .item::after, .b .tip::after {
+    content: ''; position: absolute; z-index: -1; pointer-events: none; background: var(--fog-col, rgba(238,239,233,0.94));
+    -webkit-mask-composite: source-in; mask-composite: intersect;
+  }
+  .b .panel::before, .b .res .item::before, .b .tip::before {
+    inset: calc(var(--f, 16px) * -0.6);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent), linear-gradient(90deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent);
+    mask-image: linear-gradient(180deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent), linear-gradient(90deg, transparent, #000 var(--f, 16px), #000 calc(100% - var(--f, 16px)), transparent);
+  }
+  .b .panel::after, .b .res .item::after, .b .tip::after {
+    inset: calc(var(--f, 16px) * -3); opacity: 0.85;
+    -webkit-mask-image: var(--fog-noise), linear-gradient(180deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent), linear-gradient(90deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent);
+    mask-image: var(--fog-noise), linear-gradient(180deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent), linear-gradient(90deg, transparent, #000 calc(var(--f, 16px) * 2.2), #000 calc(100% - var(--f, 16px) * 2.2), transparent);
+    -webkit-mask-composite: source-in, source-in; mask-composite: intersect, intersect;
+    mask-size: 260px 160px, 100% 100%, 100% 100%; mask-repeat: repeat, no-repeat, no-repeat;
+    animation: wisp var(--wisp-t, 30s) linear infinite; animation-delay: var(--wisp-d, 0s);
+  }
+  @keyframes wisp { from { mask-position: 0 0, 0 0, 0 0; } to { mask-position: 260px 160px, 0 0, 0 0; } }
+  .b .tip { --fog-col: rgba(35,42,44,0.95); --f: 12px; --wisp-t: 20s; }
+  .b .res .item, .b .res .ibtn { --f: 10px; }
+  .b .factions { --wisp-d: -7s; } .b .tile { --wisp-d: -13s; } .b .build { --wisp-d: -4s; } .b .ctrl { --wisp-d: -19s; }
+  .b .res .item:nth-child(2) { --wisp-d: -5s; } .b .res .item:nth-child(3) { --wisp-d: -11s; } .b .res .item:nth-child(4) { --wisp-d: -17s; }
+  @media (prefers-reduced-motion: reduce) { .b .panel::after, .b .res .item::after, .b .tip::after { animation: none; } }
   .b h3, .b h4, .b h5 { font-weight: 600; text-transform: uppercase; letter-spacing: 2px; font-size: 12px; color: #232a2c; }
   .b h3 { font-size: 14px; }
   .b .res { background: transparent; height: 46px; }
-  .b .res .item { background: rgba(240,240,234,0.86); padding: 6px 12px; }
-  .b .res .ibtn { background: rgba(240,240,234,0.86); color: #232a2c; }
+  .b .res { top: 8px; gap: 30px; padding: 0 26px; }
+  .b .res .item { padding: 6px 12px; }
+  .b .res .ibtn { color: #232a2c; }
   .b .muted, .b .keys, .b .bslot .key, .b .menu .mi small, .b .menu .foot { color: #6c7679; }
   .b .bar, .b .meter, .b .slider { background: rgba(35,42,44,0.14); height: 3px; }
   .b .slider { height: 3px; } .b .meter span, .b .slider span { background: #232a2c; }
   .b .slider i { background: #232a2c; width: 10px; height: 10px; border-radius: 50%; }
   .b .bslot { background: rgba(240,240,234,0.0); color: #232a2c; width: 66px; }
-  .b .bslot.hot { background: #232a2c; color: #f0f0ea; } .b .bslot.hot .key, .b .bslot.hot .cost { color: #c9cfcc; }
-  .b .speeds button { background: transparent; border: 1px solid rgba(35,42,44,0.25); color: #232a2c; }
-  .b .speeds button.on { background: #232a2c; color: #f0f0ea; }
-  .b .tip { background: #232a2c; color: #e9ebe6; } .b .tip h5 { color: #fff; } .b .tip .good { color: #a9d39a; }
-  .b .sel { border: 1.5px dashed #232a2c; }
-  .b .factions { background: transparent; box-shadow: none; backdrop-filter: none; }
+  /* selected / hot states: a soft ink smudge instead of a filled square */
+  .b .bslot.hot { background: radial-gradient(ellipse closest-side, rgba(35,42,44,0.95) 55%, rgba(35,42,44,0) 100%); color: #f0f0ea; }
+  .b .bslot.hot .key, .b .bslot.hot .cost { color: #c9cfcc; }
+  .b .speeds button { background: transparent; border: 0; color: #232a2c; }
+  .b .speeds button.on { background: radial-gradient(ellipse closest-side, rgba(35,42,44,0.95) 50%, rgba(35,42,44,0) 100%); color: #f0f0ea; }
+  .b .tip { color: #e9ebe6; } .b .tip h5 { color: #fff; } .b .tip .good { color: #a9d39a; }
+  .b .sel { border: 0; background: radial-gradient(ellipse closest-side, rgba(255,255,255,0) 60%, rgba(255,255,255,0.75) 80%, rgba(255,255,255,0) 100%); }
   .b .menu { width: 420px; }
   .b .logo { font-size: 56px; font-weight: 300; letter-spacing: 16px; text-transform: uppercase; color: #232a2c; }
   .b .sub { text-transform: uppercase; letter-spacing: 6px; font-size: 12px; color: #6c7679; }
@@ -133,7 +165,7 @@
   .b .menu .mi svg, .b .menu .mi small { display: none; }
   .b .menu .mi.hot { letter-spacing: 6px; }
   .b .menu .mi.hot::before { content: ''; width: 26px; height: 1px; background: #232a2c; }
-  .b .news { background: transparent; box-shadow: none; backdrop-filter: none; text-align: right; }
+  .b .news { text-align: right; }
 
   /* ---------- skin c: slate + iron (dark, dense, strategy table) ---------- */
   .c { --menu-shade: linear-gradient(90deg, rgba(12,16,19,0.94) 0, rgba(12,16,19,0.8) 30%, rgba(12,16,19,0.2) 62%, rgba(12,16,19,0.1));
@@ -289,6 +321,34 @@
     frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
   }
   addEventListener('resize', fit); fit();
+
+  // cloud noise for the fog panel rims (skin b): 3 octaves of smoothed random grids, drawn 3x3 and
+  // cropped to the middle tile so it repeats without seams; alpha curve gives wispy holes
+  (function fogNoise() {
+    const n = 220, out = document.createElement('canvas'); out.width = out.height = n;
+    const o = out.getContext('2d');
+    [[6, 0.55], [12, 0.3], [24, 0.15]].forEach(([g, w]) => {
+      // random grid, repeated 3x3 at small size first, so the upscale blends across tile edges
+      const s = document.createElement('canvas'); s.width = s.height = g * 3;
+      const sx = s.getContext('2d'), img = sx.createImageData(g * 3, g * 3), cell = [];
+      for (let i = 0; i < g * g; i++) cell.push(Math.random() * 255);
+      for (let y = 0; y < g * 3; y++) for (let x = 0; x < g * 3; x++) { const v = cell[(y % g) * g + (x % g)]; img.data.set([v, v, v, 255], (y * g * 3 + x) * 4); }
+      sx.putImageData(img, 0, 0);
+      const t = document.createElement('canvas'); t.width = t.height = n * 3;
+      const tx = t.getContext('2d'); tx.imageSmoothingEnabled = true; tx.imageSmoothingQuality = 'high';
+      tx.filter = `blur(${n / g * 0.35}px)`;   // smooth the bilinear diamonds into round puffs
+      tx.drawImage(s, 0, 0, n * 3, n * 3);
+      o.globalAlpha = w; o.drawImage(t, n, n, n, n, 0, 0, n, n);
+    });
+    // brightness -> alpha: below ~0.38 fully clear, above ~0.62 solid, smooth between
+    const d = o.getImageData(0, 0, n, n);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = d.data[i] / 255, a = Math.min(1, Math.max(0, (v - 0.38) / 0.24));
+      d.data[i] = d.data[i + 1] = d.data[i + 2] = 0; d.data[i + 3] = a * a * (3 - 2 * a) * 255;
+    }
+    o.putImageData(d, 0, 0);
+    document.documentElement.style.setProperty('--fog-noise', `url(${out.toDataURL()})`);
+  })();
   // tabs: skin (a/b/c) and screen (battle/menu)
   bar.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
