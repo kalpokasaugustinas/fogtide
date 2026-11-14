@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#a9bcbc">
+  <title>Fogtide</title>
+  <meta name="description" content="A territory strategy game for phone and desktop: grow foglets, build, drag to attack and conquer the island. Free in the browser, no install.">
+  <!-- link preview (chat apps, social sites) -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Fogtide: conquer the islands beyond the fog">
+  <meta property="og:description" content="Grow foglets, build, drag to attack. A quick territory strategy game in your browser.">
+  <meta property="og:url" content="https://kalpokasaugustinas.github.io/fogtide/">
+  <meta property="og:image" content="https://kalpokasaugustinas.github.io/fogtide/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- icons + install as an app (fullscreen, landscape) -->
+  <link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="../img/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="../img/icon-180.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
+  <link rel="preload" href="../fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css?v=115">
+  <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
+       sync on resize, but only runs once every module has loaded) -->
+  <script>
+    (function () {
+      var upright = matchMedia('(orientation: portrait) and (pointer: coarse)').matches, root = document.documentElement;
+      root.style.setProperty('--sw', innerWidth + 'px');
+      root.style.setProperty('--sh', innerHeight + 'px');
+      root.classList.toggle('rotated', upright);
+      root.classList.toggle('compact', (upright ? innerWidth : innerHeight) < 500);
+      // ui zoom for big windows (same formula as uiScale in main.js)
+      var uiSize = 1; try { uiSize = JSON.parse(localStorage.getItem('frontlines.settings') || '{}').uiSize || 1; } catch (e) {}
+      root.style.setProperty('--ui', (Math.min(3, Math.max(1, Math.min((upright ? innerHeight : innerWidth) / 1280, (upright ? innerWidth : innerHeight) / 720))) * uiSize).toFixed(3));
+      root.classList.add('booting');   // loading screen until the menu's first frame is drawn (main.js)
+    })();
+  </script>
+</head>
+<body>
+  <!-- loading screen: shown at boot (html.booting) and while a game mode starts (.on); plain
+       html/css/svg so it appears instantly, before any game code has run -->
+  <div id="loading">
+    <div class="ld-scene">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <radialGradient id="ld-sea" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#8ccfe0"/><stop offset="1" stop-color="#4f9fbd"/></radialGradient>
+          <linearGradient id="ld-grass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fd46a"/><stop offset="1" stop-color="#6aa846"/></linearGradient>
+          <clipPath id="ld-clip"><circle cx="100" cy="100" r="92"/></clipPath>
+        </defs>
+        <circle cx="100" cy="100" r="96" fill="#f6e2a8" stroke="#a3650a" stroke-width="6"/>
+        <g clip-path="url(#ld-clip)">
+          <rect width="200" height="200" fill="url(#ld-sea)"/>
+          <g class="ld-waves" stroke="#d8f1f6" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7">
+            <path d="M20 160 q8 -5 16 0 t16 0"/><path d="M140 170 q8 -5 16 0 t16 0"/><path d="M150 40 q8 -5 16 0 t16 0"/>
+          </g>
+          <!-- island: cliff, sand rim, grass, forest, a lake -->
+          <path d="M40 122 C34 92 58 62 96 60 C138 58 168 84 162 116 C158 140 128 152 98 150 C66 150 44 142 40 122 Z" fill="#6f6a64" transform="translate(0 9)"/>
+          <path d="M40 122 C34 92 58 62 96 60 C138 58 168 84 162 116 C158 140 128 152 98 150 C66 150 44 142 40 122 Z" fill="#f1dfae"/>
+          <path d="M46 120 C42 96 62 68 96 67 C134 66 160 88 155 114 C151 135 126 144 98 143 C70 143 50 137 46 120 Z" fill="url(#ld-grass)"/>
+          <ellipse cx="128" cy="122" rx="14" ry="7" fill="#5fb3cf"/>
+          <g fill="#3f7a3c"><circle cx="64" cy="112" r="7"/><circle cx="74" cy="118" r="6"/><circle cx="60" cy="122" r="5.5"/><circle cx="140" cy="92" r="6"/><circle cx="148" cy="99" r="5"/></g>
+          <!-- castle with a waving flag -->
+          <g transform="translate(100 104)">
+            <ellipse cx="0" cy="14" rx="26" ry="6" fill="rgba(0,0,0,0.18)"/>
+            <rect x="-20" y="-8" width="40" height="22" fill="#d9d5cc"/><rect x="-20" y="-8" width="40" height="4" fill="#bdb7ab"/>
+            <rect x="-26" y="-18" width="12" height="32" fill="#cfcac0"/><rect x="14" y="-18" width="12" height="32" fill="#cfcac0"/>
+            <path d="M-28 -18 h16 l-8 -10 z M12 -18 h16 l-8 -10 z" fill="#2f74d6"/>
+            <path d="M-6 14 v-9 a6 6 0 0 1 12 0 v9 z" fill="#6b4a32"/>
+            <rect x="-1" y="-40" width="2" height="32" fill="#6b4a32"/>
+            <path class="ld-flag" d="M1 -40 q10 -3 18 2 q-8 4 -18 9 z" fill="#d1403a"/>
+          </g>
+        </g>
+        <g class="ld-clouds" fill="#ffffff">
+          <g opacity="0.85"><ellipse cx="40" cy="46" rx="22" ry="9"/><ellipse cx="54" cy="40" rx="14" ry="9"/></g>
+          <g opacity="0.75"><ellipse cx="160" cy="150" rx="20" ry="8"/><ellipse cx="148" cy="144" rx="12" ry="8"/></g>
+        </g>
+      </svg>
+    </div>
+    <div class="ld-title">FOGTIDE</div>
+    <div class="ld-bar"><span></span></div>
+    <p id="ld-tip" class="ld-tip"></p>
+  </div>
+  <script>
+    // short tips for the loading screen (main.js picks a new one every time it shows)
+    window.__tips = [
+      'Drag from your tile to a neighbour to attack.',
+      'Tap your own tile to open the build wheel.',
+      'Full tiles stop growing: spend the surplus.',
+      'Drag to your own tile to pipe foglets to the front.',
+      'Forts make defenders count x1.75.',
+      'Barracks: attacks from here hit x1.5.',
+      'Farms add +60% growth to their tile.',
+      'Forest and highland tiles are easier to hold.',
+      'River and lakeside tiles grow faster.',
+      'Hold a glowing obelisk to gain its perk.',
+      'A tile under attack stops growing.',
+      'Bots gang up on whoever grows fastest.',
+    ];
+    document.getElementById('ld-tip').textContent = '\u{1F4A1} ' + __tips[Math.floor(Math.random() * __tips.length)];
+  </script>
+  <!-- main menu -->
+  <section id="menu" class="screen">
+    <!-- live demo battle behind everything -->
+    <div class="menu-bg"><canvas id="menu-canvas"></canvas></div>
+    <div class="menu-fog"></div>
+    <header class="menu-top">
+      <span class="badge hidden" id="m-regions" title="Campaign regions">🏳️ 1/34</span>
+      <!-- idle hub: fog horn (gathers Fog in real time, tap to collect), Fog / Mist bank, upgrade tree -->
+      <div id="idle-hub" class="idle-hub hidden">
+        <button id="hub-horn" class="hub-horn hidden" title="Fog horn: tap to collect">
+          <svg viewBox="0 0 84 56" aria-hidden="true">
+            <defs>
+              <linearGradient id="horn-ivory" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff8e4"/><stop offset="1" stop-color="#d8b06a"/></linearGradient>
+              <linearGradient id="horn-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe9a0"/><stop offset="1" stop-color="#c98a14"/></linearGradient>
+            </defs>
+            <path d="M18 44 Q30 52 48 34" fill="none" stroke="#7a4a22" stroke-width="3" stroke-linecap="round"/>
+            <path d="M5 42 Q18 47 33 37 Q50 25 62 9 L76 23 Q60 33 45 45 Q27 56 6 48 Z" fill="url(#horn-ivory)" stroke="#6b4a1e" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M27 40 L33 49 M46 28 L54 38" stroke="url(#horn-gold)" stroke-width="5" stroke-linecap="round"/>
+            <ellipse cx="69" cy="16" rx="5" ry="10.5" transform="rotate(45 69 16)" fill="#5b3c18" stroke="url(#horn-gold)" stroke-width="3"/>
+            <circle cx="5" cy="45" r="3.5" fill="url(#horn-gold)" stroke="#6b4a1e" stroke-width="1.5"/>
+          </svg>
+          <span class="horn-wisps" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="horn-meter"><i id="horn-fill"></i></span>
+          <b id="hub-horn-amt">0</b>
+        </button>
+        <span class="hub-bank"><span id="hub-fog">🌫️ 0</span><span id="hub-mist" class="hidden">💠 0</span></span>
+        <button id="hub-shop" class="round" title="Idle upgrades">⬆️</button>
+      </div>
+      <span class="spacer"></span>
+      <button id="btn-install" class="round hidden" title="Install Fogtide as an app">📲</button>
+      <button id="btn-profile" class="round" title="Commander: your colour, foglets and buildings">👤</button>
+      <button id="btn-sfx" class="round toggle" title="Sound">🔊</button>
+      <button id="btn-music" class="round toggle" title="Music">🎵</button>
+      <button id="btn-board" class="round" title="Conquest leaderboard">🏅</button>
+      <button id="btn-help" class="round" title="How to play">❔</button>
+      <button id="btn-settings" class="round" title="Settings (Esc)">⚙️</button>
+    </header>
+    <!-- foglet bands shouting at each other across the menu (js/foglets.js) -->
+    <canvas id="foglets-l" class="foglets left" aria-hidden="true"></canvas>
+    <canvas id="foglets-r" class="foglets right" aria-hidden="true"></canvas>
+    <div class="logo">
+      <h1>FOGTIDE</h1>
+      <div class="ribbon">Unstoppable, like the tide</div>
+    </div>
+    <div class="modes">
+      <button id="btn-party" class="mode gold pulse"><span class="m-ico">🌐</span><span class="m-txt"><b>Online battle</b><small>Friends on one island</small></span><span class="play">GO</span></button>
+      <button id="btn-campaign" class="mode blue pulse hidden"><span class="m-ico">🗺️</span><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span><span class="play">PLAY</span></button>
+      <button id="btn-expedition" class="mode sky"><span class="m-ico">🧭</span><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span><span class="play">GO</span></button>
+      <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
+      <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
+    </div>
+    <span id="version">build 115 · 2026-11-14 15:05</span>
+  </section>
+
+  <!-- campaign world map -->
+  <section id="campaign" class="screen hidden">
+    <header class="bar">
+      <button id="campaign-back">←</button>
+      <b>Campaign</b>
+      <span id="campaign-progress"></span>
+      <button id="campaign-reset" title="Reset progress">⟲</button>
+    </header>
+    <div class="layout">
+      <div class="mapwrap"><canvas id="campaign-canvas"></canvas></div>
+      <aside class="panel" id="region-info"></aside>
+    </div>
+  </section>
+
+  <!-- battle -->
+  <section id="battle" class="screen hidden">
+    <!-- full-screen map (cam = zoom/pan layer) with the hud floating in the corners -->
+    <div class="mapwrap" id="battle-wrap">
+      <div id="cam"><canvas id="battle-canvas"></canvas></div>
+      <div id="wheel" class="hidden"></div>
+    </div>
+    <div class="hud tl">
+      <button id="battle-quit" class="round" title="Back (Esc)">←</button>
+      <span id="stage" class="stage-badge hidden"></span>
+      <span id="clock" class="badge">0:00</span>
+      <div id="party-legend"></div>
+      <button id="test-fill" class="round" title="Test: fill all my tiles to their cap">🧪</button>
+      <button id="test-win" class="round" title="Test: win this battle now">🏆</button>
+    </div>
+    <!-- conquest: your perks, under the top-left hud (tap one for what it does) -->
+    <div id="perk-bar" class="hidden"></div>
+    <div class="hud tr">
+      <!-- idle mode: fogs, upgrade tree, auto-battle toggle -->
+      <span id="idle-fogs" class="badge fog-badge hidden" title="Fog: spend it on upgrades">🌫️ 0</span>
+      <span id="idle-mist" class="badge mist-badge hidden" title="Mist: dropped by bosses, buys the advanced upgrades">💠 0</span>
+      <button id="idle-shop-btn" class="round hidden" title="Upgrades (U)">⬆️</button>
+      <button id="idle-auto" class="round hidden" title="Auto-battle (A)">🤖</button>
+      <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
+      <button id="bar-settings" class="round" title="Settings">⚙️</button>
+    </div>
+    <div class="hud bl">
+      <div id="seg-info"></div>
+      <div id="route-info" class="hidden"><span></span><button id="route-stop" title="Stop this route">✕</button></div>
+      <div class="sendbox">
+        <span class="lbl">Send</span>
+        <span id="pct" class="chunky-group">
+          <button data-pct="0.25">25%</button><button data-pct="0.5">50%</button><button data-pct="0.75">75%</button><button data-pct="1">100%</button>
+        </span>
+        <!-- one big play/pause button (game runs at x1 only), next to the send % -->
+        <button id="speed" class="chunky" title="Pause / play (space)">❚❚</button>
+      </div>
+    </div>
+    <!-- tutorial coach card (first game, or replayed from the help) -->
+    <div id="tutor" class="hidden">
+      <span id="tutor-step" class="tutor-step"></span>
+      <p id="tutor-text"></p>
+      <div class="tutor-btns"><button id="tutor-skip" class="tutor-skip">Skip tutorial</button><button id="tutor-ok" class="primary">Got it</button></div>
+    </div>
+    <!-- end screen: sunburst (victory), ribbon title, stars, stat tiles, chunky buttons -->
+    <div id="end" class="overlay hidden">
+      <div class="rays-clip"><div class="rays"></div></div>
+      <div class="card end-card">
+        <div class="end-ribbon"><h2 id="end-title"></h2></div>
+        <div id="end-stars" class="stars"></div>
+        <p id="end-why" class="star-why"></p>
+        <div id="end-stats"></div>
+        <div id="end-perks"></div>
+        <div class="end-btns">
+          <button id="end-retry" class="mode gold big-btn">↻ Retry</button>
+          <button id="end-continue" class="mode green big-btn">Continue</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- online party: create a room or join one by code, then the lobby -->
+  <div id="party" class="overlay hidden">
+    <div class="card end-card leave-card party-card">
+      <div class="end-ribbon"><h2>Online battle</h2></div>
+      <div id="party-join">
+        <input id="party-name" maxlength="14" placeholder="Your name" autocomplete="off">
+        <button id="party-host" class="mode green big-btn">Create room</button>
+        <p class="party-or">or join a friend's room</p>
+        <div class="party-row"><input id="party-code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters"><button id="party-go" class="mode sky big-btn">Join</button></div>
+      </div>
+      <div id="party-lobby" class="hidden">
+        <p class="party-code-big">Room <b id="party-room"></b></p>
+        <p id="party-link" class="party-link"></p>
+        <ul id="party-list"></ul>
+        <p id="party-wait"></p>
+        <button id="party-start" class="mode gold big-btn">▶ Start</button>
+      </div>
+      <p id="party-status"></p>
+      <button id="party-close" class="mode red big-btn">Close</button>
+    </div>
+  </div>
+
+  <!-- conquest run saved on this device: continue it or start over -->
+  <div id="resume" class="overlay hidden">
+    <div class="card end-card leave-card">
+      <div class="end-ribbon"><h2>Continue conquest?</h2></div>
+      <p class="leave-icon">🧭</p>
+      <p id="resume-text"></p>
+      <div class="end-btns">
+        <button id="resume-new" class="mode red big-btn">New conquest</button>
+        <button id="resume-go" class="mode green big-btn">▶ Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- leave confirmation: pauses the battle; nothing of the running battle / run is saved -->
+  <div id="leave" class="overlay hidden">
+    <div class="card end-card leave-card">
+      <div class="end-ribbon"><h2>Leave battle?</h2></div>
+      <p class="leave-icon">🏳️</p>
+      <p id="leave-text">Are you sure you want to withdraw? Your progress in this battle will not be saved.</p>
+      <div class="end-btns">
+        <button id="leave-stay" class="mode green big-btn">Keep fighting</button>
+        <button id="leave-go" class="mode red big-btn">Withdraw</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- commander panel: colour, troop style, building style (saved in the browser) -->
+  <div id="profile" class="overlay hidden">
+    <div class="card end-card profile-card">
+      <div class="end-ribbon"><h2>Commander</h2></div>
+      <h3>Colour</h3><div id="pf-colors" class="pf-row"></div>
+      <h3>Foglets</h3><div id="pf-troops" class="pf-row"></div>
+      <h3>Buildings</h3><div id="pf-buildings" class="pf-row"></div>
+      <p class="hint">Rivals get their own colours and styles every battle.</p>
+      <div class="end-btns"><button id="pf-done" class="mode green big-btn">Done</button></div>
+    </div>
+  </div>
+
+  <!-- conquest leaderboard: your best runs on this device -->
+  <div id="board" class="overlay hidden">
+    <div class="card scroll">
+      <h2>🏅 Conquest leaderboard</h2>
+      <div id="board-list"></div>
+      <p class="hint">Per stage (×1 Valley … ×5 World): clear 500 · each ★ 150 · speed up to 400 (less the slower; 0 after 10 min) · plus 15 × √foglets defeated.</p>
+      <button id="board-close" class="primary">Close</button>
+    </div>
+  </div>
+
+  <!-- idle mode upgrade tree: opens over the running battle (it keeps going), buys apply at once -->
+  <div id="idle-shop" class="overlay hidden">
+    <div class="card end-card shop-card">
+      <div class="end-ribbon"><h2>Upgrades</h2></div>
+      <p id="shop-fogs" class="shop-fogs">🌫️ 0 fogs</p>
+      <div class="shop-body"><div id="shop-tree" class="shop-tree"></div><div id="shop-detail" class="shop-detail"></div></div>
+      <div class="end-btns"><button id="shop-close" class="mode green big-btn">Back to battle</button></div>
+    </div>
+  </div>
+
+  <!-- settings: volumes, ui size, display (desktop app: fullscreen / window, quit); saved in the browser -->
+  <div id="settings" class="overlay hidden">
+    <div class="card end-card settings-card">
+      <div class="end-ribbon"><h2>Settings</h2></div>
+      <div class="set-row"><span>🎵 Music</span><input id="set-music" type="range" min="0" max="100" step="5"><b id="set-music-v"></b></div>
+      <div class="set-row"><span>🔊 Sound</span><input id="set-sfx" type="range" min="0" max="100" step="5"><b id="set-sfx-v"></b></div>
+      <div class="set-row"><span>🔍 Interface</span><span id="set-ui" class="chunky-group">
+        <button data-ui="0.85">Small</button><button data-ui="1">Normal</button><button data-ui="1.2">Large</button></span></div>
+      <div class="set-row"><span>🧍 Foglets</span><span id="set-figs" class="chunky-group">
+        <button data-fig="polished">Classic</button><button data-fig="faces">Faces</button><button data-fig="worn">Battle-worn</button></span></div>
+      <div class="set-row desktop-only hidden"><span>🖥️ Display</span><span id="set-display" class="chunky-group">
+        <button data-full="1">Fullscreen</button><button data-full="0">Window</button></span></div>
+      <p class="hint">Keys: Space pause · 1–4 send % · Esc close / back · U upgrades · A auto-attack<span class="desktop-only hidden"> · F11 fullscreen</span></p>
+      <div class="end-btns">
+        <button id="set-quit" class="mode red big-btn desktop-only hidden">Quit game</button>
+        <button id="set-done" class="mode green big-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- rules -->
+  <div id="help" class="overlay hidden">
+    <div class="card scroll">
+      <button id="help-tutor" class="menu-btn sky">▶ Play tutorial</button>
+      <h2>How to play</h2>
+      <ul>
+        <li>The map is split into segments. Each one you own grows <b>1% of its cap per second</b> up to the cap (largest tile: 400). Bigger tiles grow faster and hold more.</li>
+        <li><b>Drag</b> from your tile to a neighbour to send the chosen % of its foglets: an attack on enemy/neutral, a move to your own.</li>
+        <li><b>Build:</b> <b>tap</b> your tile to open its <b>build wheel</b> (tiles without a structure). Tap a building to build it with that tile's foglets.</li>
+        <li><b>Zoom:</b> pinch (or mouse wheel) to zoom in, drag empty ground to pan.</li>
+        <li><b>🔁 Routes</b>: sending to your own neighbour also sets a <b>route</b>. Every second the source tile forwards all foglets above its reserve (100% − send %, of its cap) to the target. Chain routes to pipe troops from the back to the front. Tap a tile and press ✕ to end its route.</li>
+        <li>Fight: attackers stop at the border and fight for 1–3 seconds. Attack = foglets × attack bonus, defense = defenders × defense bonus. Higher number wins; the winner keeps the difference.</li>
+        <li>Lakes and mountains can't be occupied or crossed.</li>
+        <li>Terrain: 🏔️ Highland (next to mountains) defenders +30% · 🌲 Forest defenders +15% · 🌊 River +25% growth · 💧 Lakeside +15% growth.</li>
+        <li>✨ Relic tiles: a few neutral tiles hold a shrine with a perk (shown above the number) and a stronger garrison. Whoever holds the tile gets the perk; lose the tile, lose the perk.</li>
+        <li>Neutral (grey) tiles start with a garrison that matches their size and slowly regrow back to it (0.2% of cap per second) if you only damage them. Bots fight each other too: let them weaken each other.</li>
+        <li>Each segment can hold one building, paid with its own foglets. Captured buildings switch sides.</li>
+      </ul>
+      <ul id="help-buildings"></ul>
+      <p><b>🧭 Conquest</b> (roguelite): 5 stages from a valley to the whole world. Win a stage and everything you hold collapses into one capital on a bigger map: all your people come along (the capital fills up, the rest waits in a 🏕️ reserve), and each building type becomes a capital bonus = its effect × the share of your segments that had it (4 farms of 10 segments → +60% × 40% = +24% growth). Nothing can be built in a capital. Bots start with part of your strength and their own capitals. Pick a perk at every zoom-out. Lose once and the run ends.</p>
+      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
+      <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
+      <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
+      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect / close / leave, U = idle upgrades, A = auto-attack, F11 = fullscreen (desktop app).</p>
+      <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
+      <button id="help-feedback">💬 Send feedback</button>
+      <button id="help-close" class="primary">Got it</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+  <script type="module" src="js/main.js?v=115"></script>
+</body>
+</html>

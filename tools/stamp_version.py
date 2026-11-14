@@ -40,6 +40,8 @@ def stamp_js(src):
 
 
 rewrite(root / "index.html", stamp_html)
+if (root / "party" / "index.html").exists():   # online party mode (mobile build in party/)
+    rewrite(root / "party" / "index.html", stamp_html)
 skip = {"node_modules", "tools", "dist"}   # dist = build output (copies of the game), never stamped
 for js in root.rglob("*.js"):
     if not skip & set(js.relative_to(root).parts):
