@@ -24,6 +24,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--out", default=str(root / "tools" / "shots" / "desktop.png"), help="screenshot path")
 ap.add_argument("--seconds", type=float, default=4, help="how long to measure fps / collect console")
 ap.add_argument("--eval", default="", help="js expression to evaluate and print (e.g. window.__fogtide)")
+ap.add_argument("--setup", default="", help="js to run before measuring fps (e.g. __fl.startSkirmish())")
 ap.add_argument("--click", action="append", default=[], help="click x,y in the window before measuring (repeatable)")
 ap.add_argument("--bundled", action="store_true", help="use the files packed into the build, not the working tree")
 ap.add_argument("--fullscreen", action="store_true", help="run fullscreen (default: 1280x720 window)")
@@ -79,6 +80,9 @@ try:
             x, y = (float(v) for v in c.split(","))
             page.mouse.click(x, y)
             page.wait_for_timeout(700)
+        if a.setup:                        # e.g. start a battle, so the fps below are measured in it
+            page.evaluate(a.setup)
+            page.wait_for_timeout(1500)
 
         # fps inside the app window: count rAF frames and track the slowest frame
         fps = page.evaluate("""(ms) => new Promise(res => {

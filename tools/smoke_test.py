@@ -50,8 +50,8 @@ sim_js = """async () => {
 try:
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        for name, vp in [("portrait", {"width": 390, "height": 844}), ("landscape", {"width": 1280, "height": 720})]:
-            page = browser.new_page(viewport=vp, device_scale_factor=2 if name == "portrait" else 1)
+        for name, vp in [("pc", {"width": 1920, "height": 1080}), ("window", {"width": 1280, "height": 720})]:
+            page = browser.new_page(viewport=vp, device_scale_factor=1)
             page.add_init_script("localStorage.setItem('frontlines.tutorial', '1')")   # the tutorial battle has its own check
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -148,7 +148,7 @@ try:
                 page.evaluate("document.querySelectorAll('.screen').forEach(s => s.classList.toggle('hidden', s.id !== 'menu'))")
                 page.evaluate("document.getElementById('end').classList.add('hidden')")
 
-            if name == "portrait":
+            if name == "pc":
                 t0 = time.time()
                 res = page.evaluate(sim_js)
                 print(f"bot battles ({time.time() - t0:.1f}s):")
@@ -188,13 +188,14 @@ try:
                 page.mouse.down()
                 page.mouse.move(x1, y1, steps=8)
                 page.mouse.up()
-            page.mouse.click(*to_px(b["x"], b["y"]))   # tap own tile: build wheel
+            page.mouse.click(*to_px(b["x"], b["y"]))   # click own tile: selects it, build bar goes live
             page.wait_for_timeout(150)
-            wheel_open = page.evaluate("!document.getElementById('wheel').classList.contains('hidden')")
-            print(f"{name}: wheel after a tap -> {wheel_open}")
+            bar_live = page.evaluate("!document.getElementById('buildbar').classList.contains('off')")
+            print(f"{name}: build bar live after selecting own tile -> {bar_live}")
+            page.hover("#buildbar .bslot[data-type=farm]")
             page.wait_for_timeout(250)
-            page.screenshot(path=str(out / f"{name}-wheel.png"))   # build wheel around the tile
-            page.click("#wheel .sector[data-type=farm]")
+            page.screenshot(path=str(out / f"{name}-buildbar.png"))   # build bar + tooltip
+            page.click("#buildbar .bslot[data-type=farm]")
             page.mouse.click(*to_px(b["target"]["x"], b["target"]["y"]))   # tap elsewhere: closes, sends nothing
             page.wait_for_timeout(100)
             tapped = page.evaluate("__fl.battle.stats.sent")

@@ -1,17 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=108';
-import { generateMap, rng } from './mapgen.js?v=108';
-import { initAnalytics, track } from './analytics.js?v=108';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=108';
-import { Battle } from './battle.js?v=108';
-import { personalities } from './ai.js?v=108';
-import { Campaign } from './campaign.js?v=108';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=108';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=108';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=108';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=108';
-import { previewBuildings } from './structures.js?v=108';
-import { initTune, tuneChanges } from './tune.js?v=108';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=109';
+import { generateMap, rng } from './mapgen.js?v=109';
+import { initAnalytics, track } from './analytics.js?v=109';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=109';
+import { Battle } from './battle.js?v=109';
+import { personalities } from './ai.js?v=109';
+import { Campaign } from './campaign.js?v=109';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=109';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=109';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=109';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=109';
+import { previewBuildings } from './structures.js?v=109';
+import { initTune, tuneChanges } from './tune.js?v=109';
+import { initFogNoise } from './fogui.js?v=109';
+initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
 
@@ -214,7 +216,7 @@ function startBattle(setup, m, rid = -1) {
   if (m === 'idle' && setup.boss) bv.setStorm(true); else bv.setStorm(false, true);
   $('stage').classList.toggle('hidden', m !== 'expedition' && m !== 'idle');
   if (m === 'expedition') $('stage').textContent = `Stage ${expedition.stage + 1}`;
-  if (m === 'idle') $('stage').textContent = `${setup.boss ? '👑 ' : setup.ghost ? '👤 ' : ''}Stage ${idle.stage}`;
+  if (m === 'idle') $('stage').textContent = `${setup.boss ? 'Boss · ' : setup.ghost ? 'Rival · ' : ''}Stage ${idle.stage}`;
   for (const id of ['idle-fogs', 'idle-shop-btn', 'idle-auto']) $(id).classList.toggle('hidden', m !== 'idle');
   $('idle-mist').classList.toggle('hidden', m !== 'idle' || !idle?.mistTotal);
   if (m === 'idle') syncIdleButtons();
@@ -439,6 +441,7 @@ function drawBattle() {
   drawFx(ctx, fs);
   drawTutor(ctx, fs);
   updateWheel();   // follows zoom / pan
+  updateBuildBar();
   // player routes: dashed arrows with a moving dash
   ctx.save();
   for (const [a, r] of battle.routes) {
@@ -692,8 +695,8 @@ $('battle-canvas').addEventListener('pointerup', (e) => {
 // a tap on tile sid (or -1 = off the map): your tile = select it + build wheel (tiles with a
 // structure or capitals just show their info / route); the same tile again or anything else = close
 function tapAt(sid) {
-  if (isMine(sid) && sid !== selected) { selected = sid; wheelOn = true; }
-  else { selected = -1; wheelOn = false; }
+  if (isMine(sid) && sid !== selected) selected = sid;
+  else selected = -1;
 }
 
 function sendFrom(from, to) {
@@ -710,10 +713,17 @@ function sendFrom(from, to) {
 
 $('route-stop').onclick = () => { if (selected >= 0) battle.clearRoute(selected); };
 
-// build wheel: tapping your tile that has no structure opens a ring of the 5 buildings around it.
-// tap a sector to build (paid with that tile's troops); the hole in the middle and everything
-// outside the ring stay tappable, so sending troops works as usual (and closes the wheel)
-let wheelOn = false, wheelFor = -1, wheelPos = '';
+// right click on a neighbour of the selected tile = send there (pc). the browser menu stays off
+$('battle-canvas').addEventListener('contextmenu', (e) => e.preventDefault());
+$('battle-canvas').addEventListener('pointerdown', (e) => {
+  if (e.button !== 2 || !battle) return;
+  e.stopImmediatePropagation();   // not a pan / drag gesture
+  if (battle.state !== 'running' || countdown > 0) return;
+  const to = bv.segAt(e.clientX, e.clientY);
+  if (canTarget(selected, to)) sendFrom(selected, to);
+  else if (isMine(to)) selected = to;   // own tile that isn't a neighbour: select it instead
+});
+
 // white line icons (24x24, stroked) per building
 const wheelIcons = {
   farm: '<path d="M12 22V9"/><path d="M12 9c-2.5 0-4-1.8-4-4 2.5 0 4 1.8 4 4zM12 9c2.5 0 4-1.8 4-4-2.5 0-4 1.8-4 4z"/><path d="M12 14c-2.5 0-4-1.8-4-4 2.5 0 4 1.8 4 4zM12 14c2.5 0 4-1.8 4-4-2.5 0-4 1.8-4 4z"/><path d="M12 19c-2.5 0-4-1.8-4-4 2.5 0 4 1.8 4 4zM12 19c2.5 0 4-1.8 4-4-2.5 0-4 1.8-4 4z"/>',
@@ -722,6 +732,59 @@ const wheelIcons = {
   hospital: '<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>',
   lab: '<path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3"/><path d="M7.5 15h9"/><circle cx="10.5" cy="17.5" r=".6"/><circle cx="13.5" cy="18" r=".6"/>',
 };
+// ---------- build bar (bottom centre): the 5 buildings for the selected tile ----------
+// a slot is live when the selected tile is yours, has no structure and is not a capital / obelisk;
+// greyed when the tile lacks the foglets. click or keys 1-5 build; hover shows what it does
+const buildTypes = Object.keys(buildings);
+$('buildbar').innerHTML = buildTypes.map((t, i) => `<button class="bslot" data-type="${t}">
+  <span class="key">${i + 1}</span><svg viewBox="0 0 24 24" class="bi">${wheelIcons[t]}</svg><span class="cost"></span></button>`).join('');
+const buildable = (s) => s && s.owner === 0 && !s.building && !s.capital && !s.obelisk;
+function buildOn(type) {
+  const s = selected >= 0 ? battle?.segs[selected] : null;
+  if (!battle || battle.state !== 'running') return;
+  if (!buildable(s)) { flash(s && s.owner === 0 ? 'This tile already has a structure' : 'Select one of your tiles first'); return; }
+  if (battle.build(0, selected, type)) { sfx.build(); tutorEvent('build'); }
+  else flash(`${buildings[type].name} needs ${num(battle.costOf(0, type))} foglets in this tile`);
+}
+let barKey = '';
+function updateBuildBar() {
+  const s = selected >= 0 ? battle.segs[selected] : null, live = buildable(s);
+  const hint = !!tutor && tutorSteps[tutor.step]?.id === 'build';
+  const k = `${live}:${hint}:` + buildTypes.map((t) => `${battle.costOf(0, t)}${live && s.troops >= battle.costOf(0, t) ? 'y' : 'n'}`).join();
+  if (k === barKey) return;
+  barKey = k;
+  $('buildbar').classList.toggle('off', !live);
+  for (const b of $('buildbar').children) {
+    const c = battle.costOf(0, b.dataset.type);
+    b.querySelector('.cost').textContent = num(c);
+    b.classList.toggle('dim', !live || s.troops < c);
+    b.classList.toggle('hint', hint && b.dataset.type === 'farm');
+  }
+}
+let tipFor = null;
+function showBuildTip(b) {
+  tipFor = b;
+  const t = b.dataset.type, i = buildTypes.indexOf(t), c = battle ? battle.costOf(0, t) : buildings[t].cost;
+  const s = selected >= 0 && battle ? battle.segs[selected] : null;
+  const state = !buildable(s) ? 'Select one of your empty tiles' : s.troops < c ? `Needs ${num(c)} foglets here (has ${num(s.troops)})` : 'Click to build';
+  const d = buildings[t].desc;
+  $('build-tip').innerHTML = `<h5><span>${buildings[t].name}</span><span class="muted">Key ${i + 1} · ${num(c)}</span></h5>
+    <p>${d[0].toUpperCase() + d.slice(1)}.</p><div class="stat"><span class="muted">${state}</span></div>`;
+  // centre the tooltip over its slot (the hud is zoomed by --ui, so divide screen px by it)
+  const bar = $('buildbar').getBoundingClientRect(), r = b.getBoundingClientRect(), k = uiK || 1;
+  $('build-tip').style.left = `${(r.left + r.width / 2 - bar.left) / k}px`;
+  $('build-tip').classList.remove('hidden');
+}
+for (const b of $('buildbar').children) {
+  b.onclick = () => { buildOn(b.dataset.type); if (tipFor === b) showBuildTip(b); };
+  b.onpointerenter = () => showBuildTip(b);
+  b.onpointerleave = () => { tipFor = null; $('build-tip').classList.add('hidden'); };
+}
+
+// build wheel: tapping your tile that has no structure opens a ring of the 5 buildings around it.
+// tap a sector to build (paid with that tile's troops); the hole in the middle and everything
+// outside the ring stay tappable, so sending troops works as usual (and closes the wheel)
+let wheelOn = false, wheelFor = -1, wheelPos = '';
 function renderWheel() {
   const box = $('wheel'), s = battle && selected >= 0 ? battle.segs[selected] : null;
   const want = wheelOn && s && s.owner === 0 && !s.building && !s.capital && !s.obelisk ? selected : -1;
@@ -817,16 +880,34 @@ function updatePanel() {
       s.capital && s.owner === 0 && `<span class="gold">${capitalInfo(s)}</span>`,
       battle.deplete && s.owner >= 0 && `<span>🌾 Land: ${battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'}</span>`,
     ].filter(Boolean).join('');
-    $('seg-info').innerHTML = `<div class="who" style="background:${col}">${who}<small>${kind}</small></div>
-      <div class="body"><div class="troops">${num(s.troops)} <small>/ ${num(s.owner < 0 ? s.garrison : s.cap)} · ${rate}</small></div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
+    // panel: title (kind) + owner, foglets / cap with a fill bar, growth, then one row per fact
+    const cap = s.owner < 0 ? s.garrison : s.cap, fill = Math.max(0, Math.min(1, s.troops / Math.max(1, cap)));
+    const rows = [
+      ['Growth', rate],
+      s.trait && ['Terrain', `${traits[s.trait].name}: ${traits[s.trait].desc}`],
+      s.building && !s.capital && ['Building', `${buildings[s.building].name}: ${buildingEffect(s)}`],
+      relic && ['Relic', `${relic.name}: ${relic.desc}`, 'gold'],
+      s.obelisk && ['Obelisk', 'win the boss stage and it pours out Mist', 'gold'],
+      s.capital && s.owner === 0 && ['Capital', capitalInfo(s).replace('Bonuses: ', ''), 'gold'],
+      battle.deplete && s.owner >= 0 && ['Land', battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'],
+    ].filter(Boolean).map(([k, v, c]) => `<div class="row${c ? ' ' + c : ''}"><span class="muted">${k}</span><span>${v}</span></div>`).join('');
+    $('seg-info').innerHTML = `<h3><span>${kind}</span><span class="who"><i style="background:${col}"></i>${who}</span></h3>
+      <div class="row big"><span>Foglets</span><b>${num(s.troops)} / ${num(cap)}</b></div>
+      <div class="meter"><span style="width:${(fill * 100).toFixed(1)}%"></span></div>${rows}`;
   } else $('seg-info').textContent = '';
   // selected tile's route (if any) with a stop button
   const route = selected >= 0 ? battle.routes.get(selected) : null;
   $('route-info').classList.toggle('hidden', !route);
-  if (route) $('route-info').firstElementChild.textContent = `🔁 Route active, keeps ${Math.round(route.keep * 100)}% of cap`;
+  if (route) $('route-info').firstElementChild.textContent = `Route: keeps ${Math.round(route.keep * 100)}% of cap, forwards the rest`;
   const res = battle.factions[0].reserve;
-  $('clock').textContent = fmtTime(battle.time) + (res >= 1 ? ` · 🏕️ ${num(res)}` : '');
+  $('clock').textContent = fmtTime(battle.time) + (res >= 1 ? ` · reserve ${num(res)}` : '');
   $('clock').title = res >= 1 ? 'Reserve: flows into your capital when it has room' : '';
+  // top bar: tiles held / all tiles, all your foglets and their growth per second
+  let held = 0, men = 0, grow = 0;
+  for (const q of battle.segs) if (q.owner === 0) { held++; men += q.troops; grow += q.growth; }
+  $('hud-land').textContent = `${held} / ${battle.segs.length}`;
+  $('hud-troops').textContent = num(men);
+  $('hud-rate').textContent = `+${numScale === 1 ? Math.round(grow * 10) / 10 : fmtBig(grow * numScale)}/s`;
   renderPerks();
   if (mode === 'idle') updateIdleHud();
 }
@@ -854,12 +935,12 @@ function renderPerks() {
   bar.classList.toggle('hidden', !bar.children.length);
 }
 
-for (const b of document.querySelectorAll('#pct button')) {
-  b.onclick = () => setPct(+b.dataset.pct);
-}
+$('pct').oninput = () => setPct(+$('pct').value / 100);
 function setPct(p) {
-  pct = p;
-  for (const b of document.querySelectorAll('#pct button')) b.classList.toggle('on', +b.dataset.pct === p);
+  pct = Math.round(Math.min(1, Math.max(0.1, p)) * 20) / 20;   // 10-100% in steps of 5
+  $('pct').value = Math.round(pct * 100);
+  $('pct-v').textContent = `${Math.round(pct * 100)}%`;
+  $('pct').style.setProperty('--v', `${((pct - 0.1) / 0.9) * 100}%`);   // filled part of the track
 }
 
 $('speed').onclick = () => setSpeed(paused ? speed : 0);   // one button: pause <-> play
@@ -869,7 +950,7 @@ function setSpeed(s) {
   paused = s === 0;
   userPaused = paused;
   if (s > 0) speed = s;
-  $('speed').textContent = paused ? '▶' : '❚❚';
+  $('speed').textContent = paused ? 'Play' : 'Pause';
   $('speed').classList.toggle('paused', paused);
 }
 
@@ -1441,8 +1522,8 @@ function buyUpgrade(id) {
 
 // hud: fog counter, the shop button glows when something is affordable, auto-battle toggle
 function updateIdleHud() {
-  $('idle-fogs').textContent = `🌫️ ${fmtBig(idle.fogs)}`;
-  $('idle-mist').textContent = `💠 ${mistShown ?? idle.mist}`;   // mistShown: counting up while obelisks pour
+  $('idle-fogs').lastElementChild.textContent = fmtBig(idle.fogs);
+  $('idle-mist').lastElementChild.textContent = mistShown ?? idle.mist;   // mistShown: counting up while obelisks pour
   $('idle-mist').classList.toggle('hidden', !idle.mistTotal);
   $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
   if (!$('idle-shop').classList.contains('hidden')) renderShop();
@@ -1662,7 +1743,7 @@ $('btn-campaign').onclick = () => show('campaign');
 $('btn-skirmish').onclick = viaTutor(startSkirmish);
 $('btn-expedition').onclick = conquestEntry;
 $('btn-idle').onclick = viaTutor(startIdle);
-$('btn-help').onclick = () => $('help').classList.remove('hidden');
+$('btn-help').onclick = $('m-help').onclick = () => $('help').classList.remove('hidden');
 
 // commander panel: colour swatches, troop and building style cards with live previews
 function renderProfile() {
@@ -1687,11 +1768,11 @@ function renderProfile() {
   }
   for (const s of $('pf-colors').querySelectorAll('.pf-swatch')) s.onclick = () => { profile.color = +s.dataset.i; saveProfile(); renderProfile(); sfx.click(); };
 }
-$('btn-profile').onclick = () => { renderProfile(); $('profile').classList.remove('hidden'); };
+$('btn-profile').onclick = $('m-profile').onclick = () => { renderProfile(); $('profile').classList.remove('hidden'); };
 $('pf-done').onclick = () => $('profile').classList.add('hidden');
 $('help-close').onclick = () => $('help').classList.add('hidden');
 // leaderboard: your best conquest runs
-$('btn-board').onclick = () => { $('board-list').innerHTML = boardHtml(Expedition.runs()); $('board').classList.remove('hidden'); };
+$('btn-board').onclick = $('m-board').onclick = () => { $('board-list').innerHTML = boardHtml(Expedition.runs()); $('board').classList.remove('hidden'); };
 $('board-close').onclick = () => $('board').classList.add('hidden');
 $('campaign-back').onclick = () => show('menu');
 $('campaign-reset').onclick = () => {
@@ -1760,7 +1841,10 @@ addEventListener('keydown', (e) => {
   }
   if (screen !== 'battle') return;
   if (e.key === ' ') { setSpeed(paused ? speed : 0); e.preventDefault(); }
-  if (['1', '2', '3', '4'].includes(e.key)) setPct(+e.key * 0.25);
+  const bt = Object.keys(buildings)[+e.key - 1];
+  if (bt && /^[1-5]$/.test(e.key)) buildOn(bt);
+  if (e.key.toLowerCase() === 'q') setPct(pct - 0.1);
+  if (e.key.toLowerCase() === 'e') setPct(pct + 0.1);
   // esc in battle: deselect, or with nothing selected open the leave card (like the back button)
   if (e.key === 'Escape') { if (selected >= 0) selected = -1; else if (!shown('end')) $('battle-quit').click(); }
   // idle mode: u = upgrade tree (open/close), a = auto-battle on/off
@@ -1880,9 +1964,9 @@ const tutorSteps = [
     text: () => 'Your foglets march to the border and fight. The bigger number wins and keeps the difference.' },
   { id: 'build', hold: true, ring: () => [tutor.target],
     enter() { tseg(tutor.target).troops = battle.costOf(0, 'farm'); },
-    text: () => `🌾 Your new tile has ${battle.costOf(0, 'farm')} foglets. A Farm costs ${battle.costOf(0, 'farm')} and adds +${Math.round(effects.farmGrowth * 100)}% growth to its tile. Tap the tile, then the glowing farm.` },
+    text: () => `🌾 Your new tile has ${battle.costOf(0, 'farm')} foglets. A Farm costs ${battle.costOf(0, 'farm')} and adds +${Math.round(effects.farmGrowth * 100)}% growth to its tile. Click the tile, then the glowing Farm in the build bar (or press 1).` },
   { id: 'time', ok: 'Got it', okAfter: 3, pulse: ['speed', 'clock'],
-    text: () => '⏱️ Time runs now: every tile grows foglets each second (watch the numbers). ❚❚ (top right) pauses, ▶ plays on.' },
+    text: () => '⏱️ Time runs now: every tile grows foglets each second (watch the numbers). Pause (bottom right) or Space stops time.' },
   // zoom lesson: a pinch hint over the castle; the step ends when the camera actually zooms
   // (Next shows after 8 s, for anyone whose device can't pinch)
   { id: 'zoomin', hold: true, ok: 'Next', okAfter: 8, pinch: 1,
@@ -2054,7 +2138,7 @@ const loadMin = 1.1;
 let loading = false;
 function withLoading(start) {
   const tips = window.__tips ?? [];
-  if (tips.length) $('ld-tip').textContent = '\u{1F4A1} ' + tips[Math.floor(Math.random() * tips.length)];
+  if (tips.length) $('ld-tip').textContent = tips[Math.floor(Math.random() * tips.length)];
   $('loading').classList.add('on');
   loading = true;
   const t0 = performance.now();
@@ -2194,7 +2278,7 @@ function openSettings() {
   if (desk) desk.isFullscreen().then(paintDisplay);
   $('settings').classList.remove('hidden');
 }
-$('btn-settings').onclick = $('bar-settings').onclick = openSettings;
+$('btn-settings').onclick = $('bar-settings').onclick = $('m-settings').onclick = openSettings;
 $('set-done').onclick = () => $('settings').classList.add('hidden');
 for (const k of ['music', 'sfx']) {
   $(`set-${k}`).oninput = (e) => {
@@ -2229,7 +2313,7 @@ $('set-figs').onclick = (e) => {
 if (desk) {
   $('set-display').onclick = (e) => { const b = e.target.closest('button'); if (b) desk.setFullscreen(b.dataset.full === '1'); };
   desk.onFullscreen(paintDisplay);
-  $('set-quit').onclick = () => desk.quit();
+  $('set-quit').onclick = $('m-quit').onclick = () => desk.quit();
 }
 syncAudioButtons();
 renderMenuStats();

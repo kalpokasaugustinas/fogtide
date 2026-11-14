@@ -25,7 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=108">
+  <link rel="stylesheet" href="style.css?v=109">
+  <link rel="stylesheet" href="pc.css?v=109">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -43,6 +44,19 @@
   </script>
 </head>
 <body>
+  <!-- line icons (stroked, 24x24), used with <svg class="i"><use href="#i-..."/></svg> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-time" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-land" viewBox="0 0 24 24"><path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2zM9 4v14M15 6v14"/></symbol>
+    <symbol id="i-troops" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 5a3 3 0 010 6M18 14c2 .7 3 2.8 3 6"/></symbol>
+    <symbol id="i-fog" viewBox="0 0 24 24"><path d="M4 10h11a3 3 0 100-6M2 14h16a3 3 0 110 6M6 17h8"/></symbol>
+    <symbol id="i-mist" viewBox="0 0 24 24"><path d="M12 3l6 9-6 9-6-9z M6 12h12"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0114-5.3M20 12a8 8 0 01-14 5.3M18 3v4h-4M6 21v-4h4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  </svg>
   <!-- loading screen: shown at boot (html.booting) and while a game mode starts (.on); plain
        html/css/svg so it appears instantly, before any game code has run -->
   <div id="loading">
@@ -89,8 +103,8 @@
   <script>
     // short tips for the loading screen (main.js picks a new one every time it shows)
     window.__tips = [
-      'Drag from your tile to a neighbour to attack.',
-      'Tap your own tile to open the build wheel.',
+      'Drag from your tile to a neighbour to attack, or select it and right click the target.',
+      'Select your tile, then pick a building below (keys 1-5).',
       'Full tiles stop growing: spend the surplus.',
       'Drag to your own tile to pipe foglets to the front.',
       'Forts make defenders count x1.75.',
@@ -102,7 +116,7 @@
       'A tile under attack stops growing.',
       'Bots gang up on whoever grows fastest.',
     ];
-    document.getElementById('ld-tip').textContent = '\u{1F4A1} ' + __tips[Math.floor(Math.random() * __tips.length)];
+    document.getElementById('ld-tip').textContent = __tips[Math.floor(Math.random() * __tips.length)];
   </script>
   <!-- main menu -->
   <section id="menu" class="screen">
@@ -144,17 +158,26 @@
     <!-- foglet bands shouting at each other across the menu (js/foglets.js) -->
     <canvas id="foglets-l" class="foglets left" aria-hidden="true"></canvas>
     <canvas id="foglets-r" class="foglets right" aria-hidden="true"></canvas>
-    <div class="logo">
-      <h1>FOGTIDE</h1>
-      <div class="ribbon">Unstoppable, like the tide</div>
+    <div class="menu-col">
+      <div class="logo">
+        <h1>Fogtide</h1>
+        <div class="ribbon">Unstoppable, like the tide</div>
+      </div>
+      <div class="modes">
+        <button id="btn-campaign" class="mode hidden"><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span></button>
+        <button id="btn-expedition" class="mode"><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span></button>
+        <button id="btn-idle" class="mode"><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span></button>
+        <button id="btn-skirmish" class="mode"><span class="m-txt"><b>Skirmish</b><small>Random island · 3 rivals</small></span></button>
+      </div>
+      <div class="modes sub">
+        <button id="m-profile" class="mode"><span class="m-txt"><b>Commander</b></span></button>
+        <button id="m-board" class="mode"><span class="m-txt"><b>Leaderboard</b></span></button>
+        <button id="m-help" class="mode"><span class="m-txt"><b>How to play</b></span></button>
+        <button id="m-settings" class="mode"><span class="m-txt"><b>Settings</b></span></button>
+        <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
+      </div>
     </div>
-    <div class="modes">
-      <button id="btn-campaign" class="mode blue pulse hidden"><span class="m-ico">🗺️</span><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span><span class="play">PLAY</span></button>
-      <button id="btn-expedition" class="mode sky"><span class="m-ico">🧭</span><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span><span class="play">GO</span></button>
-      <button id="btn-idle" class="mode green"><span class="m-ico">🌫️</span><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span><span class="play">GO</span></button>
-      <button id="btn-skirmish" class="mode pink"><span class="m-ico">⚔️</span><span class="m-txt"><b>Quick battle</b><small>Random island · 3 rivals</small></span><span class="play">FIGHT</span></button>
-    </div>
-    <span id="version">build 108 · 2026-11-14 10:39</span>
+    <span id="version">build 109 · 2026-11-14 11:17</span>
   </section>
 
   <!-- campaign world map -->
@@ -178,34 +201,42 @@
       <div id="cam"><canvas id="battle-canvas"></canvas></div>
       <div id="wheel" class="hidden"></div>
     </div>
-    <div class="hud tl">
-      <button id="battle-quit" class="round" title="Back (Esc)">←</button>
-      <span id="stage" class="stage-badge hidden"></span>
-      <span id="clock" class="badge">0:00</span>
-      <button id="test-fill" class="round" title="Test: fill all my tiles to their cap">🧪</button>
-      <button id="test-win" class="round" title="Test: win this battle now">🏆</button>
+    <!-- top bar: back, stage, clock, land, foglets, idle fog / mist ... upgrades, auto, music, settings -->
+    <div class="hud top">
+      <button id="battle-quit" class="ibtn fog" title="Leave battle (Esc)"><svg class="i"><use href="#i-back"/></svg></button>
+      <span id="stage" class="item fog stage-badge hidden"></span>
+      <span class="item fog"><svg class="i"><use href="#i-time"/></svg><b id="clock">0:00</b></span>
+      <span class="item fog"><svg class="i"><use href="#i-land"/></svg>Land <b id="hud-land">0 / 0</b></span>
+      <span class="item fog"><svg class="i"><use href="#i-troops"/></svg>Foglets <b id="hud-troops">0</b> <span class="muted" id="hud-rate"></span></span>
+      <span id="idle-fogs" class="item fog hidden" title="Fog: spend it on upgrades"><svg class="i"><use href="#i-fog"/></svg>Fog <b>0</b></span>
+      <span id="idle-mist" class="item fog hidden" title="Mist: dropped by bosses, buys the advanced upgrades"><svg class="i"><use href="#i-mist"/></svg>Mist <b>0</b></span>
+      <span class="grow"></span>
+      <button id="test-fill" class="ibtn fog" title="Test: fill all my tiles to their cap">F</button>
+      <button id="test-win" class="ibtn fog" title="Test: win this battle now">W</button>
+      <button id="idle-shop-btn" class="ibtn fog hidden" title="Upgrades (U)"><svg class="i"><use href="#i-up"/></svg></button>
+      <button id="idle-auto" class="ibtn fog hidden" title="Auto-battle (A)"><svg class="i"><use href="#i-auto"/></svg></button>
+      <button id="bar-music" class="ibtn fog toggle" title="Music on/off"><svg class="i"><use href="#i-music"/></svg></button>
+      <button id="bar-settings" class="ibtn fog" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
     </div>
-    <!-- conquest: your perks, under the top-left hud (tap one for what it does) -->
+    <!-- conquest: your perks, under the top bar (click one for what it does) -->
     <div id="perk-bar" class="hidden"></div>
-    <div class="hud tr">
-      <!-- idle mode: fogs, upgrade tree, auto-battle toggle -->
-      <span id="idle-fogs" class="badge fog-badge hidden" title="Fog: spend it on upgrades">🌫️ 0</span>
-      <span id="idle-mist" class="badge mist-badge hidden" title="Mist: dropped by bosses, buys the advanced upgrades">💠 0</span>
-      <button id="idle-shop-btn" class="round hidden" title="Upgrades (U)">⬆️</button>
-      <button id="idle-auto" class="round hidden" title="Auto-battle (A)">🤖</button>
-      <button id="bar-music" class="round toggle" title="Music on/off">🎵</button>
-      <button id="bar-settings" class="round" title="Settings">⚙️</button>
-    </div>
+    <!-- bottom left: the selected / hovered tile -->
     <div class="hud bl">
-      <div id="seg-info"></div>
-      <div id="route-info" class="hidden"><span></span><button id="route-stop" title="Stop this route">✕</button></div>
-      <div class="sendbox">
-        <span class="lbl">Send</span>
-        <span id="pct" class="chunky-group">
-          <button data-pct="0.25">25%</button><button data-pct="0.5">50%</button><button data-pct="0.75">75%</button><button data-pct="1">100%</button>
-        </span>
-        <!-- one big play/pause button (game runs at x1 only), next to the send % -->
-        <button id="speed" class="chunky" title="Pause / play (space)">❚❚</button>
+      <div id="route-info" class="fog hidden"><span></span><button id="route-stop" title="Stop this route">Stop</button></div>
+      <div id="seg-info" class="fog"></div>
+    </div>
+    <!-- bottom centre: build bar for the selected tile (keys 1-5), tooltip on hover -->
+    <div class="hud bc">
+      <div id="build-tip" class="tip fog ink hidden"></div>
+      <div id="buildbar" class="fog off"></div>
+    </div>
+    <!-- bottom right: send share + pause -->
+    <div class="hud br">
+      <div id="ctrl" class="fog">
+        <div class="lbl"><span>Send</span><b id="pct-v">50%</b></div>
+        <input id="pct" type="range" min="10" max="100" step="5" value="50" aria-label="Send share">
+        <div class="ctrl-row"><button id="speed" title="Pause / play (Space)">Pause</button></div>
+        <div class="keys"><span>Right click: send</span><span>Q / E: send %</span></div>
       </div>
     </div>
     <!-- tutorial coach card (first game, or replayed from the help) -->
@@ -293,15 +324,15 @@
   <div id="settings" class="overlay hidden">
     <div class="card end-card settings-card">
       <div class="end-ribbon"><h2>Settings</h2></div>
-      <div class="set-row"><span>🎵 Music</span><input id="set-music" type="range" min="0" max="100" step="5"><b id="set-music-v"></b></div>
-      <div class="set-row"><span>🔊 Sound</span><input id="set-sfx" type="range" min="0" max="100" step="5"><b id="set-sfx-v"></b></div>
-      <div class="set-row"><span>🔍 Interface</span><span id="set-ui" class="chunky-group">
+      <div class="set-row"><span>Music</span><input id="set-music" type="range" min="0" max="100" step="5"><b id="set-music-v"></b></div>
+      <div class="set-row"><span>Sound</span><input id="set-sfx" type="range" min="0" max="100" step="5"><b id="set-sfx-v"></b></div>
+      <div class="set-row"><span>Interface</span><span id="set-ui" class="chunky-group">
         <button data-ui="0.85">Small</button><button data-ui="1">Normal</button><button data-ui="1.2">Large</button></span></div>
-      <div class="set-row"><span>🧍 Foglets</span><span id="set-figs" class="chunky-group">
+      <div class="set-row"><span>Foglets</span><span id="set-figs" class="chunky-group">
         <button data-fig="polished">Classic</button><button data-fig="faces">Faces</button><button data-fig="worn">Battle-worn</button></span></div>
-      <div class="set-row desktop-only hidden"><span>🖥️ Display</span><span id="set-display" class="chunky-group">
+      <div class="set-row desktop-only hidden"><span>Display</span><span id="set-display" class="chunky-group">
         <button data-full="1">Fullscreen</button><button data-full="0">Window</button></span></div>
-      <p class="hint">Keys: Space pause · 1–4 send % · Esc close / back · U upgrades · A auto-attack<span class="desktop-only hidden"> · F11 fullscreen</span></p>
+      <p class="hint">Keys: Space pause · 1–5 build · Q / E send % · right click send · Esc close / back · U upgrades · A auto-attack<span class="desktop-only hidden"> · F11 fullscreen</span></p>
       <div class="end-btns">
         <button id="set-quit" class="mode red big-btn desktop-only hidden">Quit game</button>
         <button id="set-done" class="mode green big-btn">Done</button>
@@ -316,10 +347,10 @@
       <h2>How to play</h2>
       <ul>
         <li>The map is split into segments. Each one you own grows <b>1% of its cap per second</b> up to the cap (largest tile: 400). Bigger tiles grow faster and hold more.</li>
-        <li><b>Drag</b> from your tile to a neighbour to send the chosen % of its foglets: an attack on enemy/neutral, a move to your own.</li>
-        <li><b>Build:</b> <b>tap</b> your tile to open its <b>build wheel</b> (tiles without a structure). Tap a building to build it with that tile's foglets.</li>
-        <li><b>Zoom:</b> pinch (or mouse wheel) to zoom in, drag empty ground to pan.</li>
-        <li><b>🔁 Routes</b>: sending to your own neighbour also sets a <b>route</b>. Every second the source tile forwards all foglets above its reserve (100% − send %, of its cap) to the target. Chain routes to pipe troops from the back to the front. Tap a tile and press ✕ to end its route.</li>
+        <li><b>Send:</b> drag from your tile to a neighbour, or click your tile and <b>right click</b> the neighbour. It sends the chosen % of its foglets (slider bottom right, Q / E): an attack on enemy / neutral, a move to your own.</li>
+        <li><b>Build:</b> click your tile (one without a structure), then a building in the <b>build bar</b> at the bottom, or press <b>1–5</b>. It is paid with that tile's foglets.</li>
+        <li><b>Zoom:</b> mouse wheel to zoom in and out, drag empty ground to pan.</li>
+        <li><b>🔁 Routes</b>: sending to your own neighbour also sets a <b>route</b>. Every second the source tile forwards all foglets above its reserve (100% − send %, of its cap) to the target. Chain routes to pipe troops from the back to the front. Click a tile and press Stop to end its route.</li>
         <li>Fight: attackers stop at the border and fight for 1–3 seconds. Attack = foglets × attack bonus, defense = defenders × defense bonus. Higher number wins; the winner keeps the difference.</li>
         <li>Lakes and mountains can't be occupied or crossed.</li>
         <li>Terrain: 🏔️ Highland (next to mountains) defenders +30% · 🌲 Forest defenders +15% · 🌊 River +25% growth · 💧 Lakeside +15% growth.</li>
@@ -332,7 +363,7 @@
       <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree at any time: upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). 🏹 Archers let your tiles shoot enemy neighbours (later rivals have them too). 🤖 Auto-attack makes full tiles attack on their own. The 📯 Fog horn gathers Fog in real time, played or away: collect it from the menu. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
-      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–4 = send %, Esc = deselect / close / leave, U = idle upgrades, A = auto-attack, F11 = fullscreen (desktop app).</p>
+      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = idle upgrades, A = auto-attack, F11 = fullscreen (desktop app).</p>
       <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
       <button id="help-feedback">💬 Send feedback</button>
       <button id="help-close" class="primary">Got it</button>
@@ -340,6 +371,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=108"></script>
+  <script type="module" src="js/main.js?v=109"></script>
 </body>
 </html>
