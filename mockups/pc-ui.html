@@ -151,12 +151,16 @@
   .b .tip .muted { color: #b3bcbf; }
   .b .tip { --fog-col: rgba(35,42,44,0.97); --f: 12px; --wisp-t: 20s; --puff-t: 9s; }
   /* dark fog: a wider body with a bigger solid centre, so every line of text sits on full ink */
-  .b .tip::before { inset: -34% -16%; background-size: 100% 100%, 46% 70%, 42% 64%, 50% 60%, 38% 58%, 44% 66%, 36% 52%;
-    background-image: radial-gradient(closest-side, var(--c) 86%, transparent),
-      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
-      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent),
-      radial-gradient(closest-side, var(--c) 35%, transparent), radial-gradient(closest-side, var(--c) 35%, transparent); animation: none; }
-  .b .tip::after { inset: -46% -24%; opacity: 0.6; }
+  /* tooltip = the same ink blob as the selected building: a solid body whose outline keeps morphing
+     (border-radius only, no rotation, so the text corners always stay inside) */
+  .b .tip::before { inset: -30px -34px; background: var(--fog-col); filter: blur(6px);
+    border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; animation: tipblob 8s ease-in-out infinite alternate; }
+  @keyframes tipblob {
+    33% { border-radius: 42% 58% 46% 54% / 58% 40% 60% 42%; transform: scale(1.02, 0.98); }
+    66% { border-radius: 60% 40% 58% 42% / 42% 58% 42% 58%; transform: scale(0.98, 1.03); }
+    100% { border-radius: 48% 52% 38% 62% / 55% 45% 58% 42%; transform: scale(1.01); }
+  }
+  .b .tip::after { display: none; }
   .b .res .item, .b .res .ibtn { --f: 10px; }
   .b .factions { --wisp-d: -7s; } .b .tile { --wisp-d: -13s; } .b .build { --wisp-d: -4s; } .b .ctrl { --wisp-d: -19s; }
   .b .res .item:nth-child(2) { --wisp-d: -5s; } .b .res .item:nth-child(3) { --wisp-d: -11s; } .b .res .item:nth-child(4) { --wisp-d: -17s; }
@@ -278,13 +282,6 @@
           <span class="ibtn panel" title="Settings (Esc)"><svg class="i"><use href="#i-gear"/></svg></span>
         </div>
 
-        <div class="hud factions panel">
-          <h4>Rivals</h4>
-          <div class="fac"><i style="background:#3b7be0"></i><span>You</span><b>1,284</b><div class="bar"><span style="width:62%;background:#3b7be0"></span></div></div>
-          <div class="fac"><i style="background:#d9413b"></i><span>Ashen Court</span><b>1,630</b><div class="bar"><span style="width:78%;background:#d9413b"></span></div></div>
-          <div class="fac"><i style="background:#e09a1c"></i><span>Amber Reach</span><b>1,102</b><div class="bar"><span style="width:52%;background:#e09a1c"></span></div></div>
-          <div class="fac"><i style="background:#8a55d6"></i><span>Violet Hold</span><b>640</b><div class="bar"><span style="width:30%;background:#8a55d6"></span></div></div>
-        </div>
 
         <div class="sel"></div>
 
