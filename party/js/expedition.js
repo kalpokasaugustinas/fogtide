@@ -7,9 +7,9 @@
 //   - pick 1 of 3 perks
 // bots scale with you: base troops + 70% of your carried people, and capitals with the same
 // total bonus strength in a random mix. losing a stage ends the run.
-import { effects } from './config.js?v=125';
-import { personalities } from './ai.js?v=125';
-import { rng } from './mapgen.js?v=125';
+import { effects } from './config.js?v=126';
+import { personalities } from './ai.js?v=126';
+import { rng } from './mapgen.js?v=126';
 
 export const stages = [
   { name: 'Valley', detail: 1, cells: 12, bots: 1, shape: 'random', neutral: [0.12, 0.3] },

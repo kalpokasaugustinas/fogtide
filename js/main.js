@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=125';
-import { generateMap, rng } from './mapgen.js?v=125';
-import { initAnalytics, track } from './analytics.js?v=125';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=125';
-import { Battle } from './battle.js?v=125';
-import { personalities } from './ai.js?v=125';
-import { Campaign } from './campaign.js?v=125';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=125';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=125';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=125';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=125';
-import { previewBuildings } from './structures.js?v=125';
-import { initTune, tuneChanges } from './tune.js?v=125';
-import { initFogNoise } from './fogui.js?v=125';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=126';
+import { generateMap, rng } from './mapgen.js?v=126';
+import { initAnalytics, track } from './analytics.js?v=126';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=126';
+import { Battle } from './battle.js?v=126';
+import { personalities } from './ai.js?v=126';
+import { Campaign } from './campaign.js?v=126';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=126';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=126';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=126';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=126';
+import { previewBuildings } from './structures.js?v=126';
+import { initTune, tuneChanges } from './tune.js?v=126';
+import { initFogNoise } from './fogui.js?v=126';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -674,7 +674,12 @@ const pinchInfo = () => {
 // - tap your tile = select it and open its build wheel; tap anything else = close / deselect
 // two fingers = pinch zoom
 let gesture = null;
-$('battle-canvas').addEventListener('pointerdown', (e) => {
+// map canvas input: the handlers are kept and attached to every canvas that becomes the live map
+// (the idle zoom-out swaps in the prepared stage's own canvas instead of copying it)
+const canvasHandlers = [];
+function canvasOn(type, h) { canvasHandlers.push([type, h]); $('battle-canvas').addEventListener(type, h); }
+function bindCanvas(el) { for (const [t, h] of canvasHandlers) el.addEventListener(t, h); }
+canvasOn('pointerdown', (e) => {
   if (!battle) return;
   bv.canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, wrapPos(e));
@@ -694,13 +699,13 @@ let mouseOver = false, cursorNow = '';
 function setCursor() {
   const on = mouseOver && hover >= 0 && !!battle?.segs[hover];   // a hover from the previous map can point past this one
   const c = gesture?.mode ? 'grabbing' : !on ? '' : isMine(hover) ? 'grab' : 'pointer';
-  if (c !== cursorNow) { cursorNow = c; $('battle-canvas').style.cursor = c; }
+  if (c !== cursorNow) { cursorNow = c; bv.canvas.style.cursor = c; }
 }
-$('battle-canvas').addEventListener('pointerleave', (e) => {
+canvasOn('pointerleave', (e) => {
   if (e.pointerType !== 'mouse' || gesture) return;
   mouseOver = false; hover = -1; setCursor();
 });
-$('battle-canvas').addEventListener('pointermove', (e) => {
+canvasOn('pointermove', (e) => {
   if (!battle) return;
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, wrapPos(e));
   if (pinch && pointers.size === 2) {
@@ -727,8 +732,8 @@ function pointerEnd(e) {
   pointers.delete(e.pointerId);
   if (pinch && pointers.size < 2) pinch = null;
 }
-$('battle-canvas').addEventListener('pointercancel', (e) => { pointerEnd(e); gesture = drag = null; });
-$('battle-canvas').addEventListener('pointerup', (e) => {
+canvasOn('pointercancel', (e) => { pointerEnd(e); gesture = drag = null; });
+canvasOn('pointerup', (e) => {
   const wasPinch = !!pinch, g = gesture;
   pointerEnd(e);
   gesture = null;
@@ -768,8 +773,8 @@ function sendFrom(from, to) {
 $('route-stop').onclick = () => { if (selected >= 0) battle.clearRoute(selected); };
 
 // right click on a neighbour of the selected tile = send there (pc). the browser menu stays off
-$('battle-canvas').addEventListener('contextmenu', (e) => e.preventDefault());
-$('battle-canvas').addEventListener('pointerdown', (e) => {
+canvasOn('contextmenu', (e) => e.preventDefault());
+canvasOn('pointerdown', (e) => {
   if (e.button !== 2 || !battle) return;
   e.stopImmediatePropagation();   // not a pan / drag gesture
   if (battle.state !== 'running' || countdown > 0) return;
@@ -1221,6 +1226,19 @@ async function sliced(gen, budget = 6) {
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   }
 }
+// bounding box of a map's tiles in grid cells (cached on the map; idle works it out at the stage's
+// start so the zoom-out doesn't loop over the whole grid in its first frame)
+function tileBox(m) {
+  if (m.tileBox) return m.tileBox;
+  const g = m.grid;
+  let x0 = g, y0 = g, x1 = 0, y1 = 0;
+  for (let c = 0; c < g * g; c++) {
+    if (m.ids[c] < 0) continue;
+    const x = c % g, y = Math.floor(c / g);
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return (m.tileBox = [x0, y0, x1, y1]);
+}
 // next = the stage to zoom out to: conquest by default, idle passes its own setup / save
 function zoomOut(next = { save: () => expedition.save(), setup: () => expedition.setup(), mode: 'expedition' }) {
   const wrap = bv.canvas.parentElement, old = bv.canvas;
@@ -1233,21 +1251,19 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   setCam(1, 0, 0);
   clearTimeout(boostTimer);
   // old island: bounding box of its tiles, in canvas css px
-  const om = bv.map, g = om.grid;
-  let x0 = g, y0 = g, x1 = 0, y1 = 0;
-  for (let c = 0; c < g * g; c++) {
-    if (om.ids[c] < 0) continue;
-    const x = c % g, y = Math.floor(c / g);
-    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-  }
+  const om = bv.map, g = om.grid, [x0, y0, x1, y1] = tileBox(om);
   const oc = { x: bv.sx((x0 + x1 + 1) / 2), y: bv.sy((y0 + y1 + 1) / 2), w: (x1 - x0 + 1) * bv.scale };
   // redraw the old map clean (no selection, drag arrow or banner) and keep a snapshot of it
   // (the map canvas has no fog of its own, so no frozen picture of fog shrinks along with it)
   selected = -1; drag = null; goFlash = 0; wheelOn = false;
   drawBattle();
-  const snap = document.createElement('canvas');
-  snap.width = old.width; snap.height = old.height;
-  snap.getContext('2d').drawImage(old, 0, 0);
+  // idle with the next stage prepared: the live canvas itself becomes the snapshot and the prepared
+  // stage's canvas (already sized, layers ready) moves in under it, so nothing is copied or
+  // reallocated at the win. else: a copy of the canvas is the snapshot and the canvas is reused
+  const job = next.ready?.(), swap = !!job;
+  const snap = swap ? old : document.createElement('canvas');
+  if (!swap) { snap.width = old.width; snap.height = old.height; snap.getContext('2d').drawImage(old, 0, 0); }
+  let live = old;   // the canvas that shows the new map
   // layout px (offset*/client*): unaffected by the page rotation on phones and the camera
   const so = { x: old.offsetLeft, y: old.offsetTop };   // snapshot's place in the wrap
   // idle upgrade tree open: the map is shown shrunk (css transform). the snapshot starts at that
@@ -1256,11 +1272,17 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   const s0 = old.clientWidth ? or.width / old.clientWidth : 1;   // 1 unless the tree is open
   const sd = { x: or.left - wr.left - wrap.clientLeft - so.x, y: or.top - wr.top - wrap.clientTop - so.y };   // visible offset from layout place
   Object.assign(snap.style, { position: 'absolute', left: so.x + 'px', top: so.y + 'px', width: old.clientWidth + 'px', height: old.clientHeight + 'px', transformOrigin: '0 0', transform: `translate(${sd.x}px, ${sd.y}px) scale(${s0})` });
+  if (swap) {
+    // no id: the css transform transition / shop scale of #battle-canvas would fight the animation
+    old.removeAttribute('id');
+    Object.assign(old.style, { transition: 'none', cursor: '', flex: 'none', opacity: '' });
+  }
   snap.className = 'zoom-snap';
-  wrap.appendChild(snap);
-  old.style.opacity = '0';
+  if (!swap) wrap.appendChild(snap);
+  if (!swap) old.style.opacity = '0';
   zooming = true;
-  if (shown('idle-shop')) {
+  if (shown('idle-shop') && swap) closeShop();
+  else if (shown('idle-shop')) {
     old.style.transition = 'none';   // back to full size at once, under the snapshot
     closeShop();
     requestAnimationFrame(() => requestAnimationFrame(() => { old.style.transition = ''; }));
@@ -1273,6 +1295,9 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
     window.__mk?.('work');
     next.save();   // the new stage is where a reload picks up
     zoomHolding = true;   // no map drawing until the new view is ready (it is built in slices)
+    // prepared stage: save, swap and start each get their own frame (together ~20 ms in one)
+    const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    if (swap) await nextFrame();
     // idle: the next stage was prepared during this one (battle + hidden map view with every layer):
     // swap it in. else: the battle, then the map view a few ms per frame, then the stage starts
     const pre = await next.pre?.();
@@ -1283,9 +1308,23 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       // the old map's canvases are emptied a few per frame once the zoom-out is over (left to the
       // garbage collector, freeing ~100 canvases at once was a 100+ ms pause right after the reveal)
       window.__mk?.('pre');
-      const trash = bv.adopt(pre.view);
+      let trash;
+      if (swap && pre === job) {
+        // the prepared canvas into the map layer under the snapshot, hidden until the reveal; it
+        // becomes #battle-canvas (input handlers bound to it), its own resize() placed it already
+        live = pre.view.canvas;
+        live.style.opacity = '0';
+        live.style.transition = 'none';
+        live.id = 'battle-canvas';
+        bindCanvas(live);
+        wrap.insertBefore(live, snap);
+        trash = bv.adopt(pre.view, true);
+        trash.push(old);   // the snapshot canvas, once it is removed
+        requestAnimationFrame(() => requestAnimationFrame(() => { live.style.transition = ''; }));
+      } else trash = bv.adopt(pre.view);
       window.__mk?.('adopted');
-      const free = () => { if (zooming) { setTimeout(free, 300); return; } for (let i = 0; i < 6 && trash.length; i++) { const c = trash.pop(); if (c.close) c.close(); else c.width = c.height = 0; } if (trash.length) requestAnimationFrame(free); };
+      if (swap) await nextFrame();
+      const free = () => { if (zooming || snap.isConnected) { setTimeout(free, 300); return; } for (let i = 0; i < 6 && trash.length; i++) { const c = trash.pop(); if (c.close) c.close(); else c.width = c.height = 0; } if (trash.length) requestAnimationFrame(free); };
       setTimeout(free, 300);
     } else {
       setup = next.setup();
@@ -1299,7 +1338,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
     startBattle(setup, next.mode, -1, made);
     window.__mk?.('started');
     paused = true;
-    old.style.opacity = '0';
+    live.style.opacity = '0';
     // layers and tile sprites keep building in slices while the island shrinks; the reveal waits for
     // them. once ready the map draws again (still hidden), so the reveal's first frame is cheap
     paintBattle();
@@ -1309,7 +1348,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
     // the new map stays hidden until the reveal: drawn once when its layers are ready, then not again
     // (the battle is paused; a redraw per frame was gpu work behind the shrink). zoomHolding ends at the reveal
     let drawn = false;
-    const capId = battle.factions[0].capitalSeg, nr = { width: old.clientWidth, height: old.clientHeight }, no = { x: old.offsetLeft, y: old.offsetTop };
+    const capId = battle.factions[0].capitalSeg, nr = { width: live.clientWidth, height: live.clientHeight }, no = { x: live.offsetLeft, y: live.offsetTop };
     const box = bv.boxes[capId] ?? [0, 0, g - 1, g - 1];
     const cc = { x: bv.sx((box[0] + box[2] + 1) / 2), y: bv.sy((box[1] + box[3] + 1) / 2), w: (box[2] - box[0] + 1) * bv.scale };
     const ratio = Math.min(1, cc.w / Math.max(1, oc.w));   // old island -> capital tile size
@@ -1338,8 +1377,13 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       // the fog behind recedes too, slower than the island (parallax: we pull back through the
       // clouds), drifting a little, and settles at its normal size as the shrink ends
       const fs = 720 * (s / ratio) ** 0.35, drift = 40 * Math.sin(Math.PI * Math.min(1, t / total));   // back to 0 at the end
-      wrap.style.setProperty('--fog-zoom', fs / 720);   // static and twirling fog layers (compositor only)
-      wrap.style.setProperty('--fog-drift', `${drift}px ${drift * 0.6}px`);
+      // set on the fog layers themselves (compositor only): a css variable on the camera layer made
+      // the browser restyle everything inside it every frame
+      for (const el of wrap.children) {
+        if (!el.classList.contains('fog-twirl') && !el.classList.contains('fog-base')) continue;
+        el.style.scale = String(fs / 720);
+        if (el.classList.contains('fog-base')) el.style.translate = `${drift}px ${drift * 0.6}px`;
+      }
       // 2. glow: a gold pulse around the little island
       const gk = phase(t, hold + shrink, glow), pulse = Math.sin(gk * Math.PI);
       halo.style.opacity = pulse > 0.01 ? String(pulse) : '0';
@@ -1349,16 +1393,15 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       if (ready && !drawn && t >= hold + 0.3) { drawn = true; drawBattle(); }   // a quiet frame mid-shrink
       if (rk > 0 && zoomHolding) zoomHolding = false;
       const mask = `radial-gradient(circle at ${cc.x}px ${cc.y}px, #000 ${Math.max(0, rad - 50)}px, transparent ${rad}px)`;
-      old.style.opacity = rk > 0 ? '1' : '0';
-      old.style.webkitMaskImage = old.style.maskImage = rk >= 1 ? '' : mask;
+      live.style.opacity = rk > 0 ? '1' : drawn ? '0.001' : '0';   // 0.001: the mask layer exists before the reveal
+      live.style.webkitMaskImage = live.style.maskImage = rk >= 1 ? '' : mask;
       snap.style.opacity = String(1 - phase(t, hold + shrink + glow * 0.6, reveal * 0.5));
       if (t < total) { requestAnimationFrame(tick); return; }
       window.__mk?.('end');
       snap.remove();
       halo.remove();
-      old.style.opacity = old.style.webkitMaskImage = old.style.maskImage = '';
-      wrap.style.removeProperty('--fog-zoom');
-      wrap.style.removeProperty('--fog-drift');
+      live.style.opacity = live.style.webkitMaskImage = live.style.maskImage = '';
+      for (const el of wrap.children) el.style.scale = el.style.translate = '';
       zooming = false;
       paused = false;
       setSpeed(speed);
@@ -1384,6 +1427,8 @@ let idleNext = null;   // { stage, seed }
 function preloadIdleNext() {
   if (mode !== 'idle' || !battle) return;
   idleNext = { stage: idle.stage + 1, seed: Math.floor(Math.random() * 1e9) };
+  const m = battle.map;
+  setTimeout(() => tileBox(m), 4000);   // for this stage's zoom-out, after its start-up frames
   const setup = idle.setup(islandShape(battle), idleNext.seed, idleNext.stage);
   preloadMap(setup);
   // a new climate's fog texture (cached per climate) is made now, not during the zoom-out
@@ -1442,8 +1487,15 @@ function* prepSteps(job) {
   const { sp } = unitLook(v, job.battle);
   for (const s of job.battle.segs) { v.troopSpots(s.id, sp); yield 'troops'; }
   const scratch = document.createElement('canvas').getContext('2d');
-  drawUnits(scratch, v, job.battle, 0, false);
+  drawUnits(scratch, v, job.battle, 0, true);   // numbers too: their badges are cached per size
   yield 'units';
+  // the canvas itself drawn once (its gpu surface is made now, not on its first frame in the page)
+  v.drawBase();
+  yield 'gpu canvas';
+  // the new climate's fog texture decoded now, not when the zoom-out puts it on the fog layers
+  job.fogImg = new Image();
+  job.fogImg.src = cloudTexture(v.theme);
+  job.fogImg.decode?.().catch(() => {});
   job.view = v;
 }
 // run the job budget ms per frame (after each paint) until done; stops when cancelled or idle mode is left
@@ -1606,7 +1658,7 @@ function endIdleStage(won) {
     const seed = idleNext?.stage === idle.stage ? idleNext.seed : Math.floor(Math.random() * 1e9);
     setTimeout(() => {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
-      zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp, seed), mode: 'idle', pre: () => takePrep(idle.stage, seed), refresh: refreshIdlePlayer });
+      zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp, seed), mode: 'idle', pre: () => takePrep(idle.stage, seed), ready: () => (nextPrep?.done && !nextPrep.cancelled && nextPrep.stage === idle.stage && nextPrep.seed === seed ? nextPrep : null), refresh: refreshIdlePlayer });
       setTimeout(idleIntro, 5200);   // after the zoom-out
     }, 1000 + pour);
     return;
@@ -1883,9 +1935,15 @@ function fogRise(to, streams = 22) {
   if (!mine.length) return;
   const tr = to.getBoundingClientRect(), bx = tr.left + tr.width / 2, by = tr.top + tr.height / 2;
   const t0 = performance.now();
-  const layer = document.createElement('div');
+  // all wisps on one overlay canvas, stamped from one pre-rendered blob: no dom element per wisp
+  // (moving ~90 elements cost style work every frame of the zoom-out start; web animations for them
+  // cost a 100-270 ms frame to set up)
+  const dpr = window.devicePixelRatio || 1, layer = document.createElement('canvas');
   layer.className = 'fog-rise';
+  layer.width = Math.round(innerWidth * dpr); layer.height = Math.round(innerHeight * dpr);
+  Object.assign(layer.style, { width: innerWidth + 'px', height: innerHeight + 'px' });
   document.body.appendChild(layer);
+  const lx = layer.getContext('2d'), blob = fogBlob();
   const parts = [];
   for (let i = 0; i < streams; i++) {
     const s = mine[Math.floor(Math.random() * mine.length)];
@@ -1895,14 +1953,15 @@ function fogRise(to, streams = 22) {
     const c2 = { x: bx + (Math.random() - 0.5) * 260, y: by + 60 + Math.random() * 140 };
     const delay = i * 70 + Math.random() * 120, dur = 1500 + Math.random() * 500, curl = (Math.random() - 0.5) * 70;
     for (let j = 0; j < 4; j++) {   // head + 3 trailing blobs, each smaller and fainter
-      const el = document.createElement('i'), size = (110 - j * 18) * (0.8 + Math.random() * 0.4);
-      el.style.width = el.style.height = size + 'px';
-      layer.appendChild(el);
-      parts.push({ el, sx, sy, c1, c2, delay: delay + j * 90, dur, curl, size, a: 0.95 - j * 0.17, last: j === 0 });
+      const size = (110 - j * 18) * (0.8 + Math.random() * 0.4);
+      parts.push({ sx, sy, c1, c2, delay: delay + j * 90, dur, curl, size, a: 0.95 - j * 0.17, last: j === 0 });
     }
   }
   let left = parts.length;
   const tick = (now) => {
+    lx.setTransform(1, 0, 0, 1, 0, 0);
+    lx.clearRect(0, 0, layer.width, layer.height);
+    lx.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const p of parts) {
       if (p.done) continue;
       const q = Math.min(1, Math.max(0, (now - t0 - p.delay) / p.dur)), e = q < 0.5 ? 2 * q * q : 1 - (-2 * q + 2) ** 2 / 2, u = 1 - e;
@@ -1912,17 +1971,29 @@ function fogRise(to, streams = 22) {
       // grows as it lifts and spreads, gathers small into the button
       const sc = (q < 0.2 ? 0.3 + 3.5 * q : 1) * (1.15 - 0.85 * e ** 2);
       const op = q <= 0 ? 0 : p.a * Math.min(1, q / 0.15) * (q > 0.85 ? (1 - q) / 0.15 : 1);
-      p.el.style.transform = `translate3d(${x - p.size / 2}px, ${y - p.size / 2}px, 0) scale(${sc})`;
-      p.el.style.opacity = op;
+      if (op > 0) { const d = p.size * sc; lx.globalAlpha = op; lx.drawImage(blob, x - d / 2, y - d / 2, d, d); }
       if (q >= 1) {
         p.done = true;
         if (p.last) { to.classList.remove('gulp'); void to.offsetWidth; to.classList.add('gulp'); }
-        if (--left === 0) layer.remove();
+        left--;
       }
     }
-    if (left > 0) requestAnimationFrame(tick);
+    lx.globalAlpha = 1;
+    if (left > 0) requestAnimationFrame(tick); else layer.remove();
   };
   requestAnimationFrame(tick);
+}
+// one fog wisp: bright core, faint ink halo (reads against the pale fog), soft by its gradient alone
+let fogBlobC = null;
+function fogBlob() {
+  if (fogBlobC) return fogBlobC;
+  const n = 128, c = document.createElement('canvas'), x = c.getContext('2d'), cx = n * 0.45, r = n * 0.778;
+  c.width = c.height = n;
+  const g = x.createRadialGradient(cx, cx, 0, cx, cx, r);
+  for (const [o, col] of [[0, 'rgba(255,255,252,1)'], [0.22, 'rgba(248,249,245,0.9)'], [0.38, 'rgba(220,224,222,0.62)'], [0.54, 'rgba(140,150,153,0.32)'], [0.64, 'rgba(118,128,131,0.12)'], [0.72, 'rgba(108,118,121,0)']]) g.addColorStop(o, col);
+  x.beginPath(); x.arc(n / 2, n / 2, n / 2, 0, Math.PI * 2); x.clip();
+  x.fillStyle = g; x.fillRect(0, 0, n, n);
+  return (fogBlobC = c);
 }
 
 let flashTimer = 0;

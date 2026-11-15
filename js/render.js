@@ -5,10 +5,10 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=125';
-import * as structures from './structures.js?v=125';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=125';
-import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=125';
+import { themes, fogTwirl } from './config.js?v=126';
+import * as structures from './structures.js?v=126';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=126';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=126';
 export { mix };
 
 export function hexToRgb(hex) {
@@ -136,14 +136,17 @@ export class MapView {
   // rebuilt), then size this canvas like it and switch the page's fog to its climate. a container
   // size that changed meanwhile still rebuilds, through resize()
   // returns the old map's canvases (layers, sprites), so the caller can free them a few at a time
-  adopt(o) {
+  // swap = take its canvas too (the caller has put it into the page): nothing is copied or resized
+  adopt(o, swap = false) {
     const old = [this.under, this.base, this.rocks, this.layerGround, this.layerOwner, this.layerObjects, this.groundC, ...(this.sprites?.values() ?? [])].map((x) => x?.c ?? x).filter(Boolean);
-    const own = new Set(['canvas', 'ctx', 'twirl', 'fogBase', 'storm', 'stormRaf', 'fogUrl', 'headless']);
+    const own = new Set(['twirl', 'fogBase', 'storm', 'stormRaf', 'fogUrl', 'headless', ...(swap ? [] : ['canvas', 'ctx'])]);
     for (const k of Object.keys(o)) if (!own.has(k)) this[k] = o[k];
-    const c = this.canvas, oc = o.canvas;
-    c.width = oc.width; c.height = oc.height;
-    for (const k of ['position', 'left', 'top', 'flex', 'width', 'height']) c.style[k] = oc.style[k];
-    oc.width = oc.height = 0;   // the hidden canvas is done with
+    if (!swap) {
+      const c = this.canvas, oc = o.canvas;
+      c.width = oc.width; c.height = oc.height;
+      for (const k of ['position', 'left', 'top', 'flex', 'width', 'height']) c.style[k] = oc.style[k];
+      oc.width = oc.height = 0;   // the hidden canvas is done with
+    }
     this.applyFog();
     this.resize();
     return old;

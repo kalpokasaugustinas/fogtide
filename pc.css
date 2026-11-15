@@ -396,7 +396,4 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 
 /* stage won: fog wisps lift off the island into the Upgrade button (main.js fogRise) */
 .fog-rise { position: fixed; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
-.fog-rise i { position: absolute; left: 0; top: 0; border-radius: 50%; opacity: 0; will-change: transform, opacity;
-  background: radial-gradient(circle at 45% 45%, rgba(255,255,252,1) 0%, rgba(248,249,245,0.9) 22%, rgba(220,224,222,0.62) 38%, rgba(140,150,153,0.32) 54%, rgba(118,128,131,0.12) 64%, rgba(108,118,121,0) 72%); }
-  /* bright core, faint ink halo: reads against the pale fog backdrop. soft by its gradient alone: a
-     css blur on ~90 moving wisps doubled the frame time of the whole zoom-out (14 -> 7 ms at 144 Hz) */
+/* the wisps are drawn on this one canvas (main.js fogRise / fogBlob) */
