@@ -325,8 +325,8 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 /* ---------- idle upgrade tree: roots below the island ----------
    in battle (#battle.shop-open) the map glides up and shrinks and keeps running; the tree layer
    only catches clicks on its own nodes / card. from the menu or the end card it gets a fog backdrop */
-#battle-canvas { transition: transform 0.7s cubic-bezier(.4, 0, .2, 1); transform-origin: 50% 4%; will-change: transform; }
-#battle.shop-open #battle-canvas { transform: scale(0.6); }
+#battle-canvas { transition: transform 0.7s cubic-bezier(.4, 0, .2, 1); transform-origin: 50% 50%; will-change: transform; }
+#battle.shop-open #battle-canvas { transform: translateX(-25%) scale(0.56); }
 #battle .hud.bl, #battle .hud.bc, #battle .hud.br, #tutor { transition: opacity 0.4s; }
 #battle.shop-open .hud.bl, #battle.shop-open .hud.bc, #battle.shop-open .hud.br { opacity: 0; pointer-events: none; }
 #idle-shop { position: fixed; inset: 0; z-index: 8; background: none; backdrop-filter: none; pointer-events: none; display: block; }
@@ -397,3 +397,79 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 /* stage won: fog wisps lift off the island into the Upgrade button (main.js fogRise) */
 .fog-rise { position: fixed; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
 /* the wisps are drawn on this one canvas (main.js fogRise / fogBlob) */
+
+/* ---------- idle panel on the right: upgrades (4 branch columns) + war council ----------
+   replaces the roots layer: the map slides left, the panel fades in on the right. it starts
+   under the top bar so the hud stays clickable; content is 640 x 668 logical px, zoomed */
+#shop-panel { position: absolute; right: 0; top: calc(46px * var(--pz, 1)); bottom: 0; width: calc(640px * var(--pz, 1)); pointer-events: auto;
+  background: linear-gradient(90deg, rgba(232,234,229,0) 0, rgba(232,234,229,0.93) calc(70px * var(--pz, 1)), rgba(232,234,229,0.97));
+  -webkit-mask-image: linear-gradient(#0000, #000 calc(26px * var(--pz, 1))); mask-image: linear-gradient(#0000, #000 calc(26px * var(--pz, 1)));
+  animation: panel-in 0.6s cubic-bezier(.4, 0, .2, 1) both; transition: opacity 0.35s, transform 0.35s; }
+#idle-shop.closing #shop-panel { animation: none; opacity: 0; transform: translateX(40px); }
+@keyframes panel-in { from { opacity: 0; transform: translateX(40px); } }
+.shop-in { position: absolute; left: 0; top: 0; width: 640px; height: 668px; zoom: var(--pz, 1); color: var(--ink); font-size: 13px; line-height: 1.45; }
+.shop-in button { font: inherit; color: inherit; background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; margin: 0; min-height: 0; width: auto; transform: none; }
+.shop-title { position: absolute; left: 70px; top: 6px; margin: 0; font-weight: 300; letter-spacing: 8px; text-transform: uppercase; font-size: 22px; }
+.shop-in .shop-close { position: absolute; right: 34px; top: 12px; margin: 0; padding: 2px 0; font-size: 12px; letter-spacing: 1px; color: var(--ink-soft); text-decoration: underline; }
+.shop-tabs { position: absolute; left: 72px; top: 50px; display: flex; gap: 26px; }
+.shop-tabs button { position: relative; padding: 4px 2px; text-transform: uppercase; letter-spacing: 3px; font-size: 12px; font-weight: 600; color: var(--ink-soft); cursor: pointer; }
+.shop-tabs button.on { color: var(--ink); }
+.shop-tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -3px; height: 1.5px; background: var(--ink); }
+.shop-tabs kbd { font: inherit; font-size: 10px; letter-spacing: 1px; color: #8a9497; margin-left: 6px; font-weight: 400; }
+.shop-in .shop-fogs { position: absolute; right: 40px; top: 54px; margin: 0; }
+/* tree: absolute nodes in panel px (main.js rootPos) */
+#shop-panel .roots { position: absolute; left: 0; top: 0; width: 640px; height: 480px; margin: 0; zoom: 1; bottom: auto; animation: none; pointer-events: auto; }
+#shop-panel .root-label { transform: translateX(-50%); text-align: center; }
+#shop-panel .root-label::before { display: none; }
+.root-label small { display: block; font-size: 10px; letter-spacing: 1px; color: var(--ink-soft); font-weight: 400; margin-top: 2px; }
+#shop-panel .roots .node::before { background: radial-gradient(closest-side, rgba(238,239,233,0.95) 58%, rgba(238,239,233,0)); }
+.shop-in .shop-detail { position: absolute; left: 65px; top: 444px; width: 540px; display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: end;
+  padding-top: 12px; border-top: 1px solid rgba(35,42,44,0.16); }
+.shop-detail .d-act { padding-bottom: 4px; }
+.shop-in .up-buy { position: relative; isolation: isolate; padding: 8px 16px; color: #f0f0ea; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.shop-in .up-buy::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--ink); filter: blur(2.5px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+.shop-in .up-buy.mist::before { background: #3e4a9a; }
+.shop-in .up-buy:disabled { color: var(--ink-soft); opacity: 1; cursor: default; }
+.shop-in .up-buy:disabled::before { background: rgba(35,42,44,0.1); }
+.shop-in .d-tag { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-soft); }
+.shop-in h4 { margin: 2px 0 4px; display: flex; justify-content: space-between; gap: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; font-size: 14px; }
+.shop-in p { margin: 4px 0; }
+.shop-in .d-needs { color: var(--ink-soft); font-size: 12px; }
+.shop-in .d-needs .ok { color: var(--ink); }
+
+/* war council: seats in a row, roster grid, card for the selected general */
+.council { position: absolute; inset: 0; pointer-events: none; }
+.council > * { pointer-events: auto; }
+.council .seats { position: absolute; left: 40px; top: 84px; display: flex; gap: 5px; }
+.council .seat { position: relative; width: 135px; text-align: center; cursor: pointer; display: block; }
+.council .seat canvas { display: block; width: 135px; height: 145px; margin: 0 auto; }
+.council .seat .num { position: absolute; left: 10px; top: 4px; font-size: 10px; letter-spacing: 2px; color: #7a8487; }
+.council .seat .nm { display: block; text-transform: uppercase; letter-spacing: 2px; font-size: 12px; font-weight: 600; margin-top: 2px; }
+.council .seat .ord { display: block; font-size: 11.5px; color: #4f595c; line-height: 1.3; min-height: 30px; margin-top: 2px; }
+.council .seat .ord svg.i { width: 12px; height: 12px; vertical-align: -1px; }
+.council .seat.empty canvas { opacity: 0.3; }
+.council .seat.locked { cursor: default; }
+.council .seat.sel .nm { text-decoration: underline; text-underline-offset: 4px; }
+.council .seat.drop { animation: seat-pulse 1s ease-in-out infinite; }
+@keyframes seat-pulse { 50% { filter: drop-shadow(0 0 8px rgba(35,42,44,0.45)); } }
+.council .roster-h { position: absolute; left: 54px; top: 306px; margin: 0; text-transform: uppercase; letter-spacing: 3px; font-size: 11px; font-weight: 600; color: #4f595c; }
+.council .roster { position: absolute; left: 50px; top: 328px; width: 282px; display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.council .rg { position: relative; width: 84px; text-align: center; cursor: pointer; font-size: 9.5px; letter-spacing: 0.5px; text-transform: uppercase; color: #3a4447; padding-bottom: 2px; border-radius: 8px; }
+.council .rg canvas { display: block; width: 84px; height: 62px; margin: 0 auto; }
+.council .rg .tag { position: absolute; right: 6px; top: 2px; font-size: 10px; font-weight: 600; color: #f0f0ea; background: var(--ink); border-radius: 9px; padding: 1px 5px; letter-spacing: 0; }
+.council .rg .cost { display: block; color: #4b57a8; }
+.council .rg.on canvas { opacity: 0.75; }
+.council .rg.lock { color: #7a8487; }
+.council .rg.lock canvas { filter: grayscale(1) contrast(0.8) brightness(1.15); opacity: 0.55; }
+.council .rg.pick { outline: 1px solid var(--ink); outline-offset: 1px; }
+.council .gen-card { position: absolute; left: 345px; top: 300px; width: 265px; }
+.council .gen-card .q { font-style: italic; color: #5d676a; font-size: 12px; }
+.council .ordh { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(35,42,44,0.16); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; font-weight: 600; }
+.council label { display: block; margin-top: 4px; font-size: 12.5px; }
+.council input[type=range] { width: 100%; accent-color: var(--ink); margin: 2px 0 0; }
+.council .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.council .chips button { font-size: 11.5px; padding: 2px 9px; border-radius: 10px; border: 1px solid rgba(35,42,44,0.35); cursor: pointer; }
+.council .chips button.on { background: var(--ink); color: #f0f0ea; border-color: var(--ink); }
+.council .d-act { display: flex; gap: 14px; align-items: center; margin-top: 8px; }
+.council .lnk { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #4f595c; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.council .council-hint { position: absolute; left: 54px; top: 630px; width: 270px; font-size: 12px; color: #4f595c; }

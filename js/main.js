@@ -1,18 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=128';
-import { generateMap, rng } from './mapgen.js?v=128';
-import { initAnalytics, track } from './analytics.js?v=128';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=128';
-import { Battle } from './battle.js?v=128';
-import { personalities } from './ai.js?v=128';
-import { Campaign } from './campaign.js?v=128';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=128';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=128';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=128';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=128';
-import { previewBuildings } from './structures.js?v=128';
-import { initTune, tuneChanges } from './tune.js?v=128';
-import { initFogNoise } from './fogui.js?v=128';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=129';
+import { generateMap, rng } from './mapgen.js?v=129';
+import { initAnalytics, track } from './analytics.js?v=129';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=129';
+import { Battle } from './battle.js?v=129';
+import { personalities } from './ai.js?v=129';
+import { Campaign } from './campaign.js?v=129';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=129';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=129';
+import { drawGeneral } from './generals.js?v=129';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=129';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=129';
+import { previewBuildings } from './structures.js?v=129';
+import { initTune, tuneChanges } from './tune.js?v=129';
+import { initFogNoise } from './fogui.js?v=129';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1691,79 +1692,82 @@ function trackIdleRun(run) {
   track(`idle-run-${mins}min-plus`);
 }
 
-// upgrade tree (shop) as roots below the island: one column per branch hanging down from the map,
-// opened at any time (the battle keeps running), purchases apply at once. click a node for its card
-let shopKey = '', shopSel = 'atk';
-// layout: one column per branch (in compass order), rows = rings 0-4 going down; bridge upgrades sit
-// on the bottom row between the two columns they join. logical px (the layer is zoomed by --ui)
-const rootW = 1280, rootTop = 46, rootRow = 50, colOrder = ['offense', 'defense', 'growth', 'fog', 'command'];
-const colX = (b) => (rootW / (colOrder.length + 1)) * (colOrder.indexOf(b) + 1);
+// upgrades + war council in one panel on the right: the island slides left, shrinks and keeps
+// running; tabs switch between the upgrade tree (4 branch columns) and the war council (4 seats,
+// generals). opened at any time during an idle battle, purchases apply at once
+let shopKey = '', shopSel = 'atk', shopTab = 'up', genSel = 'warlord', genPick = null, ordDrag = false;
+// tree layout (panel logical px): one column per branch, rows = rings 0-4 going down; bridges on
+// the bottom row between the two columns they join
+const colOrder = ['offense', 'defense', 'growth', 'fog'], treeY0 = 166, treeRow = 50;
+const colX = (b) => 130 + 140 * colOrder.indexOf(b);
 function rootPos(u) {
-  if (u.branch !== 'bridge') return [colX(u.branch) + u.off * 1.5, rootTop + u.ring * rootRow];
-  // bridge: halfway between the columns of its two requirements (the wrap-around one sits at the far right)
-  const xs = u.needs.map(([n]) => colX(upgradeById[n].branch)).sort((p, q) => p - q);
-  const x = xs[1] - xs[0] > rootW / 2 ? colX('command') + (rootW / (colOrder.length + 1)) * 0.55 : (xs[0] + xs[1]) / 2;
-  return [x, rootTop + 4 * rootRow + 10];
+  if (u.branch !== 'bridge') return [colX(u.branch) + u.off * 1.6, treeY0 + u.ring * treeRow];
+  const xs = u.needs.map(([n]) => colX(upgradeById[n].branch));
+  return [(Math.min(...xs) + Math.max(...xs)) / 2, treeY0 + 5 * treeRow];
 }
 const glyphOf = (u) => (u.cur === 'mist' ? 'g-mist' : u.branch === 'bridge' ? 'g-bridge' : 'g-' + u.branch);
-// the tree only opens during a running idle battle (Fog is spent while playing); it shares the
-// screen with the island, which glides up and keeps running
+// the panel only opens during a running idle battle (Fog is spent while playing)
 let shopCloseT = 0;
 const shopOpen = () => !$('idle-shop').classList.contains('hidden') && !$('idle-shop').classList.contains('closing');
-function openShop() {
+function openShop(tab = shopTab) {
   if (screen !== 'battle' || mode !== 'idle' || shown('end') || zooming) return;
   clearTimeout(shopCloseT);
-  shopKey = '';
+  shopTab = tab; shopKey = '';
   const el = $('idle-shop');
   el.classList.remove('closing', 'backdrop');
   el.inert = false;
-  // build the tree first, start the glide on the next frames, so the dom work doesn't eat the
+  // build the panel first, start the glide on the next frames, so the dom work doesn't eat the
   // first frames of the animation
   renderShop();
   el.classList.remove('hidden');
   requestAnimationFrame(() => requestAnimationFrame(() => { if (shopOpen()) { $('battle').classList.add('shop-open'); hudInert(true); } }));
 }
-// faded bottom hud can't be clicked while the tree is open. inert on the 3 panels instead of a css
+// faded bottom hud can't be clicked while the panel is open. inert on the 3 panels instead of a css
 // "panel *" rule: that restyled every hud element on the first glide frame (~70 ms freeze)
 const hudInert = (on) => { for (const e of document.querySelectorAll('#battle .hud.bl, #battle .hud.bc, #battle .hud.br')) e.inert = on; };
 function closeShop() {
   $('battle').classList.remove('shop-open');
   hudInert(false);
+  genPick = null;
   const el = $('idle-shop');
   if (el.classList.contains('hidden')) return;
-  el.classList.add('closing');   // roots and card fade out with the glide back
-  el.inert = true;   // no clicks on the fading tree
+  el.classList.add('closing');   // the panel fades out with the glide back
+  el.inert = true;
   clearTimeout(shopCloseT);
   shopCloseT = setTimeout(() => el.classList.replace('closing', 'hidden'), 400);
 }
-const toggleShop = () => (shopOpen() ? closeShop() : openShop());
+// U / Upgrade button: upgrades tab (closes when it is already showing); C: the council tab
+function toggleShop(tab = 'up') {
+  if (shopOpen() && shopTab === tab) closeShop();
+  else if (shopOpen()) { shopTab = tab; genPick = null; renderShop(); }
+  else openShop(tab);
+}
 function renderShop() {
-  const key = upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best;
+  const key = shopTab + upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best + genSel + genPick
+    + JSON.stringify([idle.gens, idle.seats, idle.orders, idle.mist, generals.map((g) => idle.canPromote(g.id))]);
   $('shop-fogs').innerHTML = `Fog <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
-  if (key === shopKey) return;
+  if (key === shopKey || ordDrag) return;
   shopKey = key;
+  $('shop-title').textContent = shopTab === 'up' ? 'Upgrades' : 'War Council';
+  for (const b of document.querySelectorAll('.shop-tabs button')) b.classList.toggle('on', b.dataset.tab === shopTab);
+  $('shop-tree').classList.toggle('hidden', shopTab !== 'up');
+  $('shop-detail').classList.toggle('hidden', shopTab !== 'up');
+  $('council').classList.toggle('hidden', shopTab !== 'wc');
+  if (shopTab === 'wc') { renderCouncil(); return; }
   const tree = $('shop-tree');
-  // roots from the island down to each column, then requirement links (solid when met, faint dashes
-  // while unmet), each over a soft fog wisp
-  let svg = `<svg class="root-links" viewBox="0 0 ${rootW} 300" width="${rootW}" height="300">`;
-  const curve = (x1, y1, x2, y2) => { const my = (y1 + y2) / 2; return `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`; };
-  let wisps = '', lines = '';
-  for (const b of colOrder) {
-    const d = curve(rootW / 2 + (colX(b) - rootW / 2) * 0.35, -70, colX(b), rootTop - 22);
-    wisps += `<path class="wisp rootw" d="${d}"/>`; lines += `<path class="root" d="${d}"/>`;
-  }
+  // requirement links (solid when met, faint dashes while unmet)
+  const curve = (x1, y1, x2, y2) => { const my = (y1 + y2) / 2; return `M${x1},${y1 + 18} C${x1},${my} ${x2},${my} ${x2},${y2 - 18}`; };
+  let lines = '';
   for (const u of upgrades) {
     if (!u.needs?.length) continue;
     const [x2, y2] = rootPos(u);
-    for (const [n, l] of u.needs) {
-      const [x1, y1] = rootPos(upgradeById[n]), d = curve(x1, y1, x2, y2);
-      if (Math.abs(x2 - x1) > rootW / 2) continue;   // the wrap-around bridge (blitz): its far link would cross the whole tree; the card lists it
-      wisps += `<path class="wisp" d="${d}"/>`; lines += `<path class="${idle.lvl(n) >= l ? 'met' : 'dim'}" d="${d}"/>`;
-    }
+    for (const [n, l] of u.needs) { const [x1, y1] = rootPos(upgradeById[n]); lines += `<path class="${idle.lvl(n) >= l ? 'met' : 'dim'}" d="${curve(x1, y1, x2, y2)}"/>`; }
   }
-  svg += `<g class="wisps">${wisps}</g>` + lines + '</svg>';   // one blur for the whole wisp group (cheaper than per path)
-  let h = svg;
-  for (const b of colOrder) h += `<span class="root-label" style="left:${colX(b)}px;top:${rootTop - 34}px">${branches.find((x) => x.id === b).name}</span>`;
+  let h = `<svg class="root-links" viewBox="0 0 640 480" width="640" height="480">${lines}</svg>`;
+  for (const b of colOrder) {
+    const lv = upgrades.filter((u) => u.branch === b).reduce((v, u) => v + idle.lvl(u.id), 0);
+    h += `<span class="root-label" style="left:${colX(b)}px;top:${treeY0 - 64}px">${branches.find((x) => x.id === b).name}<small>${lv} level${lv === 1 ? '' : 's'}</small></span>`;
+  }
   for (const u of upgrades) {
     const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id), [x, y] = rootPos(u);
     const cls = ['node', u.cur === 'mist' && 'mist', u.branch === 'bridge' && 'bridge', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
@@ -1774,8 +1778,8 @@ function renderShop() {
   for (const b of tree.querySelectorAll('.node')) b.onclick = () => { shopSel = b.dataset.id; sfx.click(); renderShop(); };
   renderShopDetail();
 }
-function fitShop() { /* the roots layer has a fixed logical size and follows the --ui zoom */ }
-// card next to the tree: what the selected upgrade does now and next, what it needs, buy button
+function fitShop() { /* the panel has a fixed logical size and follows the --ui zoom */ }
+// card under the tree: what the selected upgrade does now and next, what it needs, buy button
 function renderShopDetail() {
   // numbers at the running stage's scale (from the menu: the stage the next run starts at)
   const u = upgradeById[shopSel], l = idle.lvl(u.id), sc = mode === 'idle' && screen === 'battle' ? numScale : displayScale(idle.stage), maxed = idle.maxed(u.id);
@@ -1786,10 +1790,103 @@ function renderShopDetail() {
   const btn = maxed ? '<button class="up-buy" disabled>Max level</button>'
     : idle.locked(u.id) ? '<button class="up-buy" disabled>Locked</button>'
     : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>Buy · ${fmtBig(idle.cost(u.id))} ${cur}</button>`;
-  $('shop-detail').innerHTML = `<span class="d-tag">${br ? br.name : 'Bridge'}${u.cur === 'mist' ? ' · Mist' : ''}</span>`
+  $('shop-detail').innerHTML = `<div><span class="d-tag">${br ? br.name : 'Bridge'}${u.cur === 'mist' ? ' · Mist' : ''}</span>`
     + `<h4><span>${u.name}</span><span>Lv ${u.max ? `${l}/${u.max}` : l}</span></h4><p>${what}</p>`
-    + (needs ? `<p class="d-needs">${u.or && u.needs.length > 1 ? 'Needs one of' : 'Needs'}: ${needs}</p>` : '') + btn;
+    + (needs ? `<p class="d-needs">${u.or && u.needs.length > 1 ? 'Needs one of' : 'Needs'}: ${needs}</p>` : '') + `</div><div class="d-act">${btn}</div>`;
   if ($('shop-buy')) $('shop-buy').onclick = () => buyUpgrade(u.id);
+}
+
+// ---------- war council tab: seats, roster (unlock with Mist), the selected general's card ----------
+const seatNames = ['I', 'II', 'III', 'IV'];
+function renderCouncil() {
+  const el = $('council'), sc = mode === 'idle' && screen === 'battle' ? numScale : displayScale(idle.stage);
+  let h = '<div class="seats">';
+  idle.seats.forEach((id, i) => {
+    const open = idle.seatOpen(i), g = id && generalById[id];
+    const ord = !open ? `<svg class="i"><use href="#g-lock"/></svg> Opens at stage ${council.seatStage[i]}` : g ? `${g.role}<br>${g.sum(idle.ord(id))}` : 'Empty seat<br>pick a general';
+    h += `<button class="seat${g ? '' : ' empty'}${open ? '' : ' locked'}${genSel === id && id ? ' sel' : ''}${genPick && open ? ' drop' : ''}" data-seat="${i}">
+      <span class="num">${seatNames[i]}</span><canvas data-g="${id || 'empty'}" data-sc="10" data-ban="1"></canvas>
+      <span class="nm">${g ? g.name : open ? '—' : 'Locked'}</span><span class="ord">${ord}</span></button>`;
+  });
+  h += '</div>';
+  h += `<p class="roster-h">Generals · ${Object.keys(idle.gens).length} of ${generals.length} unlocked</p><div class="roster">`;
+  for (const g of generals) {
+    const at = idle.seats.indexOf(g.id), lv = idle.genLvl(g.id);
+    h += `<button class="rg${at >= 0 ? ' on' : ''}${lv ? '' : ' lock'}${genPick === g.id || genSel === g.id ? ' pick' : ''}" data-gen="${g.id}" title="${g.role}">
+      ${at >= 0 ? `<span class="tag">${seatNames[at]}</span>` : ''}<canvas data-g="${g.id}" data-sc="5.6"></canvas>${g.name}${lv ? '' : `<span class="cost">${idle.unlockCost()} Mist</span>`}</button>`;
+  }
+  h += '</div>';
+  // card
+  const g = generalById[genSel], lv = idle.genLvl(g.id), at = idle.seats.indexOf(g.id), o = idle.ord(g.id);
+  const orders = g.orders.map((d) => d.type === 'range'
+    ? `<label>${d.label}: <b data-ov="${d.key}">${o[d.key]}${d.unit}</b><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" value="${o[d.key]}" data-ord="${d.key}"></label>`
+    : `<label>${d.label}</label><div class="chips">${d.opts.map((t, k) => `<button class="${k === o[d.key] ? 'on' : ''}" data-ord="${d.key}" data-v="${k}">${t}</button>`).join('')}</div>`).join('');
+  const text = g.text(Math.max(1, lv), o, sc, idle.val('volley'));
+  let act;
+  if (!lv) act = `<p class="d-needs">Every general you unlock raises the price of the next.</p><div class="d-act"><button class="up-buy mist" id="gen-unlock" ${idle.canUnlock(g.id) ? '' : 'disabled'}>Unlock · ${idle.unlockCost()} Mist</button></div>`;
+  else {
+    const maxed = lv >= council.maxLv;
+    act = (orders ? `<p class="ordh">Orders</p>${orders}` : '')
+      + `<p class="d-needs">${maxed ? 'Max level' : `Next level: acts every ${(1 / (1 + 0.25 * lv)).toFixed(2).replace(/0$/, '')} s${g.id === 'marksman' || g.id === 'drummer' || g.id === 'houndmaster' || g.id === 'surgeon' ? ', stronger' : ''}`}</p>`
+      + `<div class="d-act">${maxed ? '' : `<button class="up-buy" id="gen-promote" ${idle.canPromote(g.id) ? '' : 'disabled'}>Promote · ${fmtBig(idle.promoteCost(g.id))} Fog</button>`}`
+      + `<button class="lnk" id="gen-seat">${at >= 0 ? 'Dismiss' : 'Give a seat'}</button></div>`;
+  }
+  h += `<div class="gen-card"><span class="d-tag">${g.role}${at >= 0 ? ` · seat ${seatNames[at]}` : ''}</span>
+    <h4><span>${g.name}</span><span>${lv ? `Lv ${lv}` : ''}</span></h4><p class="q">“${g.quote}”</p><p>${text}</p>${act}</div>`;
+  h += `<p class="council-hint">${genPick ? `Pick a seat for the ${generalById[genPick].name}` : idle.auto ? 'Generals give orders while auto is on (A); your own orders still work.' : 'Auto is off (A): only the Marksman, Drummer, Houndmaster and Surgeon work.'}</p>`;
+  el.innerHTML = h;
+  for (const cv of el.querySelectorAll('canvas[data-g]')) drawGeneral(cv, cv.dataset.g, { sc: +cv.dataset.sc, level: cv.dataset.ban ? idle.genLvl(cv.dataset.g) : 0, banner: !!cv.dataset.ban, color: factionColors[0] });
+  // events
+  for (const b of el.querySelectorAll('.rg')) b.onclick = () => {
+    sfx.click();
+    const id = b.dataset.gen;
+    genSel = id;
+    genPick = idle.genLvl(id) && !idle.seated(id) ? id : null;
+    renderShop();
+  };
+  for (const b of el.querySelectorAll('.seat')) b.onclick = () => {
+    const i = +b.dataset.seat;
+    if (!idle.seatOpen(i)) return;
+    sfx.click();
+    if (genPick) { idle.seat(i, genPick); genSel = genPick; genPick = null; councilChanged(); }
+    else if (idle.seats[i]) genSel = idle.seats[i];
+    renderShop();
+  };
+  for (const r of el.querySelectorAll('input[data-ord]')) {
+    r.oninput = () => {
+      ordDrag = true;   // no re-render while the slider is held
+      idle.setOrder(genSel, r.dataset.ord, +r.value);
+      const d = g.orders.find((x) => x.key === r.dataset.ord);
+      el.querySelector(`[data-ov="${d.key}"]`).textContent = r.value + d.unit;
+      const s = el.querySelector(`.seat[data-seat="${idle.seats.indexOf(genSel)}"] .ord`);
+      if (s) s.innerHTML = `${g.role}<br>${g.sum(idle.ord(genSel))}`;
+    };
+    r.onchange = () => { ordDrag = false; idle.save(); renderShop(); };
+  }
+  for (const c of el.querySelectorAll('.chips button')) c.onclick = () => { sfx.click(); idle.setOrder(genSel, c.dataset.ord, +c.dataset.v); idle.save(); renderShop(); };
+  if ($('gen-unlock')) $('gen-unlock').onclick = () => {
+    if (!idle.unlock(genSel)) return;
+    sfx.build(); track(`idle-general-${genSel}`);
+    // straight into an empty open seat if there is one, else pick a seat
+    const free = idle.seats.findIndex((x, i) => !x && idle.seatOpen(i));
+    if (free >= 0) idle.seat(free, genSel); else genPick = genSel;
+    councilChanged();
+    renderShop();
+  };
+  if ($('gen-promote')) $('gen-promote').onclick = () => { if (idle.promote(genSel)) { sfx.build(); councilChanged(); renderShop(); } };
+  if ($('gen-seat')) $('gen-seat').onclick = () => {
+    sfx.click();
+    const at = idle.seats.indexOf(genSel);
+    if (at >= 0) { idle.seat(at, null); councilChanged(); }
+    else genPick = genSel;
+    renderShop();
+  };
+}
+// a seat, level or unlock changed: the running battle gets the new modifiers (marksman, drummer)
+function councilChanged() {
+  idle.save();
+  if (mode === 'idle' && battle && screen === 'battle') { battle.factions[0].mods = idle.mods(); battle.updateGrowth(); }
+  syncIdleButtons();
 }
 
 function buyUpgrade(id) {
@@ -1801,7 +1898,6 @@ function buyUpgrade(id) {
     battle.factions[0].mods = idle.mods();
     battle.updateGrowth();
   }
-  if (id === 'auto' && idle.lvl('auto') === 1) flash('🤖 Auto-attack bought: full tiles attack on their own (🤖 button toggles it)', 3000);
   // upgrades this purchase opened: their fog clears with a pop
   const opened = upgrades.filter((u) => (u.needs ?? []).some(([n]) => n === id) && !idle.locked(u.id) && !idle.lvl(u.id)).map((u) => u.id);
   if (id === 'horn' && idle.lvl('horn') === 1) flash('📯 Fog horn: it gathers Fog all the time, collect it in the menu', 3200);
@@ -1821,23 +1917,26 @@ function updateIdleHud() {
   $('idle-fog-rate').textContent = rate === null ? '' : `+${rate < 10 ? Math.round(rate * 10) / 10 : fmtBig(rate)}/s`;
   $('idle-mist').lastElementChild.textContent = mistShown ?? idle.mist;   // mistShown: counting up while obelisks pour
   $('idle-mist').classList.toggle('hidden', !idle.mistTotal);
-  $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)));
+  $('idle-shop-btn').classList.toggle('ready', upgrades.some((u) => idle.canBuy(u.id)) || generals.some((g) => idle.canUnlock(g.id)));
   if (!$('idle-shop').classList.contains('hidden')) renderShop();
 }
 function syncIdleButtons() {
   if (!idle) return;
   $('idle-auto').classList.toggle('off', !idle.autoOn);
-  $('idle-auto').classList.toggle('locked', idle.lvl('auto') === 0);
-  $('idle-auto').title = idle.lvl('auto') ? `Auto-battle ${idle.autoOn ? 'on' : 'off'}` : 'Auto-battle: buy Auto-attack in the upgrades';
+  const has = idle.autoOn || ['warlord', 'pathfinder', 'warden', 'quartermaster', 'marshal'].some((g) => idle.on(g));
+  $('idle-auto').classList.toggle('locked', !has);
+  $('idle-auto').title = has ? `Generals' orders ${idle.auto ? 'on' : 'off'} (A)` : 'Auto: seat a general in the War Council (C)';
 }
-$('idle-shop-btn').onclick = toggleShop;   // second press closes it
+$('idle-shop-btn').onclick = () => toggleShop('up');   // second press closes it
+for (const b of document.querySelectorAll('.shop-tabs button')) b.onclick = () => { sfx.click(); shopTab = b.dataset.tab; genPick = null; renderShop(); };
 $('shop-close').onclick = closeShop;
 $('idle-auto').onclick = () => {
-  if (!idle.lvl('auto')) { flash('🤖 Buy Auto-attack in ⬆️ upgrades first', 2200); return; }
+  if ($('idle-auto').classList.contains('locked')) { flash('Seat a general in the War Council first (C)', 2200); return; }
   idle.auto = !idle.auto;
   idle.save();
   syncIdleButtons();
-  flash(idle.autoOn ? '🤖 Auto-battle on' : '🖐️ You have control', 1400);
+  flash(idle.auto ? 'Generals give orders' : 'You have control', 1400);
+  if (shopOpen()) renderShop();
 };
 
 // ---------- idle hub on the menu: Fog / Mist bank, upgrade tree button, fog horn ----------
@@ -2211,9 +2310,10 @@ addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'e') setPct(pct + 0.1);
   // esc in battle: deselect, or with nothing selected open the leave card (like the back button)
   if (e.key === 'Escape') { if (selected >= 0) selected = -1; else if (!shown('end')) $('battle-quit').click(); }
-  // idle mode: u = upgrade tree (open/close), a = auto-battle on/off
+  // idle mode: u = upgrades, c = war council (open / switch / close), a = generals' orders on/off
   const k = e.key.toLowerCase();
-  if (k === 'u' && shown('idle-shop-btn')) toggleShop();
+  if (k === 'u' && shown('idle-shop-btn')) toggleShop('up');
+  if (k === 'c' && shown('idle-shop-btn')) toggleShop('wc');
   if (k === 'a' && shown('idle-auto')) $('idle-auto').click();
 });
 addEventListener('resize', () => { if (screen === 'battle' && bv) { bv.resize(); key = ''; } if (screen === 'campaign') cv.resize(), paintCampaign(); });
@@ -2596,6 +2696,8 @@ function syncRotation() {
   // windows (1920x1080 -> 1.5), so it keeps the same share of the screen. phones stay at 1
   uiK = +uiScale(upright);
   root.style.setProperty('--ui', uiK);
+  // the idle panel (640 x 714 logical px incl. the top bar) must always fit: never zoomed past the window
+  root.style.setProperty('--pz', Math.min(uiK, innerWidth / 1280, innerHeight / 714));
 }
 function uiScale(upright) {
   const w = upright ? innerHeight : innerWidth, h = upright ? innerWidth : innerHeight;

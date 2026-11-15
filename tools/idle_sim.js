@@ -1,8 +1,9 @@
 // idle mode balance sim: a bot plays whole idle careers headless (tools/idle_sim.py drives it).
-// the player side is a fixed bot standing in for an active human (the auto-battle upgrades only save
-// the human's time, so they are not simulated). every 5 game seconds it buys the cheapest affordable
-// open upgrade in the tree, which applies at once like in the game. a run ends on a lost stage;
-// fogs and upgrades carry on.
+// the player side is a fixed bot standing in for an active human (the order-giving generals only
+// save the human's time, so they are off). every 5 game seconds it buys the cheapest affordable
+// open upgrade in the tree, which applies at once like in the game. war council: its first Mist
+// unlocks the Marksman (arrows; the old archers upgrade), more Mist goes to the tree's keystones;
+// the always-on generals run through autoTick. a run ends on a lost stage; fogs and upgrades carry on.
 // modules are imported with the game's own ?v= stamp so they share one copy of config.js
 const src = await (await fetch(new URL('../js/battle.js', import.meta.url))).text();
 const v = src.match(/config\.js\?v=(\d+)/)?.[1] ?? '';
@@ -24,11 +25,13 @@ function brain(idle, f) {
   f.personality = { build: 0.4, risk: 1.3, actions: 2, grudge: 0 };
 }
 
-// cheapest affordable upgrade, bought repeatedly (not the command branch: auto-play only saves a human's time); returns how many were bought
+// marksman first with Mist, then the cheapest affordable upgrade, bought repeatedly; returns how many were bought
 function shop(idle) {
   let n = 0;
+  idle.auto = false;   // order-giving generals stay off (they stand in for the human)
+  if (!idle.genLvl('marksman') && idle.unlock('marksman')) { idle.seat(0, 'marksman'); n++; }
   for (;;) {
-    const open = upgrades.filter((u) => u.branch !== 'command' && idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) - idle.cost(b.id));
+    const open = upgrades.filter((u) => idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) - idle.cost(b.id));
     if (!open.length) return n;
     idle.buy(open[0].id);
     n++;
@@ -51,6 +54,7 @@ export function career({ maxRuns = 8, target = 30, stageCap = 900, seed = 1 } = 
       let killed = 0, fogs = 0, t = 0, shopT = 5;
       while (b.state === 'running' && t < stageCap) {
         b.step(rules.step);
+        idle.autoTick(b, rules.step);
         t += rules.step;
         const f = idle.fogsFor(b.stats.killed - killed);
         killed = b.stats.killed;

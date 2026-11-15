@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=128';
-import { rng, hops } from './mapgen.js?v=128';
-import { effects, rules } from './config.js?v=128';
+import { personalities, pickBuilding } from './ai.js?v=129';
+import { rng, hops } from './mapgen.js?v=129';
+import { effects, rules } from './config.js?v=129';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -68,8 +68,9 @@ export const enemyPower = (n) => idleCfg.enemyBase * idleCfg.enemyAtk ** (n - 1)
 const enemyGrowthAt = (n) => idleCfg.enemyGrowthBase * idleCfg.enemyGrowth ** (n - 1);
 export const bossMist = (n) => Math.max(1, Math.round((n / 10) ** idleCfg.mistExp));
 
-// upgrade tree (compass): your base in the middle, 5 branches go out like spokes and each one forks
-// into two paths (passive-tree style); 5 bridge nodes on the outer ring join neighbouring branches.
+// upgrade tree: 4 branches (columns in the right-side panel), each forks into two paths
+// (passive-tree style); 3 bridge nodes on the bottom row join neighbouring branches. the old
+// command branch (auto-battle) is now the War Council (generals, below).
 // placement: ring = distance from the centre (0-4), off = degrees left (-) / right (+) of the
 // branch's direction (bridges: ang = their own direction). needs = [[id, level], ...]: a node opens
 // once every listed upgrade has that level; or: true = any one of them is enough (merge and bridge
@@ -82,21 +83,17 @@ export const branches = [
   { id: 'defense', icon: '🛡️', name: 'Defense', ang: -18, color: '#2f74d6' },
   { id: 'growth', icon: '🌱', name: 'Growth', ang: 54, color: '#33b366' },
   { id: 'fog', icon: '🌫️', name: 'Fog', ang: 126, color: '#16a3b5' },
-  { id: 'command', icon: '🤖', name: 'Command', ang: 198, color: '#8b55c9' },
 ];
 export const bridgeColor = '#e0961a';   // bridge nodes (between two branches) are gold
-const autoTh = [1, 0.9, 0.8, 0.7, 0.6, 0.5];   // auto-attack: tile fullness that triggers an attack, by level
-const margins = [1.25, 1.18, 1.12, 1.06];       // auto-attack safety margin, by sharp eye level
 export const upgrades = [
   // offense: blades, then the blitz path (march -> conscription -> plunder) and the might path
-  // (veterans -> archers -> volley); both lead to mist blades
+  // (veterans -> volley: the Marksman's arrows); both lead to mist blades
   { id: 'atk', branch: 'offense', ring: 0, off: 0, icon: '🗡️', name: 'Sharper blades', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `attack ${pctUp(v)}` },
   { id: 'march', branch: 'offense', ring: 1, off: -20, needs: [['atk', 2]], icon: '🥾', name: 'Forced march', base: 120, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `armies move ${pctUp(v)}` },
   { id: 'veterans', branch: 'offense', ring: 1, off: 20, needs: [['atk', 2]], icon: '🎖️', name: 'Veterans', base: 480, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `attack ${pctUp(v)} more` },
   { id: 'conscription', branch: 'offense', ring: 2, off: -22, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
-  { id: 'archers', branch: 'offense', ring: 2, off: 22, needs: [['veterans', 4]], icon: '🏹', name: 'Archers', base: 1400, grow: 2.4, max: 5, value: (l) => idleCfg.archerRate * l, text: (v, sc) => (v ? `shoot ${fmtRate(v * sc)}/s into each enemy neighbour` : 'your tiles shoot enemy neighbours') },
   { id: 'plunder', branch: 'offense', ring: 3, off: -22, needs: [['conscription', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
-  { id: 'volley', branch: 'offense', ring: 3, off: 22, needs: [['archers', 2]], icon: '🎯', name: 'Volley', base: 15000, grow: 2.6, max: 4, value: (l) => 1 + 0.15 * l, text: (v) => `archers shoot ${pctUp(v)}` },
+  { id: 'volley', branch: 'offense', ring: 2, off: 22, needs: [['veterans', 4]], icon: '🎯', name: 'Volley', base: 8000, grow: 2.6, max: 4, value: (l) => 1 + 0.15 * l, text: (v) => `the Marksman's arrows ${pctUp(v)}` },
   { id: 'mistblades', branch: 'offense', ring: 4, off: 0, cur: 'mist', or: true, needs: [['plunder', 1], ['volley', 1]], icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
   // defense: shield wall, then the walls path (great walls -> bigger camp) and the forts path
   // (stonemasons -> field medics); they meet at stoneskin, then mist veil
@@ -128,22 +125,79 @@ export const upgrades = [
   { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['horn', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
   { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
   { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
-  // command (auto-battle): auto-attack, then the expand path (auto-expand -> auto-reinforce) and the
-  // signals path (signal fires -> auto-build); they meet at sharp eye
-  { id: 'auto', branch: 'command', ring: 0, off: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack from ${Math.round(autoTh[v || 1] * 100)}% full tiles, or after ${idleCfg.autoWait[v || 1]} s` },
-  { id: 'autoneutral', branch: 'command', ring: 1, off: -20, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
-  { id: 'signals', branch: 'command', ring: 1, off: 20, needs: [['auto', 2]], icon: '🔥', name: 'Signal fires', base: 300, grow: 2.5, max: 2, value: (l) => 1 + 0.5 * l, text: (v) => `auto-battle acts ${v === 1 ? 'every second' : `${v.toFixed(1)}x as often`}` },
-  { id: 'reinforce', branch: 'command', ring: 2, off: -22, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front, tiles under attack get help' },
-  { id: 'autobuild', branch: 'command', ring: 2, off: 22, needs: [['signals', 1]], icon: '🏗️', name: 'Auto-build', base: 2500, grow: 1, max: 1, value: (l) => l, text: () => 'full tiles build what pays back fastest' },
-  { id: 'sharpeye', branch: 'command', ring: 3, off: 0, cur: 'mist', or: true, needs: [['reinforce', 1], ['autobuild', 1]], icon: '👁️', name: 'Sharp eye', base: 1, grow: 2, max: 3, value: (l) => margins[l], text: (v) => `auto-attack sends +${Math.round((v - 1) * 100)}% over what it needs` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
   { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
   { id: 'sanctuary', branch: 'bridge', ring: 4, ang: 18, or: true, needs: [['medics', 1], ['engineers', 1]], icon: '⛪', name: 'Sanctuary', base: 27000, grow: 2.6, max: 5, value: (l) => 1.01 ** l, text: (v) => `growth and defense ${pctUp(v)}` },
   { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['deephorn', 1]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `fog wells ${pctUp(v)}` },
-  { id: 'patrols', branch: 'bridge', ring: 4, ang: 162, or: true, needs: [['mistseeker', 1], ['reinforce', 1]], icon: '🐎', name: 'Patrols', base: 27000, grow: 2.6, max: 5, value: (l) => l, text: (v) => `armies move +${2 * v}%, Fog from beaten foglets +${3 * v}%` },
-  { id: 'blitz', branch: 'bridge', ring: 4, ang: 234, or: true, needs: [['autobuild', 1], ['plunder', 1]], icon: '⚡', name: 'Blitz', base: 27000, grow: 2.6, max: 5, value: (l) => l, text: (v) => `armies move +${2 * v}%, neutrals defend -${(1.5 * v).toFixed(1).replace('.0', '')}%` },
 ];
 export const upgradeById = Object.fromEntries(upgrades.map((u) => [u.id, u]));
+
+// ---------- war council: 4 seats, generals give the orders (the old command branch) ----------
+// generals are unlocked with Mist only, in any order; every unlock raises the next price. a
+// seated general works every game second or faster (promote with Fog: level 1-5); the player sets
+// each one's orders (sliders / picks, saved). the A key / auto button pauses the generals that
+// give orders (warlord, pathfinder, warden, quartermaster, marshal); the others always work
+export const council = {
+  seatStage: [0, 0, 0, 15],   // best stage needed before each seat opens
+  mistCosts: [1, 2, 3, 4, 5, 6, 8, 10, 12],   // unlock price by how many generals are unlocked already
+  maxLv: 5,
+  promoteBase: 500, promoteGrow: 3,   // promote to level l+1: 500 x 3^(l-1) Fog
+  margin: 1.2,          // attacks send 20% over what they need
+  drumEvery: 30, drumFor: 8,   // war drummer: a roll every 30 game s, lasting 8 s
+};
+// game seconds between a general's actions at level l (1 s ... 0.5 s)
+const actEvery = (l) => 1 / (1 + 0.25 * (Math.max(1, l) - 1));
+const waitAt = (l) => idleCfg.autoWait[Math.max(1, l)];
+const pct = (v) => `${Math.round(v * 100)}%`;
+// orders: { key, label, type: 'range' (min/max/step, unit) | 'pick' (opts), def }
+// text(l, o) = what the general does at level l with orders o; sum(o) = one line under the seat
+export const generals = [
+  { id: 'warlord', name: 'Warlord', role: 'Auto-attack', quote: 'Full is ready. Ready is now.',
+    orders: [{ key: 'at', label: 'Attack at', type: 'range', min: 50, max: 95, step: 5, def: 80, unit: '% full' },
+      { key: 'prefer', label: 'Go for', type: 'pick', opts: ['Cheapest', 'Buildings', 'Capitals'], def: 0 }],
+    text: (l, o) => `Your tiles attack enemy neighbours on their own once they are ${o.at}% full, or after waiting ${waitAt(l)} s. Never neutral land.`,
+    sum: (o) => `attacks at ${o.at}% full` },
+  { id: 'warden', name: 'Warden', role: 'Auto-defend', quote: 'No tile falls alone.',
+    orders: [{ key: 'keep', label: 'Helpers keep at least', type: 'range', min: 10, max: 60, step: 5, def: 30, unit: '%' },
+      { key: 'guard', label: 'Guard', type: 'pick', opts: ['All tiles', 'Buildings', 'Capital'], def: 0 }],
+    text: (l, o) => `When a tile is attacked and can't hold, its neighbours send what it needs (+25%), each keeping ${o.keep}% of its cap.`,
+    sum: (o) => `helpers keep ${o.keep}%` },
+  { id: 'marksman', name: 'Marksman', role: 'Arrows', quote: 'I never miss twice.',
+    orders: [],
+    text: (l, o, sc = 1, vol = 1) => `Your tiles shoot ${fmtRate(idleCfg.archerRate * l * vol * sc)} foglets/s into each enemy neighbour. No Marksman, no arrows.`,
+    sum: () => 'arrows on' },
+  { id: 'pathfinder', name: 'Pathfinder', role: 'Auto-expand', quote: 'Beyond the fog is just more land.',
+    orders: [{ key: 'spend', label: 'Spend at most', type: 'range', min: 10, max: 80, step: 5, def: 40, unit: '% of a tile' },
+      { key: 'prefer', label: 'Prefer', type: 'pick', opts: ['Closest', 'Highland', 'Forest', 'Rivers'], def: 0 }],
+    text: (l, o) => `Takes neutral tiles when each helper spends at most ${o.spend}% of its foglets; tiles wait ${waitAt(l)} s at most.`,
+    sum: (o) => `spends up to ${o.spend}%` },
+  { id: 'quartermaster', name: 'Quartermaster', role: 'Auto-build', quote: 'A farm today, a fort tomorrow.',
+    orders: [{ key: 'first', label: 'Build', type: 'pick', opts: ['Best payback', 'Farms', 'Hospitals', 'Labs', 'Forts'], def: 0 }, { key: 'at', label: 'Build when', type: 'range', min: 60, max: 100, step: 5, def: 90, unit: '% full' }],
+    text: (l, o) => `A tile ${o.at}% full without a building builds ${['what pays back fastest', 'a farm', 'a hospital', 'a lab', 'a fort'][o.first]} (it keeps 30% of its cap).`,
+    sum: (o) => (o.first ? `${['', 'farms', 'hospitals', 'labs', 'forts'][o.first]} first` : 'best payback') },
+  { id: 'marshal', name: 'Marshal', role: 'Supply lines', quote: 'The front eats. The back cooks.',
+    orders: [{ key: 'at', label: 'Feed when a back tile is', type: 'range', min: 50, max: 100, step: 5, def: 70, unit: '% full' }],
+    text: (l, o) => `Back tiles ${o.at}% full pass all but 5% of their foglets one step toward the front, to the emptiest tile.`,
+    sum: (o) => `feeds at ${o.at}%` },
+  { id: 'drummer', name: 'War Drummer', role: 'Rally drums', quote: 'Feet follow the beat.',
+    orders: [{ key: 'when', label: 'Drum', type: 'pick', opts: ['On cooldown', 'When I attack', 'When attacked'], def: 1 }],
+    text: (l) => `A drum roll every ${council.drumEvery} s: for ${council.drumFor} s your armies march and your tiles grow ${pct(0.15 + 0.05 * l)} faster.`,
+    sum: (o) => ['every 30 s', 'with attacks', 'when attacked'][o.when] },
+  { id: 'houndmaster', name: 'Houndmaster', role: 'War hounds', quote: 'They smell an army before I see it.',
+    orders: [{ key: 'range', label: 'Hunt armies marching at', type: 'pick', opts: ['Your tiles', '+1 tile out', '+2 tiles out'], def: 0 }],
+    text: (l) => `Hounds run at enemy armies halfway to your land and bite off ${pct(0.08 + 0.02 * l)} of them.`,
+    sum: (o) => ['at your tiles', '1 tile out', '2 tiles out'][o.range] },
+  { id: 'surgeon', name: 'Field Surgeon', role: 'Revive', quote: 'Not dead. Just resting.',
+    orders: [{ key: 'to', label: 'Send them back to', type: 'pick', opts: ['Capital', 'Front line'], def: 0 }],
+    text: (l) => `Every foglet you lose has a ${(0.75 + 0.25 * l).toFixed(2).replace(/0$/, '')}% chance to get back up and return.`,
+    sum: (o) => (o.to ? 'to the front' : 'to the capital') },
+];
+export const generalById = Object.fromEntries(generals.map((g) => [g.id, g]));
+// the generals that give orders (paused with the auto toggle)
+const commanders = ['warlord', 'pathfinder', 'warden', 'quartermaster', 'marshal'];
+// upgrades that left the tree (command branch, archers, patrols, blitz): what one level cost, to
+// refund old saves. [base, grow, currency]
+const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6] };
 
 // sample "other player" profiles (v1: made up; later: real profiles from the online board)
 // lean = how the profile's strength is split (atk / def / growth), total stays at the stage's level
@@ -168,15 +222,32 @@ export function fmtBig(v) {
 const fmtRate = (v) => (v < 10 ? String(Math.round(v * 100) / 100) : fmtBig(v));
 
 const save_key = 'frontlines.idle';
-const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'hornAt', 'hornStored'];
-const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, hornAt: 0, hornStored: 0 });
+const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'hornAt', 'hornStored', 'gens', 'seats', 'orders'];
+// gens = general id -> level (unlocked = 1+), seats = 4 x general id | null, orders = id -> { key: value }
+const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, hornAt: 0, hornStored: 0, gens: {}, seats: [null, null, null, null], orders: {} });
 
 // the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, horn, the run in progress
 export class Idle {
   constructor(data = {}) {
     Object.assign(this, blank(), data);
+    // upgrades that moved to the war council are refunded (Fog / Mist back); owning the old
+    // auto-attack / archers seats the Warlord / Marksman for free
+    const old = data.levels ?? {};
+    for (const [id, [base, grow, cur]] of Object.entries(retired)) {
+      let paid = 0;
+      for (let i = 0; i < (old[id] ?? 0); i++) paid += Math.ceil(base * grow ** i);
+      if (cur === 'mist') this.mist += paid; else this.fogs += paid;
+    }
+    this.gens = { ...this.gens }; this.orders = { ...this.orders };
+    this.seats = [0, 1, 2, 3].map((i) => (generalById[this.seats?.[i]] ? this.seats[i] : null));
+    for (const [oldId, gen] of [['auto', 'warlord'], ['archers', 'marksman']]) {
+      if (!old[oldId] || this.gens[gen]) continue;
+      this.gens[gen] = 1;
+      const free = this.seats.findIndex((x, i) => !x && this.seatOpen(i));
+      if (free >= 0) this.seats[free] = gen;
+    }
     // levels of upgrades that no longer exist (e.g. the old time warp) are dropped
-    this.levels = Object.fromEntries(Object.entries(data.levels ?? {}).filter(([id]) => upgradeById[id]));
+    this.levels = Object.fromEntries(Object.entries(old).filter(([id]) => upgradeById[id]));
   }
 
   static load() {
@@ -210,18 +281,56 @@ export class Idle {
     return true;
   }
 
+  // ---- war council ----
+  seatOpen(i) { return (this.best || 1) >= council.seatStage[i]; }
+  genLvl(id) { return this.gens[id] ?? 0; }
+  seated(id) { return this.seats.includes(id); }
+  // the level of a seated general (0 = not in the council)
+  on(id) { return this.seated(id) ? this.genLvl(id) : 0; }
+  unlockCost() { return council.mistCosts[Math.min(council.mistCosts.length - 1, Object.keys(this.gens).length)]; }
+  canUnlock(id) { return !this.genLvl(id) && this.mist >= this.unlockCost(); }
+  unlock(id) {
+    if (!generalById[id] || !this.canUnlock(id)) return false;
+    this.mist -= this.unlockCost();
+    this.gens[id] = 1;
+    return true;
+  }
+  promoteCost(id) { return Math.ceil(council.promoteBase * council.promoteGrow ** (this.genLvl(id) - 1)); }
+  canPromote(id) { const l = this.genLvl(id); return l > 0 && l < council.maxLv && this.fogs >= this.promoteCost(id); }
+  promote(id) {
+    if (!this.canPromote(id)) return false;
+    this.fogs -= this.promoteCost(id);
+    this.gens[id]++;
+    return true;
+  }
+  // put general id on seat i (from another seat it moves; null empties the seat)
+  seat(i, id) {
+    if (!this.seatOpen(i) || (id && !this.genLvl(id))) return false;
+    const was = this.seats.indexOf(id);
+    if (id && was >= 0) this.seats[was] = null;
+    this.seats[i] = id;
+    return true;
+  }
+  // a general's orders with the defaults filled in
+  ord(id) {
+    const o = {};
+    for (const d of generalById[id].orders) o[d.key] = this.orders[id]?.[d.key] ?? d.def;
+    return o;
+  }
+  setOrder(id, key, v) { (this.orders[id] ??= {})[key] = v; }
+
   // the player's sim modifiers from upgrades (same keys as battle.js / expedition perks)
   mods() {
     const g = this.val('granary'), war = this.val('warlord'), sanc = this.val('sanctuary');
-    const patrols = this.lvl('patrols'), blitz = this.lvl('blitz');
+    const drum = this.drumOn ? 1.15 + 0.05 * this.on('drummer') : 1;   // war drummer's roll (runtime only)
     const m = {
       atk: this.val('atk') * this.val('veterans') * this.val('mistblades') * war,
       def: this.val('def') * this.val('stoneskin') * this.val('mistveil') * war * sanc,
-      growth: this.val('growth') * this.val('rains') * this.val('evergreen') * sanc,
-      speed: this.val('march') * (1 + 0.02 * patrols) * (1 + 0.02 * blitz),
-      cost: this.val('engineers'), neutralDef: this.val('conscription') * (1 - 0.015 * blitz), loot: this.val('plunder'),
+      growth: this.val('growth') * this.val('rains') * this.val('evergreen') * sanc * drum,
+      speed: this.val('march') * drum,
+      cost: this.val('engineers'), neutralDef: this.val('conscription'), loot: this.val('plunder'),
       farm: g * this.val('harvest'), hospital: g * this.val('medics'), lab: g * this.val('scholars'),
-      capitalDef: this.val('walls'), archers: this.val('archers') * this.val('volley'), land: this.val('roots'),
+      capitalDef: this.val('walls'), archers: idleCfg.archerRate * this.on('marksman') * this.val('volley'), land: this.val('roots'),
     };
     if (this.lvl('masons')) m.fort = this.val('masons');   // forts: x1.75 unless stonemasons
     return m;
@@ -229,7 +338,8 @@ export class Idle {
 
   get scale() { return displayScale(this.stage); }
   get fogMult() { return this.val('fog') * this.val('mistborn'); }
-  get autoOn() { return this.auto && this.lvl('auto') > 0; }
+  // the order-giving generals work (council switched on and one of them seated)
+  get autoOn() { return this.auto && commanders.some((id) => this.on(id)); }
   // first stage of a new run: fog drift skips ahead, at most to half the best stage reached
   get startStage() { return Math.max(1, Math.min(1 + this.val('drift'), Math.floor(this.best / 2))); }
 
@@ -237,8 +347,8 @@ export class Idle {
   // stage's enemy growth: stronger enemies field more foglets, each is worth less, so a stage pays
   // about the same share of its display scale however strong the rivals are
   fogsFor(killed) { return (killed * idleCfg.fogPerKill * this.scale * this.fogMult * this.killMult * (stageSpec(this.stage).ghost ? 2 : 1)) / enemyGrowthAt(this.stage); }
-  // scavengers and patrols: more Fog per beaten foglet
-  get killMult() { return this.val('scavengers') * (1 + 0.03 * this.lvl('patrols')); }
+  // scavengers: more Fog per beaten foglet
+  get killMult() { return this.val('scavengers'); }
   // fog wells: Fog for holding tiles over dt game seconds
   wellFogs(tiles, dt) { return this.val('wells') * this.val('mistgarden') * tiles * dt * this.scale * this.fogMult; }
   clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.fogMult * this.val('bounty') * (stageSpec(this.stage).boss ? 3 : 1); }
@@ -264,33 +374,41 @@ export class Idle {
     return a;
   }
 
-  // auto-battle, run after every sim step while it is on. every autoEvery game seconds (signal fires:
-  // more often) your tiles that are full enough (90% at level 1 ... 50% at level 5), or have waited
-  // autoWait seconds since they were taken or last sent (30 s ... 10 s), attack:
-  //   - targets: enemy tiles next to a ready tile (neutrals too with auto-expand), cheapest first
-  //   - need: the defenders when the army gets there (now + their growth on the way + armies marching
-  //     in to help them) x their defense x the safety margin (sharp eye lowers it), minus what is
-  //     already marching at them, so a running attack is topped up instead of left alone or doubled
-  //   - every ready tile next to the target chips in the same share of its spare foglets; if all of
-  //     them together are not enough, nothing is sent and they keep growing
-  //   - targets are ranked by worth (size, building, relic) per strength needed
-  // with auto-build, a ready tile that sent nothing builds what pays back fastest; with
-  // auto-reinforce, a tile under attack that can't hold gets help from its neighbours, and ready back
-  // tiles pass their foglets one step toward the front, to the emptiest tile (a full tile stops
-  // growing, so they are never left sitting full). orders by hand still work
+  // war council, run after every sim step. each seated general acts on its own clock (every
+  // game second at level 1 ... 0.5 s at level 5):
+  //   - warlord: enemy tiles next to ready tiles (at least <at>% full, or waited autoWait s since
+  //     taken / last sent) are attacked. need = the defenders when the army arrives (now + their
+  //     growth on the way + armies marching in to help) x their defense x 1.2, minus what already
+  //     marches at them; every ready neighbour sends the same share of its spare foglets, or none
+  //     do. targets ranked by worth (size, building, relic, + the "go for" pick) per strength
+  //   - pathfinder: the same for neutral tiles, only if no helper spends more than <spend>%
+  //   - warden: a tile under attack that can't hold gets the difference +25% from neighbours
+  //     that aren't attacked, each keeping <keep>% of its cap
+  //   - quartermaster: a tile <at>% full without a building builds (keeps 30% of its cap)
+  //   - marshal: back tiles <at>% full pass all but 5% one step toward the front
+  //   - drummer, houndmaster, surgeon: see generals[]. marksman: arrows via mods()
+  // orders by hand still work; the A key pauses the order-giving generals
   autoTick(b, dt) {
-    if (!this.autoOn || b.state !== 'running') return;
-    b.autoT = (b.autoT ?? 0) + dt;
-    if (b.autoT < idleCfg.autoEvery / this.val('signals')) return;   // signal fires: more often
-    b.autoT = 0;
-    const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0, margin = this.val('sharpeye');
+    if (b.state !== 'running') return;
+    const clock = (b.councilT ??= {});
+    const due = (id) => {
+      const l = this.on(id);
+      if (!l) return false;
+      clock[id] = (clock[id] ?? 0) + dt;
+      if (clock[id] < actEvery(l)) return false;
+      clock[id] = 0;
+      return true;
+    };
     const mine = b.segs.filter((s) => s.owner === 0);
-    // ready = full enough, or waited autoWait since it was taken / last sent (b.autoSince: id -> time)
-    const since = (b.autoSince ??= new Map()), wait = idleCfg.autoWait[this.lvl('auto')];
+    const since = (b.autoSince ??= new Map());
     for (const id of since.keys()) if (b.segs[id].owner !== 0) since.delete(id);
     for (const s of mine) if (!since.has(s.id)) since.set(s.id, b.time);
-    const ready = (s) => s.troops >= th * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait);
-    const used = new Set();   // tiles that already sent this round
+    const used = new Set();   // tiles that already sent / built this step
+    // passive generals (always on)
+    this.drumTick(b);
+    if (due('houndmaster')) this.hounds(b);
+    this.revive(b, mine);
+    if (!this.auto) return;
     // already on the way: our strength (foglets x attack) per target, foglets marching in to help it
     const sent = new Map(), help = new Map();
     for (const a of b.armies) {
@@ -298,11 +416,58 @@ export class Idle {
       if (a.owner === 0) sent.set(a.to, (sent.get(a.to) ?? 0) + a.n * a.atk);
       else if (b.segs[a.to].owner === a.owner) help.set(a.to, (help.get(a.to) ?? 0) + a.n);
     }
-    const speed = rules.armySpeed * (b.mods(0).speed ?? 1);
-    const targets = [];
+    if (due('warlord')) {
+      const o = this.ord('warlord'), wait = waitAt(this.on('warlord'));
+      const bonus = (t) => (o.prefer === 1 && t.building ? 1 : 0) + (o.prefer === 2 && t.capital ? 2 : 0);
+      this.attack(b, { sent, help, used, enemies: true, ready: (s) => s.troops >= (o.at / 100) * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait), bonus });
+    }
+    if (due('pathfinder')) {
+      const o = this.ord('pathfinder'), wait = waitAt(this.on('pathfinder')), trait = [null, 'highland', 'forest', 'river'][o.prefer];
+      this.attack(b, { sent, help, used, enemies: false, maxShare: o.spend / 100, ready: (s) => s.troops >= 0.3 * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait), bonus: (t) => (trait && t.trait === trait ? 1.5 : 0) });
+    }
+    if (due('quartermaster')) {
+      const o = this.ord('quartermaster'), allow = [null, ['farm'], ['hospital'], ['lab'], ['fort']][o.first] ?? undefined;
+      for (const s of mine) {
+        if (used.has(s.id) || s.building || s.capital || s.obelisk || s.troops < (o.at / 100) * s.cap) continue;
+        const type = pickBuilding(b, s, 1, mine, allow);
+        if (type && s.troops >= b.costOf(0, type) + 0.3 * s.cap && b.build(0, s.id, type)) used.add(s.id);
+      }
+    }
+    if (due('warden')) {
+      const o = this.ord('warden');
+      const threat = new Map();
+      for (const a of b.armies) if (!a.done && a.owner > 0 && b.segs[a.to].owner === 0) threat.set(a.to, (threat.get(a.to) ?? 0) + a.n * a.atk);
+      for (const [id, str] of threat) {
+        const t = b.segs[id];
+        if ((o.guard === 1 && !t.building && !t.capital) || (o.guard === 2 && !t.capital)) continue;
+        const hold = (t.troops + (sent.get(id) ?? 0)) * b.defMult(t);
+        if (str <= hold) continue;
+        const keep = (s) => Math.max(1, (o.keep / 100) * s.cap);
+        const pool = t.adj.map((a) => b.segs[a]).filter((s) => s.owner === 0 && !used.has(s.id) && !threat.has(s.id) && s.troops > keep(s) + 1);
+        const spare = pool.reduce((v, s) => v + s.troops - keep(s), 0), want = ((str - hold) / b.defMult(t)) * 1.25;
+        if (!spare) continue;
+        const share = Math.min(1, want / spare);
+        for (const s of pool) if (b.send(0, s.id, id, Math.ceil((s.troops - keep(s)) * share), true)) used.add(s.id);
+      }
+    }
+    if (due('marshal')) {
+      const at = this.ord('marshal').at / 100;
+      const front = hops(b.map, mine.filter((s) => s.adj.some((a) => b.segs[a].owner !== 0)).map((s) => s.id));
+      for (const s of mine) {
+        if (used.has(s.id) || front[s.id] < 1 || s.troops < at * s.cap) continue;
+        const next = s.adj.map((a) => b.segs[a]).filter((n) => n.owner === 0 && front[n.id] < front[s.id]).sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0];
+        if (next && b.send(0, s.id, next.id, s.troops - Math.max(1, 0.05 * s.cap), true)) used.add(s.id);
+      }
+    }
+    for (const id of used) since.set(id, b.time);
+  }
+
+  // one attack pass (warlord: enemy tiles, pathfinder: neutrals); see autoTick
+  attack(b, { sent, help, used, enemies, ready, bonus, maxShare = 1 }) {
+    const speed = rules.armySpeed * (b.mods(0).speed ?? 1), targets = [];
     for (const t of b.segs) {
-      if (t.owner === 0 || (t.owner < 0 && !neutral)) continue;
-      const from = t.adj.map((id) => b.segs[id]).filter((s) => s.owner === 0 && ready(s));
+      if (t.owner === 0 || (enemies ? t.owner < 0 : t.owner >= 0)) continue;
+      const from = t.adj.map((id) => b.segs[id]).filter((s) => s.owner === 0 && !used.has(s.id) && ready(s));
       if (!from.length) continue;
       // march time of the farthest helper to the fight point at the border (game s)
       const eta = Math.max(...from.map((s) => Math.hypot(t.x - s.x, t.y - s.y))) / speed * rules.fightAt;
@@ -311,9 +476,8 @@ export class Idle {
       const grow = t.owner < 0 ? (t.troops < t.garrison ? t.baseGrowth * rules.neutralRegrow : 0)
         : t.troops < t.cap && b.landShare(t) > 0 ? t.growth : 0;
       const defenders = t.troops + grow * eta + (help.get(t.id) ?? 0);
-      const need = defenders * b.fightDef(t, 0) * margin + 2 - (sent.get(t.id) ?? 0);   // in strength (foglets x attack)
-      // worth: bigger tiles, buildings and relics first (like the bots), per strength it costs
-      const worth = t.cap / 50 + (t.building ? 0.6 : 0) + (t.relic ? 1.2 : 0) + (t.owner < 0 ? 0.2 : 0);
+      const need = defenders * b.fightDef(t, 0) * council.margin + 2 - (sent.get(t.id) ?? 0);   // in strength (foglets x attack)
+      const worth = t.cap / 50 + (t.building ? 0.6 : 0) + (t.relic ? 1.2 : 0) + bonus(t);
       if (need > 0) targets.push({ t, from, need, score: worth / need });
     }
     targets.sort((x, y) => y.score - x.score);
@@ -322,42 +486,65 @@ export class Idle {
       // all helpers together must reach the need (each keeps one foglet), else wait. each sends the
       // same share of what it can spare, so no border tile is emptied while others stay full
       const power = pool.reduce((v, s) => v + Math.max(0, s.troops - 1) * b.atkMult(s), 0);
-      if (power < need) continue;
+      if (power < need || need / power > maxShare) continue;
       const share = need / power;
       for (const s of pool) {
         const n = Math.ceil(Math.max(0, s.troops - 1) * share);
         if (n >= 1 && b.send(0, s.id, t.id, n, true)) used.add(s.id);
       }
     }
-    if (this.lvl('autobuild')) {
-      for (const s of mine) {
-        if (used.has(s.id) || !ready(s) || s.building || s.capital) continue;
-        const type = pickBuilding(b, s, 1, mine);
-        if (type && s.troops >= b.costOf(0, type) + 0.3 * s.cap) { b.build(0, s.id, type); used.add(s.id); }
-      }
+  }
+
+  // war drummer: a roll every drumEvery s (on cooldown / once we attack / once we are attacked)
+  // gives faster marches and growth for drumFor s, through mods()
+  drumTick(b) {
+    const l = this.on('drummer');
+    if (!l && !this.drumOn) return;
+    b.drumNext ??= 0;
+    const refresh = () => { b.factions[0].mods = this.mods(); b.updateGrowth(); };
+    if (this.drumOn && (b.time >= b.drumEnd || !l)) { this.drumOn = false; refresh(); }
+    if (!l || this.drumOn || b.time < b.drumNext) return;
+    const when = this.ord('drummer').when;
+    const go = when === 0
+      || (when === 1 && b.armies.some((a) => !a.done && a.owner === 0 && b.segs[a.to].owner !== 0))
+      || (when === 2 && b.armies.some((a) => !a.done && a.owner > 0 && b.segs[a.to].owner === 0));
+    if (!go) return;
+    this.drumOn = true; b.drumEnd = b.time + council.drumFor; b.drumNext = b.time + council.drumEvery;
+    b.events.push({ type: 'drum' });
+    refresh();
+  }
+
+  // houndmaster: enemy armies past halfway to one of our tiles (or a tile 1-2 steps out) lose a
+  // share of their foglets once (counts as killed: Fog)
+  hounds(b) {
+    const l = this.on('houndmaster'), reach = this.ord('houndmaster').range, bite = 0.08 + 0.02 * l;
+    const dist = reach ? hops(b.map, b.segs.filter((s) => s.owner === 0).map((s) => s.id)) : null;
+    for (const a of b.armies) {
+      if (a.done || a.owner <= 0 || a.hounded || a.t < 0.5 || a.fight || a.clash) continue;
+      const t = b.segs[a.to];
+      if (!(t.owner === 0 || (dist && dist[t.id] <= reach))) continue;
+      const k = a.n * bite;
+      a.n -= k; a.hounded = true;
+      b.stats.killed += k;
+      b.events.push({ type: 'hounds', from: a.from, to: a.to, t: a.t, n: k });
     }
-    for (const id of used) since.set(id, b.time);
-    if (!this.lvl('reinforce')) return;
-    // tiles under attack: enemy strength marching at them above what they can hold -> neighbours
-    // that are not attacked themselves send the difference (+25%), each the same share of its spare
-    const threat = new Map();
-    for (const a of b.armies) if (!a.done && a.owner > 0 && b.segs[a.to].owner === 0) threat.set(a.to, (threat.get(a.to) ?? 0) + a.n * a.atk);
-    for (const [id, str] of threat) {
-      const t = b.segs[id], hold = (t.troops + (sent.get(id) ?? 0)) * b.defMult(t);
-      if (str <= hold) continue;
-      const pool = t.adj.map((a) => b.segs[a]).filter((s) => s.owner === 0 && !used.has(s.id) && !threat.has(s.id) && s.troops > 2);
-      const spare = pool.reduce((v, s) => v + s.troops - 1, 0), want = ((str - hold) / b.defMult(t)) * 1.25;
-      if (!spare) continue;
-      const share = Math.min(1, want / spare);
-      for (const s of pool) if (b.send(0, s.id, id, Math.ceil((s.troops - 1) * share), true)) used.add(s.id);
-    }
-    const front = hops(b.map, mine.filter((s) => s.adj.some((a) => b.segs[a].owner !== 0)).map((s) => s.id));
-    for (const s of mine) {
-      if (used.has(s.id) || front[s.id] < 1 || !ready(s)) continue;
-      const next = s.adj.map((a) => b.segs[a]).filter((n) => n.owner === 0 && front[n.id] < front[s.id]).sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0];
-      if (next && b.send(0, s.id, next.id, s.troops - Math.max(1, 0.05 * s.cap), true)) since.set(s.id, b.time);   // keeps 5% of its cap
-    }
-    for (const id of used) since.set(id, b.time);
+  }
+
+  // field surgeon: each foglet we lose has a small chance to get up again (expected value, kept
+  // as a running fraction) and walks back into the capital or the emptiest front tile
+  revive(b, mine) {
+    const l = this.on('surgeon'), lost = b.stats.deaths - (b.revDeaths ?? 0);
+    b.revDeaths = b.stats.deaths;
+    if (!l || lost <= 0 || !mine.length) return;
+    b.revCarry = (b.revCarry ?? 0) + lost * (0.0075 + 0.0025 * l);
+    if (b.revCarry < 1) return;
+    const n = Math.floor(b.revCarry);
+    b.revCarry -= n;
+    const front = mine.filter((s) => s.adj.some((a) => b.segs[a].owner !== 0));
+    const to = this.ord('surgeon').to === 1 && front.length ? front.sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0] : mine.find((s) => s.capital) ?? mine[0];
+    to.troops += n;
+    b.stats.revived = (b.stats.revived ?? 0) + n;
+    b.events.push({ type: 'revive', id: to.id, n });
   }
 
   // battle setup for the current stage (or stage n: main.js pre-builds the next stage's map).
@@ -379,6 +566,7 @@ export class Idle {
         boss, ghost: i === ghostAt,
       });
     }
+    this.drumOn = false;   // a drum roll never carries over into the next stage
     const me = { ai: false, color: 0, mods: this.mods(), capital: { troops: this.val('start'), bonus: {} } };
     const nm = Math.min(idleCfg.neutralMax, E ** idleCfg.neutralExp);
     return {
