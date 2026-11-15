@@ -4,17 +4,17 @@
 // loop: every stage is one battle. defeated enemy foglets give Fog (the points), a stage win gives a
 // bonus, bosses drop Mist (the rare currency), and both buy permanent upgrades in a tree (open it any
 // time, a purchase applies at once). losing a stage ends the run; Fog, Mist and upgrades are kept and
-// the next run starts at stage 1 (later: further in, with the fog drift upgrade). the fog horn
-// gathers Fog in real time, played or not, to collect from the menu.
+// the next run starts at stage 1 (later: further in, with the fog drift upgrade). nothing is
+// earned while the game is closed.
 //
 // numbers: the sim itself never changes scale (a tile still holds ~400 sim foglets). what grows is
 //   - the display scale: every number on screen = sim foglets x display^(stage-1), so troop counts
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=130';
-import { rng, hops } from './mapgen.js?v=130';
-import { effects, rules } from './config.js?v=130';
+import { personalities, pickBuilding } from './ai.js?v=131';
+import { rng, hops } from './mapgen.js?v=131';
+import { effects, rules } from './config.js?v=131';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -43,8 +43,6 @@ export const idleCfg = {
   autoWait: [30, 30, 25, 20, 15, 10],
   deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
   quietEnd: 30,       // nobody marching for 30 game s: the side with the most foglets wins the stage
-  hornRate: 0.15,     // fog horn: sim Fog per real second per level (x display scale of your best stage); level 5 ~ 40% of active play
-  hornHours: 8,       // the horn holds at most 8 hours of Fog
 };
 
 // stage n (1-based): map size, rivals, climate. something new every 10 stages (climate, a rival)
@@ -114,21 +112,19 @@ export const upgrades = [
   { id: 'roots', branch: 'growth', ring: 3, off: -22, cur: 'mist', needs: [['engineers', 1]], icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
   { id: 'harvest', branch: 'growth', ring: 3, off: 22, needs: [['scholars', 1]], icon: '🌕', name: 'Harvest moon', base: 6000, grow: 2.3, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `farms ${pctUp(v)}` },
   { id: 'evergreen', branch: 'growth', ring: 4, off: 0, cur: 'mist', or: true, needs: [['roots', 1], ['harvest', 1]], icon: '🌲', name: 'Evergreen', base: 2, grow: 2, max: 5, value: (l) => 1.05 ** l, text: (v) => `growth x${v.toFixed(2)} (on top of fertile fog)` },
-  // fog: harvest, then the wells path (wells -> horn -> deep horn) and the hunters path
+  // fog: harvest, then the wells path and the hunters path
   // (scavengers -> bounty -> mist seeker); fog drift sits between them, then mistborn
   { id: 'fog', branch: 'fog', ring: 0, off: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Fog ${pctUp(v)}` },
   { id: 'wells', branch: 'fog', ring: 1, off: -20, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Fog/s per tile held` : 'tiles you hold make Fog') },
   { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Fog from beaten foglets ${pctUp(v)}` },
-  { id: 'horn', branch: 'fog', ring: 2, off: -22, needs: [['wells', 1]], icon: '📯', name: 'Fog horn', base: 600, grow: 2.5, max: 5, value: (l) => idleCfg.hornRate * l, text: (v, sc, id) => (v ? `gathers ${fmtRate(v * displayScale(Math.max(1, id?.best ?? 1)) * (id?.fogMult ?? 1))} Fog/s, played or away (holds ${id?.hornHours ?? idleCfg.hornHours} h)` : 'gathers Fog in real time, even while away') },
   { id: 'bounty', branch: 'fog', ring: 2, off: 22, needs: [['scavengers', 2]], icon: '🏆', name: 'Bounty', base: 2700, grow: 2.5, max: 4, value: (l) => 1 + 0.05 * l, text: (v) => `stage clear bonus ${pctUp(v)}` },
-  { id: 'deephorn', branch: 'fog', ring: 3, off: -26, needs: [['horn', 2]], icon: '🐚', name: 'Deep horn', base: 7500, grow: 2.6, max: 3, value: (l) => 2 * l, text: (v) => `the horn holds ${idleCfg.hornHours + v} h` },
-  { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['horn', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
+  { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['wells', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
   { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
   { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
   { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
   { id: 'sanctuary', branch: 'bridge', ring: 4, ang: 18, or: true, needs: [['medics', 1], ['engineers', 1]], icon: '⛪', name: 'Sanctuary', base: 27000, grow: 2.6, max: 5, value: (l) => 1.01 ** l, text: (v) => `growth and defense ${pctUp(v)}` },
-  { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['deephorn', 1]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `fog wells ${pctUp(v)}` },
+  { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['wells', 2]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `fog wells ${pctUp(v)}` },
 ];
 export const upgradeById = Object.fromEntries(upgrades.map((u) => [u.id, u]));
 
@@ -197,7 +193,7 @@ export const generalById = Object.fromEntries(generals.map((g) => [g.id, g]));
 const commanders = ['warlord', 'pathfinder', 'warden', 'quartermaster', 'marshal'];
 // upgrades that left the tree (command branch, archers, patrols, blitz): what one level cost, to
 // refund old saves. [base, grow, currency]
-const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6] };
+const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6], horn: [600, 2.5], deephorn: [7500, 2.6] };
 
 // sample "other player" profiles (v1: made up; later: real profiles from the online board)
 // lean = how the profile's strength is split (atk / def / growth), total stays at the stage's level
@@ -222,11 +218,11 @@ export function fmtBig(v) {
 const fmtRate = (v) => (v < 10 ? String(Math.round(v * 100) / 100) : fmtBig(v));
 
 const save_key = 'frontlines.idle';
-const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'hornAt', 'hornStored', 'gens', 'seats', 'orders'];
+const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'gens', 'seats', 'orders'];
 // gens = general id -> level (unlocked = 1+), seats = 4 x general id | null, orders = id -> { key: value }
-const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, hornAt: 0, hornStored: 0, gens: {}, seats: [null, null, null, null], orders: {} });
+const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, gens: {}, seats: [null, null, null, null], orders: {} });
 
-// the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, horn, the run in progress
+// the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, the run in progress
 export class Idle {
   constructor(data = {}) {
     Object.assign(this, blank(), data);
@@ -273,9 +269,8 @@ export class Idle {
   locked(id) { return this.missing(id).length > 0; }
   canBuy(id) { return !this.maxed(id) && !this.locked(id) && this.wallet(id) >= this.cost(id); }
 
-  buy(id, now = Date.now()) {
+  buy(id) {
     if (!this.canBuy(id)) return false;
-    if (id === 'horn') this.settleHorn(now);   // what it gathered so far counts at the old rate
     if (this.cur(id) === 'mist') this.mist -= this.cost(id); else this.fogs -= this.cost(id);
     this.levels[id] = this.lvl(id) + 1;
     return true;
@@ -354,25 +349,6 @@ export class Idle {
   clearFogs() { return idleCfg.clearBonus * this.stage * this.scale * this.fogMult * this.val('bounty') * (stageSpec(this.stage).boss ? 3 : 1); }
 
   earn(f) { this.fogs += f; this.total += f; this.runFogs += f; }
-
-  // ---- fog horn: Fog in real time (ms timestamps), played or away, up to hornHours of it ----
-  get hornRate() { return this.val('horn') * displayScale(Math.max(1, this.best)) * this.fogMult; }   // Fog per real second
-  get hornHours() { return idleCfg.hornHours + this.val('deephorn'); }   // deep horn adds hours
-  get hornCap() { return this.hornRate * this.hornHours * 3600; }
-  hornAmount(now = Date.now()) {
-    if (!this.lvl('horn')) return 0;
-    if (!this.hornAt) this.hornAt = now;
-    return Math.min(this.hornCap, this.hornStored + (this.hornRate * Math.max(0, now - this.hornAt)) / 1000);
-  }
-  // fix what the horn holds now (before its rate changes)
-  settleHorn(now = Date.now()) { this.hornStored = this.hornAmount(now); this.hornAt = now; }
-  // empty the horn into the bank; returns the amount
-  collectHorn(now = Date.now()) {
-    const a = this.hornAmount(now);
-    this.fogs += a; this.total += a;
-    this.hornStored = 0; this.hornAt = now;
-    return a;
-  }
 
   // war council, run after every sim step. each seated general acts on its own clock (every
   // game second at level 1 ... 0.5 s at level 5):

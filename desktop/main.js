@@ -46,8 +46,13 @@ function saveState(win, normal) {
 function createWindow() {
   const st = loadState();
   const b = st.bounds || { width: 1280, height: 720 };
+  // first run (or saved as fullscreen) starts fullscreen, like most steam games. the window is
+  // created fullscreen (not switched after showing): switching later made the page load at window
+  // size and then jump to the screen size (visible resize + re-layout a few seconds after launch)
+  const full = arg('windowed') ? false : st.fullscreen ?? true;
   const win = new BrowserWindow({
     ...b,
+    fullscreen: full,
     useContentSize: true,                 // width/height = game area, not the outer frame
     minWidth: 960,
     minHeight: 540,
@@ -65,10 +70,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),   // window.fogtideDesktop (settings: fullscreen, quit)
     },
   });
-  // first run (or saved as fullscreen) starts fullscreen, like most steam games
-  const full = arg('windowed') ? false : st.fullscreen ?? true;
   if (st.maximized && !full) win.maximize();
-  win.once('ready-to-show', () => { win.setFullScreen(full); win.show(); });
+  win.once('ready-to-show', () => win.show());
 
   // links that open a new window (credits, privacy) go to the system browser instead
   win.webContents.setWindowOpenHandler(({ url }) => {

@@ -20,6 +20,8 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Upgrade tree has 4 branches (Offense, Defense, Growth, Fog); the old Command branch is the War Council. Archers come only from the Marksman general.
 - War Council: 4 seats, generals unlocked with Mist only, in any order (price rises per unlock), promoted with Fog. Warlord attacks enemies only (neutrals are the Pathfinder's job). Rejected: Siegemaster (too strong), wizard / pirate generals, a barbarian look (same as viking). Field Surgeon = 1% revive chance per lost foglet at level 1. Council effects (hound dash + claws, drum rings + countdown, revive cross) are canvas fxs in main.js drawFx, fed by battle events 'hounds' / 'drum' / 'revive' from idle.js. Fogtide: rebuild the desktop exe after every change (user tests the exe).
 - x1 speed only (no 2x/3x). No battle-start horn (user found it unnerving).
+- No offline earnings: the idle Fog horn / Deep horn were removed (user's call, build 131); old levels are refunded via `retired` in idle.js. Fog drift now opens from wells 1 or bounty 1, Mist garden from harvest 1 or wells 2.
+- Desktop window is created fullscreen (`fullscreen` in the BrowserWindow options), never switched after showing: switching made the page load at 1280x720 and jump to screen size ~4 s after launch.
 - localStorage keys stay `frontlines.*` and the GoatCounter code stays `fogfront` (renames would wipe saves/stats).
 
 ## Tried and failed
@@ -29,6 +31,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Number badges redrawn each frame: main cause of idle stage-change lag (now sprite-cached).
 
 ## Known issues
+- `tools/idle_economy_test.py`: boss Mist check fails and the Mist veil click times out (stale since the right-side panel, build 130); later checks don't run.
 - Skirmish bot sim seed 104 stalemated (>1200 game s) in the smoke test; check the quiet-end rule for skirmish.
 - Idle: stage 20 is a wall (2-3 h in); capped specials max out by run ~3 (thin late game).
 - Bots rarely choose barracks; walls/recruiters/march/masons perks ~50% (no effect for bots).

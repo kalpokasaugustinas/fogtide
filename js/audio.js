@@ -193,13 +193,6 @@ export const sfx = {
   warDrum() { [0, 0.18, 0.36, 0.6].forEach((w, i) => { noise({ when: w, dur: 0.22, type: 'lowpass', freq: 140, q: 0.8, vol: i === 3 ? 0.55 : 0.35 }); note({ when: w, freq: 70, dur: 0.2, type: 'sine', vol: i === 3 ? 0.35 : 0.22, glide: 0.6 }); }); },
   bark() { note({ freq: 520, dur: 0.12, type: 'sawtooth', vol: 0.07, glide: 0.55, cutoff: 1400 }); note({ when: 0.16, freq: 480, dur: 0.1, type: 'sawtooth', vol: 0.05, glide: 0.55, cutoff: 1400 }); },
   revive() { note({ freq: 660, dur: 0.25, vol: 0.08 }); note({ when: 0.1, freq: 990, dur: 0.35, vol: 0.06 }); },
-  // idle fog horn collected: a long low war-horn blow rising a fifth, with breath noise
-  horn() {
-    note({ freq: 110, type: 'sawtooth', vol: 0.1, dur: 0.5, attack: 0.08, cutoff: 900 });
-    note({ freq: 165, type: 'sawtooth', vol: 0.12, dur: 0.9, attack: 0.1, when: 0.35, cutoff: 1100 });
-    note({ freq: 82.5, type: 'triangle', vol: 0.1, dur: 1.2, attack: 0.1, when: 0.05 });
-    noise({ type: 'bandpass', freq: 600, vol: 0.05, dur: 1.1, attack: 0.15 });
-  },
 };
 
 // ---------- music ----------

@@ -1,5 +1,5 @@
 # idle economy ui test (headless): land depletion, the quiet (fog closes in) rule, boss Mist drop,
-# Mist upgrades, the fog horn on the menu (real-time Fog, collect, puffs into the upgrade button).
+# Mist upgrades, the menu hub (no fog horn: nothing is earned offline; old horn levels refunded).
 # usage: python tools/idle_economy_test.py [screenshot_dir]
 import socket
 import subprocess
@@ -88,32 +88,23 @@ try:
         check(page.is_visible(".node.mist") and "Mist" in page.text_content("#shop-fogs"), "mist nodes and Mist balance shown in the tree")
         page.click("#shop-close")
 
-        # fog horn: bought an hour ago with best stage 11 -> it holds Fog on the menu; collect it
-        page.evaluate("""(() => { const id = __fl.idle; id.levels.wells = 1; id.levels.horn = 1; id.hornStored = 0; id.hornAt = Date.now() - 3600e3; id.save(); })()""")
+        # fog horn removed (no offline Fog): back on the menu, the hub shows only the bank
         page.click("#battle-quit")
         page.wait_for_timeout(300)
         if page.is_visible("#leave-go"):
             page.click("#leave-go")
         page.wait_for_timeout(1200)
-        check(page.is_visible("#idle-hub") and page.is_visible("#hub-horn"), "menu shows the hub with the horn")
-        amt = page.evaluate("__fl.idle.hornAmount()")
-        expect = page.evaluate("__fl.idle.hornRate * 3600")
-        check(abs(amt - expect) / expect < 0.01, f"horn gathered an hour of Fog ({amt:.0f} vs {expect:.0f})")
-        page.screenshot(path=str(out / "eco-menu-horn.png"))
-        before = page.evaluate("__fl.idle.fogs")
-        page.click("#hub-horn")
-        page.wait_for_timeout(350)
-        page.screenshot(path=str(out / "eco-horn-flow.png"))
-        puffs = page.evaluate("document.querySelectorAll('.fog-puff').length")
-        page.wait_for_timeout(2500)
-        r = page.evaluate("({ fogs: __fl.idle.fogs, horn: __fl.idle.hornAmount(), bank: document.querySelector('#hub-fog').textContent })")
-        check(r["fogs"] - before > expect * 0.99 and r["horn"] < expect * 0.01 and puffs > 0, f"collect: Fog into the bank, horn empty, {puffs} puffs ({r})")
+        check(page.is_visible("#idle-hub") and page.query_selector("#hub-horn") is None, "menu hub has no fog horn")
+        # an old save that owned horn 2 + deep horn 1 gets their Fog back (600 + 1500 + 7500) and loses the levels
+        r = page.evaluate("""(() => { const I = __fl.idle.constructor, a = new I({ fogs: 100, levels: { fog: 2, wells: 1, horn: 2, deephorn: 1 }, hornAt: 1, hornStored: 5 });
+          return { fogs: a.fogs, horn: a.lvl('horn'), deep: a.lvl('deephorn') }; })()""")
+        check(r["fogs"] == 100 + 600 + 1500 + 7500 and r["horn"] == 0 and r["deep"] == 0, f"old horn levels refunded ({r})")
         page.screenshot(path=str(out / "eco-menu-after.png"))
         check(page.query_selector("#hub-shop") is None, "no upgrade button on the menu (Fog is spent during a run)")
         page.close()
         # phone landscape menu layout with the hub
         ph = browser.new_page(viewport={"width": 844, "height": 390})
-        ph.add_init_script("localStorage.setItem('frontlines.tutorial', '1'); localStorage.setItem('frontlines.idle', JSON.stringify({ fogs: 12345, total: 99999, mist: 3, mistTotal: 3, runs: 2, best: 12, levels: { horn: 2, wells: 1, fog: 2 }, hornAt: Date.now() - 600e3 }))")
+        ph.add_init_script("localStorage.setItem('frontlines.tutorial', '1'); localStorage.setItem('frontlines.idle', JSON.stringify({ fogs: 12345, total: 99999, mist: 3, mistTotal: 3, runs: 2, best: 12, levels: { horn: 2, wells: 1, fog: 2 } }))")
         ph.on("pageerror", lambda e: errors.append(str(e)))
         ph.goto(f"http://localhost:{port}/index.html")
         ph.wait_for_timeout(4000)   # past the loading screen

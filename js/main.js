@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=130';
-import { generateMap, rng } from './mapgen.js?v=130';
-import { initAnalytics, track } from './analytics.js?v=130';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=130';
-import { Battle } from './battle.js?v=130';
-import { personalities } from './ai.js?v=130';
-import { Campaign } from './campaign.js?v=130';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=130';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=130';
-import { drawGeneral } from './generals.js?v=130';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=130';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=130';
-import { previewBuildings } from './structures.js?v=130';
-import { initTune, tuneChanges } from './tune.js?v=130';
-import { initFogNoise } from './fogui.js?v=130';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=131';
+import { generateMap, rng } from './mapgen.js?v=131';
+import { initAnalytics, track } from './analytics.js?v=131';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=131';
+import { Battle } from './battle.js?v=131';
+import { personalities } from './ai.js?v=131';
+import { Campaign } from './campaign.js?v=131';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=131';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=131';
+import { drawGeneral } from './generals.js?v=131';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=131';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=131';
+import { previewBuildings } from './structures.js?v=131';
+import { initTune, tuneChanges } from './tune.js?v=131';
+import { initFogNoise } from './fogui.js?v=131';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1900,7 +1900,6 @@ function buyUpgrade(id) {
   }
   // upgrades this purchase opened: their fog clears with a pop
   const opened = upgrades.filter((u) => (u.needs ?? []).some(([n]) => n === id) && !idle.locked(u.id) && !idle.lvl(u.id)).map((u) => u.id);
-  if (id === 'horn' && idle.lvl('horn') === 1) flash('📯 Fog horn: it gathers Fog all the time, collect it in the menu', 3200);
   idle.save();
   syncIdleButtons();
   renderShop();
@@ -1939,54 +1938,15 @@ $('idle-auto').onclick = () => {
   if (shopOpen()) renderShop();
 };
 
-// ---------- idle hub on the menu: Fog / Mist bank, upgrade tree button, fog horn ----------
-// the horn gathers Fog in real time (played or away, up to its cap); tap it to blow: the Fog flies
-// out as puffs into the upgrade button and the bank counts up
-let hubTimer = 0, bankShown = null;
+// ---------- idle hub on the menu: Fog / Mist bank ----------
 function renderHub() {
   const id = idle ?? Idle.load();
   const seen = id.runs > 0 || id.total > 0;   // shown once idle has been played
   $('idle-hub').classList.toggle('hidden', !seen);
   if (!seen) return;
-  $('hub-horn').classList.toggle('hidden', !id.lvl('horn'));
   $('hub-mist').classList.toggle('hidden', !id.mistTotal);
   $('hub-mist').textContent = `💠 ${id.mist}`;
-  if (bankShown === null || !$('hub-fog').dataset.counting) { bankShown = id.fogs; $('hub-fog').textContent = `🌫️ ${fmtBig(id.fogs)}`; }
-  tickHub();
-}
-// live horn level (the menu calls this 4 times a second)
-function tickHub() {
-  const id = idle ?? (idle = Idle.load());
-  if ($('idle-hub').classList.contains('hidden') || !id.lvl('horn')) return;
-  const a = id.hornAmount(), k = id.hornCap ? a / id.hornCap : 0;
-  $('hub-horn-amt').textContent = fmtBig(a);
-  $('horn-fill').style.width = `${Math.round(k * 100)}%`;
-  $('hub-horn').classList.toggle('has', a >= 1);
-  $('hub-horn').classList.toggle('full', k >= 0.999);
-  $('hub-horn').title = `Fog horn: ${fmtBig(id.hornRate)} Fog/s, holds ${fmtBig(id.hornCap)} (${Math.round(k * 100)}% full). Tap to collect`;
-}
-$('hub-horn').onclick = () => {
-  idle = idle ?? Idle.load();
-  const before = idle.fogs, got = idle.collectHorn();
-  if (got < 1) { flash('📯 The horn is still gathering Fog', 1600); return; }
-  idle.save();
-  track('idle-horn-collect');
-  sfx.horn();
-  $('hub-horn').classList.remove('blow'); void $('hub-horn').offsetWidth; $('hub-horn').classList.add('blow');
-  flash(`📯 +${fmtBig(got)} 🌫️ Fog`, 1800);
-  fogFlow($('hub-horn'), $('hub-fog'), Math.min(18, 6 + Math.round(Math.log10(got + 1) * 2)), 0, () => countBank(before, idle.fogs));
-  tickHub();
-};
-// bank count-up after the puffs land
-function countBank(from, to) {
-  const el = $('hub-fog'), t0 = performance.now();
-  el.dataset.counting = '1';
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / 700), v = from + (to - from) * (1 - (1 - k) ** 3);
-    el.textContent = `🌫️ ${fmtBig(v)}`;
-    if (k < 1) requestAnimationFrame(step); else { delete el.dataset.counting; bankShown = to; }
-  };
-  requestAnimationFrame(step);
+  $('hub-fog').textContent = `🌫️ ${fmtBig(id.fogs)}`;
 }
 // layout position of an element's centre in page (body) coordinates. offsets ignore transforms, so
 // this stays right when phones turn the whole page by css
@@ -2135,8 +2095,6 @@ function syncBands() {
 syncBands();
 function drawMenu(dt) {
   for (const b of bands) drawBand(b, performance.now() / 1000);
-  hubTimer -= dt;
-  if (hubTimer <= 0) { hubTimer = 0.25; tickHub(); }
   if (!demo || demo.state !== 'running' || demo.time > 240) newDemo();
   demoAcc += dt * rules.timeScale;
   while (demoAcc >= rules.step) { demo.step(rules.step); demoAcc -= rules.step; }
