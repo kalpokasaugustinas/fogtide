@@ -131,20 +131,32 @@ function dropPlayer(i) {
 const sendAll = (m) => { for (const c of net.conns) if (c && c.open) c.send(m); };
 function lobbyAll() { net.conns.forEach((c, i) => { if (c && c.open) c.send({ t: 'lobby', players: net.players, you: i }); }); }
 
-// host: start a game with everyone in the room (also used for 'play again')
-export function startGame() {
+// keep only players who are still here (host + open connections), renumbered from 0
+function compact() {
+  const keep = [];
+  net.players.forEach((p, i) => { if (i === 0 || (!p.left && net.conns[i]?.open)) keep.push([{ name: p.name, left: false }, net.conns[i]]); });
+  net.players = keep.map((k) => k[0]);
+  net.conns = keep.map((k) => k[1]);
+  net.conns.forEach((c, i) => { if (c) c.idx = i; });
+}
+
+// host, after a game: everyone still connected goes back to the room lobby (new friends may join)
+export function backToLobby() {
   if (!net.host) return;
-  const alive = net.players.filter((p) => !p.left);
-  if (net.started) {
-    // play again: leavers are gone for good, compact the list
-    const keep = [];
-    net.players.forEach((p, i) => { if (!p.left) keep.push([p, net.conns[i]]); });
-    net.players = keep.map((k) => k[0]);
-    net.conns = keep.map((k) => k[1]);
-    net.conns.forEach((c, i) => { if (c) c.idx = i; });
-    lobbyAll();
-  }
-  if (alive.length < 2) { net.ui.flash?.('Need at least 2 players'); return; }
+  compact();
+  net.started = false;
+  net.battle = null;
+  net.winner = -1;
+  net.conns.forEach((c, i) => { if (c && c.open) c.send({ t: 'lobby', players: net.players, you: i, back: true }); });
+  net.ui.lobby?.(true);
+}
+
+// host: start a game with everyone in the room
+export function startGame() {
+  if (!net.host || net.started) return;
+  compact();
+  lobbyAll();
+  if (net.players.length < 2) { net.ui.flash?.('Need at least 2 players'); net.ui.lobby?.(); return; }
   const setup = { seed: Math.floor(Math.random() * 1e9), n: net.players.length, names: net.players.map((p) => p.name) };
   net.started = true;
   sendAll({ t: 'start', setup });
@@ -187,7 +199,7 @@ export async function joinRoom(code, name) {
 
 function clientData(m) {
   net.lastSeen = performance.now();
-  if (m.t === 'lobby') { net.players = m.players; net.me = m.you; net.ui.lobby?.(); }
+  if (m.t === 'lobby') { net.players = m.players; net.me = m.you; if (m.back) { net.started = false; net.battle = null; net.winner = -1; } net.ui.lobby?.(!!m.back); }
   else if (m.t === 'full') { net.ui.status?.(m.why); leave(); }
   else if (m.t === 'start') { net.started = true; begin(m.setup); }
   else if (m.t === 'snap') applySnap(m);

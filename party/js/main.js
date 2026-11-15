@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=121';
-import { generateMap, rng } from './mapgen.js?v=121';
-import { initAnalytics, track } from './analytics.js?v=121';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=121';
-import { Battle } from './battle.js?v=121';
-import { personalities } from './ai.js?v=121';
-import { Campaign } from './campaign.js?v=121';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=121';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=121';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=121';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=121';
-import { previewBuildings } from './structures.js?v=121';
-import { initTune, tuneChanges } from './tune.js?v=121';
-import { net, hostRoom, joinRoom, startGame, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=121';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=122';
+import { generateMap, rng } from './mapgen.js?v=122';
+import { initAnalytics, track } from './analytics.js?v=122';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=122';
+import { Battle } from './battle.js?v=122';
+import { personalities } from './ai.js?v=122';
+import { Campaign } from './campaign.js?v=122';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=122';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=122';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=122';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=122';
+import { previewBuildings } from './structures.js?v=122';
+import { initTune, tuneChanges } from './tune.js?v=122';
+import { net, hostRoom, joinRoom, startGame, backToLobby, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=122';
 
 const $ = (id) => document.getElementById(id);
 
@@ -200,7 +200,15 @@ function startBattle(setup, m, rid = -1) {
   if (autoplay) setup.factions[0] = { ai: true, color: 0, think: 1.5, personality: personalities.aggressive };
   dress(setup.factions, setup.seed, m !== 'party');
   battle = new Battle(map, setup);
-  if (m === 'party') attach(battle);
+  if (m === 'party') {
+    attach(battle);
+    // fair starts: every start tile is plain land (no terrain bonus), in the rules and on the map
+    for (const s of battle.segs) if (s.home) { s.trait = null; map.segs[s.id].trait = null; }
+    // and the same cap + growth for all (the map's reshaping can leave them a few % apart)
+    const homes = battle.segs.filter((s) => s.home), cap = Math.min(...homes.map((s) => s.cap));
+    for (const s of homes) { s.cap = cap; s.baseGrowth = Math.round(cap * rules.growthRate * 10) / 10; }
+    battle.updateGrowth();
+  }
   zoomMax = 5 / mapScale(map);
   mode = m; regionId = rid; selected = -1; hover = -1; drag = null; paused = false; userPaused = false; key = '';
   endTutor(false);
@@ -968,13 +976,13 @@ function endBattle() {
   setTrack(won ? 'victory' : 'defeat');
 }
 $('end-continue').onclick = () => {
-  if (mode === 'party') { netLeave(); show('menu'); return; }
+  if (mode === 'party' || net.on) { netLeave(); show('menu'); return; }
   if (mode === 'campaign') show('campaign');
   else if (mode === 'tutorial' && afterTutor) withLoading(afterTutor);
   else show('menu');
 };
 $('end-retry').onclick = () => {
-  if (mode === 'party') { startGame(); return; }
+  if (mode === 'party' || net.on) { backToLobby(); return; }
   if (mode === 'campaign') withLoading(() => startBattle(campaign.battleSetup(regionId), 'campaign', regionId));
   else if (mode === 'expedition') withLoading(startExpedition);
   else if (mode === 'idle') { $('idle-shop').classList.add('hidden'); withLoading(startIdle); }
@@ -2215,7 +2223,7 @@ function renderLobby() {
   $('party-wait').textContent = net.host ? (net.players.length < 2 ? 'Waiting for friends to join...' : `${net.players.length} players: start when everyone is in`) : 'Waiting for the host to start...';
 }
 net.ui = {
-  lobby: renderLobby,
+  lobby: (back) => { renderLobby(); if (back) $('party').classList.remove('hidden'); },
   status: (t) => { $('party-status').textContent = t; },
   flash: (t) => flash(t, 2600),
   start: (setup) => {
@@ -2238,7 +2246,7 @@ $('party-go').onclick = () => {
   joinRoom(code, partyName()).then(renderLobby, () => {});
 };
 $('party-start').onclick = () => startGame();
-$('party-close').onclick = () => { if (net.on && !net.started) netLeave(); $('party').classList.add('hidden'); $('party-status').textContent = ''; };
+$('party-close').onclick = () => { if (net.on && !net.started) { netLeave(); if (screen === 'battle') show('menu'); } $('party').classList.add('hidden'); $('party-status').textContent = ''; };
 if (new URLSearchParams(location.search).get('room')) setTimeout(openParty, 600);
 
 // who is who on the island: colour, name, out / left
@@ -2257,7 +2265,7 @@ function endParty(won) {
   $('end-stats').innerHTML = net.winner === -2 ? '<p class="party-result">The host closed the game.</p>'
     : `<p class="party-result"><i style="background:${factionColors[net.winner]}"></i><b>${esc(w?.name ?? '?')}</b>&nbsp;rules the island</p>${net.host ? '' : '<p class="party-result small">Waiting for the host to start the next game...</p>'}`;
   $('end-retry').textContent = '▶ Play again';
-  $('end-retry').classList.toggle('hidden', !net.host);
+  $('end-retry').classList.toggle('hidden', !net.host || net.winner === -2);
   $('end-continue').textContent = 'Leave room';
   $('end-continue').classList.remove('hidden');
   withdrawLook();
