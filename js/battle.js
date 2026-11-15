@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=122';
-import { perks, combineMods } from './expedition.js?v=122';
-import { hops } from './mapgen.js?v=122';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=122';
-import { think } from './ai.js?v=122';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=123';
+import { perks, combineMods } from './expedition.js?v=123';
+import { hops } from './mapgen.js?v=123';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=123';
+import { think } from './ai.js?v=123';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -45,9 +45,12 @@ export class Battle {
     const [nmin, nmax] = opts.neutral ?? [0.15, 0.35];
     // fair start: pick the starting tiles first and reshape them to the same size, so every
     // side begins with the same cap and growth (the expedition capital keeps its stamped shape)
+    // map.starts: the map worker already picked and reshaped them (idle / conquest next stage)
     const first = this.factions[0].capital && map.stampSeg >= 0 ? map.stampSeg : -1;
-    const startIds = spreadStarts(map, this.factions.length, this.rand, first);
-    if (opts.equalStarts !== false) equalizeStarts(map, startIds, first);
+    const pre = opts.equalStarts !== false && map.starts?.length === this.factions.length ? map.starts : null;
+    delete map.starts;   // used once: a replay of this map object picks its own
+    const startIds = pre ?? spreadStarts(map, this.factions.length, this.rand, first);
+    if (!pre && opts.equalStarts !== false) { equalizeStarts(map, startIds, first); delete map.outlines; }   // reshaped here: the worker's outlines are stale
     const maxArea = Math.max(...map.segs.map((s) => s.area));
     this.segs = map.segs.map((s) => {
       const cap = Math.round((rules.capMax * s.area) / maxArea / 5) * 5;

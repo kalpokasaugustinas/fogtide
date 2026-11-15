@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=122';
-import { rng, hops } from './mapgen.js?v=122';
-import { effects } from './config.js?v=122';
+import { personalities, pickBuilding } from './ai.js?v=123';
+import { rng, hops } from './mapgen.js?v=123';
+import { effects, rules } from './config.js?v=123';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -129,7 +129,7 @@ export const upgrades = [
   { id: 'auto', branch: 'command', ring: 0, off: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack enemies from ${Math.round(autoTh[v || 1] * 100)}% full tiles` },
   { id: 'autoneutral', branch: 'command', ring: 1, off: -20, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
   { id: 'signals', branch: 'command', ring: 1, off: 20, needs: [['auto', 2]], icon: '🔥', name: 'Signal fires', base: 300, grow: 2.5, max: 2, value: (l) => 1 + 0.5 * l, text: (v) => `auto-battle acts ${v === 1 ? 'every second' : `${v.toFixed(1)}x as often`}` },
-  { id: 'reinforce', branch: 'command', ring: 2, off: -22, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front' },
+  { id: 'reinforce', branch: 'command', ring: 2, off: -22, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front, tiles under attack get help' },
   { id: 'autobuild', branch: 'command', ring: 2, off: 22, needs: [['signals', 1]], icon: '🏗️', name: 'Auto-build', base: 2500, grow: 1, max: 1, value: (l) => l, text: () => 'full tiles build what pays back fastest' },
   { id: 'sharpeye', branch: 'command', ring: 3, off: 0, cur: 'mist', or: true, needs: [['reinforce', 1], ['autobuild', 1]], icon: '👁️', name: 'Sharp eye', base: 1, grow: 2, max: 3, value: (l) => margins[l], text: (v) => `auto-attack sends +${Math.round((v - 1) * 100)}% over what it needs` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
@@ -260,11 +260,19 @@ export class Idle {
     return a;
   }
 
-  // auto-battle, run after every sim step while it is on. every autoEvery game seconds each of your
-  // tiles that is full enough (90% at level 1 ... 50% at level 5) attacks the weakest enemy tile
-  // next to it that it can beat (neutrals too with auto-expand); with auto-reinforce, full back
-  // tiles push foglets one step toward the front; with auto-build, a full tile builds the building
-  // that pays back fastest. the player can still give any order by hand
+  // auto-battle, run after every sim step while it is on. every autoEvery game seconds (signal fires:
+  // more often) your tiles that are full enough (90% at level 1 ... 50% at level 5) attack:
+  //   - targets: enemy tiles next to a ready tile (neutrals too with auto-expand), cheapest first
+  //   - need: the defenders when the army gets there (now + their growth on the way + armies marching
+  //     in to help them) x their defense x the safety margin (sharp eye lowers it), minus what is
+  //     already marching at them, so a running attack is topped up instead of left alone or doubled
+  //   - every ready tile next to the target chips in the same share of its spare foglets; if all of
+  //     them together are not enough, nothing is sent and they keep growing
+  //   - targets are ranked by worth (size, building, relic) per strength needed
+  // with auto-build, a ready tile that sent nothing builds what pays back fastest; with
+  // auto-reinforce, a tile under attack that can't hold gets help from its neighbours, and ready back
+  // tiles pass their foglets one step toward the front, to the emptiest tile (a full tile stops
+  // growing, so they are never left sitting full). orders by hand still work
   autoTick(b, dt) {
     if (!this.autoOn || b.state !== 'running') return;
     b.autoT = (b.autoT ?? 0) + dt;
@@ -272,29 +280,72 @@ export class Idle {
     b.autoT = 0;
     const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0, margin = this.val('sharpeye');
     const mine = b.segs.filter((s) => s.owner === 0);
-    const busy = new Set(b.armies.filter((a) => a.owner === 0).map((a) => a.to));   // already under our attack
-    const full = (s) => s.troops >= th * s.cap;
-    for (const s of mine) {
-      if (!full(s)) continue;
-      let best = null;
-      for (const id of s.adj) {
-        const t = b.segs[id];
-        if (t.owner === 0 || busy.has(id) || (t.owner < 0 && !neutral)) continue;
-        const need = (t.troops * b.fightDef(t, 0) * margin) / b.atkMult(s) + 2;   // safety margin (sharp eye lowers it)
-        if (need < s.troops - 1 && (!best || need < best.need)) best = { id, need };
+    const ready = (s) => s.troops >= th * s.cap;
+    const used = new Set();   // tiles that already sent this round
+    // already on the way: our strength (foglets x attack) per target, foglets marching in to help it
+    const sent = new Map(), help = new Map();
+    for (const a of b.armies) {
+      if (a.done) continue;
+      if (a.owner === 0) sent.set(a.to, (sent.get(a.to) ?? 0) + a.n * a.atk);
+      else if (b.segs[a.to].owner === a.owner) help.set(a.to, (help.get(a.to) ?? 0) + a.n);
+    }
+    const speed = rules.armySpeed * (b.mods(0).speed ?? 1);
+    const targets = [];
+    for (const t of b.segs) {
+      if (t.owner === 0 || (t.owner < 0 && !neutral)) continue;
+      const from = t.adj.map((id) => b.segs[id]).filter((s) => s.owner === 0 && ready(s));
+      if (!from.length) continue;
+      // march time of the farthest helper to the fight point at the border (game s)
+      const eta = Math.max(...from.map((s) => Math.hypot(t.x - s.x, t.y - s.y))) / speed * rules.fightAt;
+      // what the tile grows meanwhile: owned tiles up to their cap (while their land lasts),
+      // neutrals back toward their garrison
+      const grow = t.owner < 0 ? (t.troops < t.garrison ? t.baseGrowth * rules.neutralRegrow : 0)
+        : t.troops < t.cap && b.landShare(t) > 0 ? t.growth : 0;
+      const defenders = t.troops + grow * eta + (help.get(t.id) ?? 0);
+      const need = defenders * b.fightDef(t, 0) * margin + 2 - (sent.get(t.id) ?? 0);   // in strength (foglets x attack)
+      // worth: bigger tiles, buildings and relics first (like the bots), per strength it costs
+      const worth = t.cap / 50 + (t.building ? 0.6 : 0) + (t.relic ? 1.2 : 0) + (t.owner < 0 ? 0.2 : 0);
+      if (need > 0) targets.push({ t, from, need, score: worth / need });
+    }
+    targets.sort((x, y) => y.score - x.score);
+    for (const { t, from, need } of targets) {
+      const pool = from.filter((s) => !used.has(s.id));
+      // all helpers together must reach the need (each keeps one foglet), else wait. each sends the
+      // same share of what it can spare, so no border tile is emptied while others stay full
+      const power = pool.reduce((v, s) => v + Math.max(0, s.troops - 1) * b.atkMult(s), 0);
+      if (power < need) continue;
+      const share = need / power;
+      for (const s of pool) {
+        const n = Math.ceil(Math.max(0, s.troops - 1) * share);
+        if (n >= 1 && b.send(0, s.id, t.id, n, true)) used.add(s.id);
       }
-      if (best && b.send(0, s.id, best.id, Math.ceil(best.need), true)) busy.add(best.id);
-      else if (this.lvl('autobuild') && !s.building && !s.capital) {
+    }
+    if (this.lvl('autobuild')) {
+      for (const s of mine) {
+        if (used.has(s.id) || !ready(s) || s.building || s.capital) continue;
         const type = pickBuilding(b, s, 1, mine);
-        if (type && s.troops >= b.costOf(0, type) + 0.3 * s.cap) b.build(0, s.id, type);
+        if (type && s.troops >= b.costOf(0, type) + 0.3 * s.cap) { b.build(0, s.id, type); used.add(s.id); }
       }
     }
     if (!this.lvl('reinforce')) return;
+    // tiles under attack: enemy strength marching at them above what they can hold -> neighbours
+    // that are not attacked themselves send the difference (+25%), each the same share of its spare
+    const threat = new Map();
+    for (const a of b.armies) if (!a.done && a.owner > 0 && b.segs[a.to].owner === 0) threat.set(a.to, (threat.get(a.to) ?? 0) + a.n * a.atk);
+    for (const [id, str] of threat) {
+      const t = b.segs[id], hold = (t.troops + (sent.get(id) ?? 0)) * b.defMult(t);
+      if (str <= hold) continue;
+      const pool = t.adj.map((a) => b.segs[a]).filter((s) => s.owner === 0 && !used.has(s.id) && !threat.has(s.id) && s.troops > 2);
+      const spare = pool.reduce((v, s) => v + s.troops - 1, 0), want = ((str - hold) / b.defMult(t)) * 1.25;
+      if (!spare) continue;
+      const share = Math.min(1, want / spare);
+      for (const s of pool) if (b.send(0, s.id, id, Math.ceil((s.troops - 1) * share), true)) used.add(s.id);
+    }
     const front = hops(b.map, mine.filter((s) => s.adj.some((a) => b.segs[a].owner !== 0)).map((s) => s.id));
     for (const s of mine) {
-      if (front[s.id] < 1 || !full(s)) continue;
-      const next = s.adj.map((a) => b.segs[a]).filter((n) => n.owner === 0 && front[n.id] < front[s.id]).sort((x, y) => x.troops - y.troops)[0];
-      if (next) b.send(0, s.id, next.id, s.troops * 0.7, true);
+      if (used.has(s.id) || front[s.id] < 1 || !ready(s)) continue;
+      const next = s.adj.map((a) => b.segs[a]).filter((n) => n.owner === 0 && front[n.id] < front[s.id]).sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0];
+      if (next) b.send(0, s.id, next.id, s.troops - Math.max(1, 0.05 * s.cap), true);   // keeps 5% of its cap
     }
   }
 

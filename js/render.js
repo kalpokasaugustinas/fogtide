@@ -5,8 +5,9 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=122';
-import * as structures from './structures.js?v=122';
+import { themes, fogTwirl } from './config.js?v=123';
+import * as structures from './structures.js?v=123';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=123';
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -102,133 +103,6 @@ function applyFogTwirl() {
 applyFogTwirl();
 addEventListener('tune', applyFogTwirl);
 
-// ---------- outline tracing ----------
-
-// marching squares over a 0/1 test on grid cells (sampled at cell centres) inside a bounding box.
-// returns a Path2D (grid units) of all closed outlines, smoothed; fill it with 'evenodd' for holes.
-// lab(c) labels every cell (segment id, sea, lake, ...): each outline point remembers the pair of
-// labels it separates, so a border shared by two outlines is smoothed the same way in both and
-// points where 3 areas meet stay pinned (no gaps or overlaps between neighbours).
-// angular = low-poly look (mountains): straight edges instead of smooth curves
-function outline(test, lab, g, x0 = 0, y0 = 0, x1 = g - 1, y1 = g - 1, angular = false) {
-  const inside = (x, y) => x >= 0 && y >= 0 && x < g && y < g && test(y * g + x);
-  const label = (x, y) => (x >= 0 && y >= 0 && x < g && y < g ? lab(y * g + x) : -1);
-  // point keys use doubled coordinates so every edge midpoint is an integer
-  const links = new Map(), pair = new Map();
-  const link = (a, b) => {
-    (links.get(a) ?? links.set(a, []).get(a)).push(b);
-    (links.get(b) ?? links.set(b, []).get(b)).push(a);
-  };
-  const key = (x2, y2) => x2 * 4096 + y2;
-  // remember which two cell labels a crossing point separates (unordered)
-  const mark = (k, ax, ay, bx, by) => {
-    const p = label(ax, ay), q = label(bx, by);
-    pair.set(k, Math.min(p, q) * 100000 + Math.max(p, q));
-  };
-  for (let y = y0 - 1; y <= y1; y++) {
-    for (let x = x0 - 1; x <= x1; x++) {
-      const a = inside(x, y), b = inside(x + 1, y), c = inside(x + 1, y + 1), d = inside(x, y + 1);
-      if (a === b && b === c && c === d) continue;
-      // crossing midpoints of the square's edges (doubled coords)
-      const top = key(2 * x + 2, 2 * y + 1), right = key(2 * x + 3, 2 * y + 2);
-      const bottom = key(2 * x + 2, 2 * y + 3), left = key(2 * x + 1, 2 * y + 2);
-      const cross = [];
-      if (a !== b) { cross.push(top); mark(top, x, y, x + 1, y); }
-      if (b !== c) { cross.push(right); mark(right, x + 1, y, x + 1, y + 1); }
-      if (c !== d) { cross.push(bottom); mark(bottom, x, y + 1, x + 1, y + 1); }
-      if (d !== a) { cross.push(left); mark(left, x, y, x, y + 1); }
-      if (cross.length === 2) link(cross[0], cross[1]);
-      else if (a) { link(top, left); link(right, bottom); }   // saddle: cut off the inside corners
-      else { link(top, right); link(bottom, left); }
-    }
-  }
-  const path = new Path2D(), seen = new Set();
-  for (const start of links.keys()) {
-    if (seen.has(start)) continue;
-    // walk the loop
-    const loop = [], codes = [];
-    let prev = -1, cur = start;
-    while (!seen.has(cur)) {
-      seen.add(cur);
-      loop.push([Math.floor(cur / 4096) / 2, (cur % 4096) / 2]);
-      codes.push(pair.get(cur));
-      const nb = links.get(cur);
-      const next = nb[0] !== prev ? nb[0] : nb[1];
-      prev = cur;
-      cur = next;
-    }
-    if (loop.length < 3) continue;
-    const pts = angular ? rdp(relax(loop, codes), 2.2 * g / 480) : chaikin(relax(relax(loop, codes), codes));
-    if (pts.length < 3) continue;
-    path.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) path.lineTo(pts[i][0], pts[i][1]);
-    path.closePath();
-  }
-  return path;
-}
-
-// moving-average smoothing along a closed loop, done separately on each run of points that
-// separate the same two areas; the window shrinks toward the run ends, so junctions stay fixed
-// and the result doesn't depend on loop direction or start point
-const relax_window = 7;
-function relax(p, codes) {
-  const n = p.length, out = p.map((q) => [q[0], q[1]]);
-  let start = codes.findIndex((c, i) => c !== codes[(i - 1 + n) % n]);
-  if (start < 0) {
-    // one run around the whole loop (e.g. a lake inside a single segment): plain cyclic average
-    for (let i = 0; i < n; i++) {
-      let sx = 0, sy = 0;
-      for (let j = -relax_window; j <= relax_window; j++) { const q = p[(((i + j) % n) + n) % n]; sx += q[0]; sy += q[1]; }
-      out[i] = [sx / (2 * relax_window + 1), sy / (2 * relax_window + 1)];
-    }
-    return out;
-  }
-  for (let done = 0; done < n;) {
-    // run = consecutive points with the same pair code
-    let len = 1;
-    while (len < n && codes[(start + len) % n] === codes[start]) len++;
-    for (let j = 0; j < len; j++) {
-      const w = Math.min(relax_window, j, len - 1 - j);
-      let sx = 0, sy = 0;
-      for (let k = -w; k <= w; k++) { const q = p[(start + j + k) % n]; sx += q[0]; sy += q[1]; }
-      out[(start + j) % n] = [sx / (2 * w + 1), sy / (2 * w + 1)];
-    }
-    start = (start + len) % n;
-    done += len;
-  }
-  return out;
-}
-
-// ramer-douglas-peucker simplification of a closed loop (eps in grid units)
-function rdp(p, eps) {
-  const simplify = (pts) => {
-    if (pts.length < 3) return pts;
-    const a = pts[0], b = pts[pts.length - 1];
-    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-    let far = 0, fi = 0;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const d = Math.abs((pts[i][0] - a[0]) * dy - (pts[i][1] - a[1]) * dx) / len;
-      if (d > far) { far = d; fi = i; }
-    }
-    if (far <= eps) return [a, b];
-    return [...simplify(pts.slice(0, fi + 1)).slice(0, -1), ...simplify(pts.slice(fi))];
-  };
-  // split the loop at its two farthest-apart points so both halves are open polylines
-  let j = 0, best = 0;
-  for (let i = 1; i < p.length; i++) { const d = Math.hypot(p[i][0] - p[0][0], p[i][1] - p[0][1]); if (d > best) { best = d; j = i; } }
-  return [...simplify(p.slice(0, j + 1)).slice(0, -1), ...simplify([...p.slice(j), p[0]]).slice(0, -1)];
-}
-
-// one round of chaikin corner cutting on a closed loop (rounds the 45° marching-squares steps)
-function chaikin(p) {
-  const out = [];
-  for (let i = 0; i < p.length; i++) {
-    const a = p[i], b = p[(i + 1) % p.length];
-    out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
-  }
-  return out;
-}
-
 // map scale: conquest stages 4-5 are bigger maps (feature scale detail < 0.62). everything drawn on
 // them (buildings, trees, foglets, badges) shrinks by this, and the camera starts zoomed in by its
 // inverse, so things look the same size as on stage 3 while the map holds more tiles
@@ -246,15 +120,23 @@ export class MapView {
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
   }
 
+  // new map: all steps at once (setMapSteps yields between them for callers that spread the work
+  // over frames, e.g. the idle zoom-out, so no single frame takes the whole ~0.3 s)
   setMap(map, theme = 'summer', segThemes = null) {
+    for (const _ of this.setMapSteps(map, theme, segThemes));   // eslint-disable-line no-unused-vars
+  }
+
+  *setMapSteps(map, theme = 'summer', segThemes = null) {
     this.map = map;
     this.theme = themes[theme] ?? themes.summer;
     this.segTheme = segThemes ? segThemes.map((n) => themes[n] ?? this.theme) : null;
     this.k = map.grid / 480;   // feature sizes are tuned for a 480 grid
-    this.buildGround();
-    this.buildOutlines();
+    yield* this.buildGroundSteps();
+    yield* this.buildOutlinesSteps();
     this.placeTrees();
+    yield;
     this.measureIsland();
+    yield;
     // fog around the island lives on the container, so there's no square edge. two oversized cloud
     // layers on top of it slowly turn in opposite directions (css animation = gpu, no redraws);
     // the static texture stays underneath for zoomed-out views where the layers don't reach
@@ -297,6 +179,7 @@ export class MapView {
     this.bkey = this.okey = null;
     this.size = 0;   // forces resize() to rebuild every cached layer for the new map
     this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
+    yield;
     this.resize();
   }
 
@@ -389,7 +272,10 @@ export class MapView {
 
   // grid-res ground texture (grass/earth noise, shore and scree tints). it is only seen through the
   // smooth island outline, so its pixel edges never show
-  buildGround() {
+  buildGround() { for (const _ of this.buildGroundSteps());   /* eslint-disable-line no-unused-vars */ }
+
+  // the same, yielding every 40 rows (a 480 grid is ~50 ms of pixel work in all)
+  *buildGroundSteps() {
     const { ids, terrain, relief, near, nearType, grid: g, segs } = this.map, t = this.theme;
     const seed = (this.seed = (segs.length * 7919 + Math.round(segs[0].x * 31)) | 0);
     const mk = () => { const c = document.createElement('canvas'); c.width = c.height = g; return c; };
@@ -413,21 +299,31 @@ export class MapView {
         col = mix(col, mix(tc.scree, tc.rockLight, vnoise(x / (3 * this.k), y / (3 * this.k), seed + 5) * 0.6), 0.25 + 0.4 * (patch > 0.45 ? 1 : patch / 0.45));
       } else if (tr === 'lakeside' && near[c] && nearType[c] === 1) col = mix(col, tc.shore, 0.35 * (1 - near[c] / 11));
       gi.data[o] = col[0]; gi.data[o + 1] = col[1]; gi.data[o + 2] = col[2]; gi.data[o + 3] = 255;
+      if (x === g - 1 && y % 40 === 39) yield;
     }
     this.groundC.getContext('2d').putImageData(gi, 0, 0);
+    yield;
   }
 
   // smooth outlines: island (land + mountains, lakes as holes), outer (incl. lakes), lakes,
   // mountains and one per segment
-  buildOutlines() {
+  buildOutlines() { for (const _ of this.buildOutlinesSteps());   /* eslint-disable-line no-unused-vars */ }
+
+  // the same in slices: island outlines, then a few segments at a time, then the coast distance
+  *buildOutlinesSteps() {
     const { ids, terrain, grid: g, segs } = this.map;
     const lake = (c) => terrain && terrain[c] === 1, mtn = (c) => terrain && terrain[c] === 2;
     // cell label: segment id, or -1 sea / -2 lake / -3 mountain
     const lab = (c) => (ids[c] >= 0 ? ids[c] : -1 - (terrain ? terrain[c] : 0));
-    this.islandP = outline((c) => ids[c] >= 0 || mtn(c), lab, g);
-    this.outerP = outline((c) => ids[c] >= 0 || mtn(c) || lake(c), lab, g);
-    this.lakesP = outline(lake, lab, g);
-    this.mtnP = outline(mtn, lab, g, 0, 0, g - 1, g - 1, true);
+    // traced in the map worker already (map.outlines): only the paths are built here
+    const pre = this.map.outlines;
+    this.islandP = pre ? loopsToPath(pre.island) : outline((c) => ids[c] >= 0 || mtn(c), lab, g);
+    if (!pre) yield;
+    this.outerP = pre ? loopsToPath(pre.outer) : outline((c) => ids[c] >= 0 || mtn(c) || lake(c), lab, g);
+    if (!pre) yield;
+    this.lakesP = pre ? loopsToPath(pre.lakes) : outline(lake, lab, g);
+    this.mtnP = pre ? loopsToPath(pre.mtn) : outline(mtn, lab, g, 0, 0, g - 1, g - 1, true);
+    yield;
     // cracks on the rock tops: short kinked lines starting on random mountain cells
     const rockCells = [];
     for (let c = 0; c < g * g; c++) if (mtn(c)) rockCells.push(c);
@@ -446,17 +342,18 @@ export class MapView {
       this.cracks.push(line);
     }
     // per-segment bounding boxes keep the tracing fast
-    const box = segs.map(() => [g, g, -1, -1]);
-    for (let c = 0; c < g * g; c++) {
-      const id = ids[c];
-      if (id < 0) continue;
-      const b = box[id], x = c % g, y = Math.floor(c / g);
-      if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
+    const box = pre?.box ?? segBoxes(this.map);
+    yield;
+    const segP = [];
+    for (const s of segs) {
+      segP.push(pre ? loopsToPath(pre.segs[s.id]) : outline((c) => ids[c] === s.id, lab, g, ...box[s.id]));
+      if (!pre && s.id % 4 === 3) yield;
     }
-    this.segP = segs.map((s) => outline((c) => ids[c] === s.id, lab, g, ...box[s.id]));
+    this.segP = segP;
     this.boxes = box;
     this.segCells = segs.map(() => []);
     for (let c = 0; c < g * g; c++) if (ids[c] >= 0) this.segCells[ids[c]].push(c);
+    yield;
     // distance (grid units) from each cell to the nearest fog / lake cell: buildings use it to
     // stand fully on the island instead of hanging over the coast. two-pass chamfer (1, 1.41)
     const cd = new Float32Array(g * g), big = 1e6, d2 = Math.SQRT2;
@@ -479,6 +376,7 @@ export class MapView {
       cd[c] = v;
     }
     this.coastD = cd;
+    yield;
   }
 
   // free land around a css px point: distance to the coast (or a lake) in css px, 0 off the island.
@@ -601,11 +499,13 @@ export class MapView {
   cssT(x) { x.setTransform(this.dpr, 0, 0, this.dpr, -this.ofsX, -this.ofsY); }
 
   // display-res canvas, ctx in grid units
-  newLayer() {
+  // cpu = drawn on the cpu right away (layers only blitted when a composite is rebuilt: their
+  // drawing then happens inside the zoom-out's time slices instead of as one deferred gpu stall)
+  newLayer(cpu = false) {
     const c = document.createElement('canvas');
     c.width = this.canvas.width;
     c.height = this.canvas.height;
-    const x = c.getContext('2d');
+    const x = c.getContext('2d', cpu ? { willReadFrequently: true } : undefined);
     this.gridT(x);
     x.imageSmoothingQuality = 'high';
     return [c, x];
@@ -615,11 +515,20 @@ export class MapView {
   buildUnder() {
     const [c, x] = this.newLayer(), t = this.theme, g = this.map.grid, px = 1 / this.scale, py = px / this.tilt;
     const ch = Math.max(4, this.size * 0.022) * py;   // cliff height (css px -> grid y units)
+    // soft island shadow: blurred at 1/8 resolution and scaled up (looks the same, 64x fewer pixels
+    // to blur; the full-size blur was a ~100 ms gpu job on every new map)
+    const k = 8, sc = document.createElement('canvas');
+    sc.width = Math.ceil(c.width / k); sc.height = Math.ceil(c.height / k);
+    const sx = sc.getContext('2d', { willReadFrequently: true });
+    sx.setTransform((this.dpr * this.scale) / k, 0, 0, (this.dpr * this.scale * this.tilt) / k, -this.ofsX / k, (this.dpr * this.oy - this.ofsY) / k);
+    sx.filter = `blur(${(this.size * 0.035 * this.dpr) / k}px)`;
+    sx.translate(g * 0.015, ch + g * 0.05);
+    sx.fillStyle = css(t.shadow, 0.16);
+    sx.fill(this.outerP);
     x.save();
-    x.filter = `blur(${this.size * 0.035 * this.dpr}px)`;
-    x.translate(g * 0.015, ch + g * 0.05);
-    x.fillStyle = css(t.shadow, 0.16);
-    x.fill(this.outerP);
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.imageSmoothingEnabled = true;
+    x.drawImage(sc, 0, 0, sc.width * k, sc.height * k);
     x.restore();
     x.save();
     x.translate(0, ch);
@@ -657,14 +566,29 @@ export class MapView {
     x.strokeStyle = css(t.foam, 0.8);
     x.stroke(this.lakesP);
     x.restore();
-    // cliff: island shape stacked downward, dark at the foot, lighter toward the top edge
-    for (let i = ch; i >= py * 0.5; i -= py * 0.5) {
+    // cliff: island shape stacked downward, dark at the foot, lighter toward the top edge. the
+    // shape is filled once per colour and smeared down by copying the canvas onto itself shifted by
+    // 1, 2, 4 ... px (~7 blits instead of ~70 fills of the whole outline, a ~100 ms gpu job)
+    const dy = this.dpr * this.scale * this.tilt;   // grid y units -> device px
+    const T = document.createElement('canvas');
+    T.width = c.width; T.height = c.height;
+    const tx = T.getContext('2d');
+    const smear = (color, from, to) => {   // offsets in grid y units, from < to
+      tx.setTransform(1, 0, 0, 1, 0, 0);
+      tx.clearRect(0, 0, T.width, T.height);
+      this.gridT(tx);
+      tx.fillStyle = css(color);
+      tx.fill(this.islandP, 'evenodd');
+      tx.setTransform(1, 0, 0, 1, 0, 0);
+      const len = Math.round((to - from) * dy);
+      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); tx.drawImage(T, 0, d); done += d; }
       x.save();
-      x.translate(0, i);
-      x.fillStyle = css(i > ch * 0.45 ? t.cliffDark : t.cliffLight);
-      x.fill(this.islandP, 'evenodd');
+      x.setTransform(1, 0, 0, 1, 0, 0);
+      x.drawImage(T, 0, Math.round(from * dy));
       x.restore();
-    }
+    };
+    smear(t.cliffDark, ch * 0.45, ch);
+    smear(t.cliffLight, py * 0.5, ch * 0.45);
     // no fog on the canvas: all fog around the island is the moving css layers behind it
     // (fog-twirl), so nothing static covers them in a square around the map
     this.under = c;
@@ -684,7 +608,10 @@ export class MapView {
     const c = document.createElement('canvas');
     c.width = Math.max(1, right - left);
     c.height = Math.max(1, bottom - top);
-    const x = c.getContext('2d');
+    // cpu canvas: the scene is drawn right here (inside the caller's time slice), not deferred to the
+    // gpu process, where hundreds of fresh sprites (blurs, many paths) piled up into 100-300 ms
+    // stalls when the layers were composed. composites only read it on a rebuild (one upload each)
+    const x = c.getContext('2d', { willReadFrequently: true });
     x.imageSmoothingQuality = 'high';
     this.ofsX = left;
     this.ofsY = top;
@@ -799,9 +726,32 @@ export class MapView {
     setTimeout(step, 50);
   }
 
+  // everything the next drawBase needs (after paint()), one piece per step: static layers, then the
+  // sprite of every tile (building scene or trees, owner overlay), then the three composites (only
+  // blits by then). the idle zoom-out runs it a few ms per frame behind its animation, so the new
+  // map's first frame costs nothing. a resize midway just leaves the rest to drawBase, as before
+  *prepSteps() {
+    const size = this.size, dpr = this.dpr, same = () => this.size === size && this.dpr === dpr;
+    if (!this.under) { this.buildUnder(); yield; }
+    if (!this.base) { this.buildBase(); yield; }
+    if (!this.rocks) { this.buildRocks(); yield; }
+    if (!this.st) return;
+    for (let id = 0; id < this.st.length && same(); id++) {
+      const s = this.st[id];
+      if (s.building) { this.groundSprite(id, s.building); yield; this.topSprite(id, s.building, s.color, s.skin); }
+      else this.treeSprite(id, s.huts);
+      yield;
+      if (s.color) { this.overlaySprite(id, s.color, s.fill); yield; }
+    }
+    if (!same()) return;
+    if (!this.layerGround) { this.buildGroundLayer(); yield; }
+    if (!this.layerOwner) { this.buildOwnerLayer(); yield; }
+    if (!this.layerObjects) this.buildObjectLayer();
+  }
+
   // static: ground texture, every segment border, light lip along the cliff edge
   buildBase() {
-    const [c, x] = this.newLayer(), t = this.theme, g = this.map.grid, px = 1 / this.scale;
+    const [c, x] = this.newLayer(true), t = this.theme, g = this.map.grid, px = 1 / this.scale;
     x.save();
     x.clip(this.islandP, 'evenodd');
     x.imageSmoothingEnabled = true;
@@ -987,7 +937,7 @@ export class MapView {
 
   // static: rock plateaus
   buildRocks() {
-    const [c, x] = this.newLayer();
+    const [c, x] = this.newLayer(true);
     this.drawRocks(x, 1 / this.scale);
     this.rocks = c;
   }

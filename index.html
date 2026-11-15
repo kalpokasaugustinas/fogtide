@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=122">
-  <link rel="stylesheet" href="pc.css?v=122">
+  <link rel="stylesheet" href="style.css?v=123">
+  <link rel="stylesheet" href="pc.css?v=123">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -183,7 +183,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 122 · 2026-11-15 09:15</span>
+    <span id="version">build 123 · 2026-11-15 10:10</span>
   </section>
 
   <!-- campaign world map -->
@@ -214,7 +214,7 @@
       <span class="item fog"><svg class="i"><use href="#i-time"/></svg><b id="clock">0:00</b></span>
       <span class="item fog"><svg class="i"><use href="#i-land"/></svg>Land <b id="hud-land">0 / 0</b></span>
       <span class="item fog"><svg class="i"><use href="#i-troops"/></svg>Foglets <b id="hud-troops">0</b> <span class="muted" id="hud-rate"></span></span>
-      <span id="idle-fogs" class="item fog hidden" title="Fog: spend it on upgrades"><svg class="i"><use href="#i-fog"/></svg>Fog <b>0</b></span>
+      <span id="idle-fogs" class="item fog hidden" title="Fog: spend it on upgrades. +/s = Fog from beaten foglets and fog wells, average of the last 10 s (stage bonuses not included)"><svg class="i"><use href="#i-fog"/></svg>Fog <b>0</b> <span class="muted" id="idle-fog-rate"></span></span>
       <span id="idle-mist" class="item fog hidden" title="Mist: dropped by bosses, buys the advanced upgrades"><svg class="i"><use href="#i-mist"/></svg>Mist <b>0</b></span>
       <span class="grow"></span>
       <button id="test-fill" class="ibtn fog" title="Test: fill all my tiles to their cap">F</button>
@@ -379,6 +379,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=122"></script>
+  <script type="module" src="js/main.js?v=123"></script>
 </body>
 </html>
