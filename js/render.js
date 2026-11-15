@@ -5,9 +5,11 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=123';
-import * as structures from './structures.js?v=123';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=123';
+import { themes, fogTwirl } from './config.js?v=124';
+import * as structures from './structures.js?v=124';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=124';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=124';
+export { mix };
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -20,29 +22,11 @@ export function shade([r, g, b], k) {
   return [r + (t - r) * a, g + (t - g) * a, b + (t - b) * a];
 }
 
-// linear mix of two rgb colours, t in [0, 1]
-export function mix(a, b, t) {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-}
-
 const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 let shadowBlob = null;   // soft cloud-shadow sprite (MapView.drawAmbient), made once
 
 // do two boxes [x0, y0, x1, y1] overlap? (terrain objects vs huts and buildings)
 const boxHit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
-
-// deterministic hash + smooth value noise (ground patches, tree placement)
-function hash(x, y, s) {
-  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(s, 1274126177);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-function vnoise(x, y, s) {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-  const a = hash(ix, iy, s), b = hash(ix + 1, iy, s), c = hash(ix, iy + 1, s), d = hash(ix + 1, iy + 1, s);
-  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
-}
 
 // ---------- clouds ----------
 
@@ -112,12 +96,33 @@ const borderW = 0.6;
 
 export class MapView {
   // segThemes (optional): theme name per segment, e.g. campaign regions with their own climate
-  constructor(canvas, map, theme, segThemes) {
+  // opts.headless: a view that only builds a map's layers (idle: the next stage's map, prepared in
+  // small slices during the current stage on a hidden canvas); it never touches the page's fog and
+  // starts empty (run setMapSteps yourself). the live view takes its work over with adopt()
+  constructor(canvas, map, theme, segThemes, opts = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    if (opts.headless) { this.headless = true; return; }
     this.setMap(map, theme, segThemes);
     // follow the container size (screen rotation, panel changes)
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+  }
+
+  // take over a headless view's prepared map: outlines, trees, layers and sprites (nothing is
+  // rebuilt), then size this canvas like it and switch the page's fog to its climate. a container
+  // size that changed meanwhile still rebuilds, through resize()
+  // returns the old map's canvases (layers, sprites), so the caller can free them a few at a time
+  adopt(o) {
+    const old = [this.under, this.base, this.rocks, this.layerGround, this.layerOwner, this.layerObjects, this.groundC, ...(this.sprites?.values() ?? [])].map((x) => x?.c ?? x).filter(Boolean);
+    const own = new Set(['canvas', 'ctx', 'twirl', 'storm', 'stormRaf', 'fogUrl', 'headless']);
+    for (const k of Object.keys(o)) if (!own.has(k)) this[k] = o[k];
+    const c = this.canvas, oc = o.canvas;
+    c.width = oc.width; c.height = oc.height;
+    for (const k of ['position', 'left', 'top', 'flex', 'width', 'height']) c.style[k] = oc.style[k];
+    oc.width = oc.height = 0;   // the hidden canvas is done with
+    this.applyFog();
+    this.resize();
+    return old;
   }
 
   // new map: all steps at once (setMapSteps yields between them for callers that spread the work
@@ -131,12 +136,26 @@ export class MapView {
     this.theme = themes[theme] ?? themes.summer;
     this.segTheme = segThemes ? segThemes.map((n) => themes[n] ?? this.theme) : null;
     this.k = map.grid / 480;   // feature sizes are tuned for a 480 grid
+    this.prep = !segThemes && map.prep?.theme === theme ? map.prep : null;   // made in the map worker
     yield* this.buildGroundSteps();
     yield* this.buildOutlinesSteps();
     this.placeTrees();
-    yield;
+    yield 'trees';
     this.measureIsland();
-    yield;
+    this.prep = null;
+    yield 'island';
+    if (!this.headless) this.applyFog();
+    this.styleOf = this.st = null;
+    this.bkey = this.okey = null;
+    this.size = 0;   // forces resize() to rebuild every cached layer for the new map
+    this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
+    yield 'fog';
+    this.resize();
+  }
+
+  // the page's fog for this map's climate: texture on the container, the two turning cloud layers
+  // and the storm layer (created once)
+  applyFog() {
     // fog around the island lives on the container, so there's no square edge. two oversized cloud
     // layers on top of it slowly turn in opposite directions (css animation = gpu, no redraws);
     // the static texture stays underneath for zoomed-out views where the layers don't reach
@@ -175,12 +194,6 @@ export class MapView {
       this.storm.setAttribute('aria-hidden', 'true');
       this.canvas.before(this.storm);   // after both twirl layers, right under the map
     }
-    this.styleOf = this.st = null;
-    this.bkey = this.okey = null;
-    this.size = 0;   // forces resize() to rebuild every cached layer for the new map
-    this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
-    yield;
-    this.resize();
   }
 
   // boss stage storm over the fog: on = darken gradually (stormIn), off = clear gradually (stormOut).
@@ -200,24 +213,9 @@ export class MapView {
     this.stormRaf = requestAnimationFrame(() => { this.stormRaf = requestAnimationFrame(() => d.classList.toggle('on', on)); });
   }
 
-  // island bounding box (grid cells, land + lakes + mountains) and sample points on the water
-  // (lakes, rivers) for the animated sparkles and the lake wave strokes
-  measureIsland() {
-    const { ids, terrain, grid: g } = this.map;
-    let x0 = g, y0 = g, x1 = 0, y1 = 0;
-    const pts = [];
-    for (let c = 0; c < g * g; c++) {
-      if (ids[c] < 0 && !(terrain && terrain[c])) continue;
-      const x = c % g, y = Math.floor(c / g);
-      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      if (terrain && terrain[c] === 1 && hash(x, y, this.seed + 40) < 0.012) pts.push([x + 0.5, y + 0.5, 1]);
-    }
-    this.isle = [x0, y0, x1 + 1, y1 + 1];
-    // rivers: every few points along each course (rivers sit on the ground, no lake drop)
-    for (const r of this.map.rivers ?? []) for (let j = 4; j < r.length; j += 9) if (hash(j, 41, r.length) < 0.5) pts.push([r[j][0], r[j][1], 0]);
-    // at most ~70 sparkles; phase and speed fixed per point
-    this.glints = pts.slice(0, 70).map(([x, y, lake], i) => ({ x, y, lake, ph: hash(i, 42, this.seed) * 6.28, w: 0.7 + hash(i, 43, this.seed) * 1.1 }));
-  }
+  // island box + water glints, trees (viewprep.js; the worker's results when it made them)
+  measureIsland() { if (this.prep) { this.isle = this.prep.isle; this.glints = this.prep.glints; } else measureIsland.call(this); }
+  placeTrees() { if (this.prep) this.trees = this.prep.trees; else placeTrees.call(this); }
 
   // fit the canvas into the parent: width = map width, height = squashed map + room for cliffs
   // below and buildings/rocks above. cached layers are rebuilt lazily.
@@ -274,34 +272,14 @@ export class MapView {
   // smooth island outline, so its pixel edges never show
   buildGround() { for (const _ of this.buildGroundSteps());   /* eslint-disable-line no-unused-vars */ }
 
-  // the same, yielding every 40 rows (a 480 grid is ~50 ms of pixel work in all)
+  // the same in slices (ground colours: viewprep.js groundPixels, or the worker's when it made them)
   *buildGroundSteps() {
-    const { ids, terrain, relief, near, nearType, grid: g, segs } = this.map, t = this.theme;
-    const seed = (this.seed = (segs.length * 7919 + Math.round(segs[0].x * 31)) | 0);
-    const mk = () => { const c = document.createElement('canvas'); c.width = c.height = g; return c; };
-    this.groundC = mk();
-    const gi = this.groundC.getContext('2d').createImageData(g, g);
-    const isMtn = (c) => terrain && terrain[c] === 2;
-    const h = (c) => (c >= 0 && c < g * g && isMtn(c) ? relief[c] : 0);
-    for (let c = 0; c < g * g; c++) {
-      const x = c % g, y = Math.floor(c / g), o = c * 4;
-      // ground everywhere (also under mountains and a bit into the sea, so edges never fade out)
-      const n = vnoise(x / (22 * this.k), y / (22 * this.k), seed) * 0.7 + vnoise(x / (6 * this.k), y / (6 * this.k), seed + 1) * 0.3;
-      const tc = this.segTheme && ids[c] >= 0 ? this.segTheme[ids[c]] : t;   // this cell's climate
-      let col = mix(tc.groundA, tc.groundB, n);
-      if (near && near[c]) col = mix(col, nearType[c] === 1 ? tc.shore : tc.scree, 0.5 * (1 - (near[c] - 1) / 10) ** 1.5);
-      // terrain traits are visible in the ground: forest floor is darker and mottled, highland is
-      // stony scree with grass patches, lakeside has a wide sandy shore
-      const tr = ids[c] >= 0 ? segs[ids[c]].trait : null;
-      if (tr === 'forest') col = mix(col, tc.treeDark, 0.18 + 0.14 * vnoise(x / (5 * this.k), y / (5 * this.k), seed + 3));
-      else if (tr === 'highland') {
-        const patch = vnoise(x / (9 * this.k), y / (9 * this.k), seed + 4);
-        col = mix(col, mix(tc.scree, tc.rockLight, vnoise(x / (3 * this.k), y / (3 * this.k), seed + 5) * 0.6), 0.25 + 0.4 * (patch > 0.45 ? 1 : patch / 0.45));
-      } else if (tr === 'lakeside' && near[c] && nearType[c] === 1) col = mix(col, tc.shore, 0.35 * (1 - near[c] / 11));
-      gi.data[o] = col[0]; gi.data[o + 1] = col[1]; gi.data[o + 2] = col[2]; gi.data[o + 3] = 255;
-      if (x === g - 1 && y % 40 === 39) yield;
-    }
-    this.groundC.getContext('2d').putImageData(gi, 0, 0);
+    const g = this.map.grid, pre = this.prep;
+    if (pre) { this.seed = pre.seed; this.groundPx = pre.ground; } else yield* groundPixels.call(this);
+    this.groundC = document.createElement('canvas');
+    this.groundC.width = this.groundC.height = g;
+    this.groundC.getContext('2d').putImageData(new ImageData(this.groundPx, g, g), 0, 0);
+    this.groundPx = null;
     yield;
   }
 
@@ -351,31 +329,8 @@ export class MapView {
     }
     this.segP = segP;
     this.boxes = box;
-    this.segCells = segs.map(() => []);
-    for (let c = 0; c < g * g; c++) if (ids[c] >= 0) this.segCells[ids[c]].push(c);
-    yield;
-    // distance (grid units) from each cell to the nearest fog / lake cell: buildings use it to
-    // stand fully on the island instead of hanging over the coast. two-pass chamfer (1, 1.41)
-    const cd = new Float32Array(g * g), big = 1e6, d2 = Math.SQRT2;
-    for (let c = 0; c < g * g; c++) cd[c] = ids[c] >= 0 || mtn(c) ? big : 0;
-    for (let y = 0; y < g; y++) for (let x = 0; x < g; x++) {
-      const c = y * g + x;
-      if (!cd[c]) continue;
-      let v = cd[c];
-      // outside the grid counts as fog
-      v = Math.min(v, x > 0 ? cd[c - 1] + 1 : 1, y > 0 ? cd[c - g] + 1 : 1);
-      v = Math.min(v, x > 0 && y > 0 ? cd[c - g - 1] + d2 : d2, x < g - 1 && y > 0 ? cd[c - g + 1] + d2 : d2);
-      cd[c] = v;
-    }
-    for (let y = g - 1; y >= 0; y--) for (let x = g - 1; x >= 0; x--) {
-      const c = y * g + x;
-      if (!cd[c]) continue;
-      let v = cd[c];
-      v = Math.min(v, x < g - 1 ? cd[c + 1] + 1 : 1, y < g - 1 ? cd[c + g] + 1 : 1);
-      v = Math.min(v, x < g - 1 && y < g - 1 ? cd[c + g + 1] + d2 : d2, x > 0 && y < g - 1 ? cd[c + g - 1] + d2 : d2);
-      cd[c] = v;
-    }
-    this.coastD = cd;
+    // cells per segment and distance to the coast (viewprep.js coastSteps, or the worker's)
+    if (this.prep) { this.segCells = this.prep.segCells; this.coastD = this.prep.coastD; } else yield* coastSteps.call(this);
     yield;
   }
 
@@ -387,107 +342,6 @@ export class MapView {
     return this.coastD[gy * g + gx] * this.scale;
   }
 
-  // tree clusters inside segments, away from borders and number labels
-  placeTrees() {
-    const { ids, bdist, grid: g, segs, near, nearType } = this.map, t = this.theme, k = this.k;
-    this.trees = [];
-    if (!bdist || !t.trees) return;
-    const clear = 26 * k;   // keep label areas free
-    const ok = (x, y) => {
-      const c = Math.floor(y) * g + Math.floor(x);
-      if (x < 0 || y < 0 || x >= g || y >= g || ids[c] < 0 || bdist[c] < 4 * k) return false;
-      const s = segs[ids[c]];
-      return Math.hypot(s.x - x, s.y - y) > clear;
-    };
-    let land = 0;
-    for (let c = 0; c < g * g; c++) if (ids[c] >= 0) land++;
-    const dt = this.map.detail ?? 1;   // zoomed-out maps: smaller trees, more woods
-    const clusters = Math.round((land / (g * g)) * 60 * t.trees / Math.sqrt(dt));
-    // no object may cover another: each one is approximated by its on-screen silhouette (an
-    // upright ellipse above its base point, in grid units with the camera tilt applied) and a
-    // new object is only added when its ellipse stays clear of every placed neighbour.
-    // the ellipses sit in a coarse bucket grid so the check only looks at nearby objects.
-    const tilt = 0.8, bucket = 16 * k, bw = Math.ceil(g / bucket), buckets = new Map();
-    const shape = (o) => {
-      if (o.kind === 'rock') return [o.r * (1 + o.a * 0.5) * 1.05, o.r * 0.6];
-      if (o.kind === 'reed') return [o.r * 1.1, o.r * 0.95];
-      return [o.r * 1.05, o.r * (t.tree === 'pine' ? 1.4 : 1.1)];   // crown + trunk
-    };
-    const place = (o) => {
-      const [w, h] = shape(o), cy = o.y * tilt - h, bx = Math.floor(o.x / bucket), by = Math.floor(o.y / bucket);
-      // most of the silhouette's width must stand on the island, not hang over the fog or a lake
-      if (this.coastD[Math.floor(o.y) * g + Math.floor(o.x)] < w * 0.8) return false;
-      for (let yy = by - 1; yy <= by + 1; yy++) {
-        for (let xx = bx - 1; xx <= bx + 1; xx++) {
-          for (const p of buckets.get(yy * bw + xx) ?? []) {
-            const dx = (p.x - o.x) / (p.w + w), dy = (p.cy - cy) / (p.h + h);
-            if (dx * dx + dy * dy < 1) return false;   // silhouettes would overlap
-          }
-        }
-      }
-      const key = by * bw + bx;
-      if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push({ x: o.x, cy, w, h });
-      this.trees.push(o);
-      return true;
-    };
-    let i = 0;
-    for (let n = 0, tries = 0; n < clusters && tries < clusters * 30; tries++) {
-      const cx = hash(i++, 1, this.seed) * g, cy = hash(i++, 2, this.seed) * g;
-      if (!ok(cx, cy)) continue;
-      // forest tiles are filled separately below; elsewhere only the odd copse
-      if (segs[ids[Math.floor(cy) * g + Math.floor(cx)]].trait === 'forest' || hash(i++, 7, this.seed) < 0.965) continue;
-      n++;
-      // a cluster = a small wood: 5-11 trees side by side (a few tries each to find a free spot)
-      const count = 5 + Math.floor(hash(i++, 3, this.seed) * 7);
-      for (let j = 0, got = 0; j < count * 4 && got < count; j++) {
-        const a = hash(i++, 4, this.seed) * Math.PI * 2, d = Math.sqrt(hash(i++, 5, this.seed)) * 16 * k * Math.max(0.25, dt);
-        const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
-        if (ok(x, y) && place({ x, y, r: (3 + hash(i++, 6, this.seed) * 1.8) * k * Math.max(0.22, dt), seg: ids[Math.floor(y) * g + Math.floor(x)] })) got++;
-      }
-    }
-    // forest tiles: woodland over the whole tile (dense jittered candidates, the spacing check
-    // keeps the ones that fit, a few clearings)
-    const sp = 3.2 * k * Math.max(0.25, dt), rock = 12 * k * Math.max(0.25, dt);
-    const segAt = (x, y) => segs[ids[Math.floor(y) * g + Math.floor(x)]];
-    for (let gy = sp / 2; gy < g; gy += sp * 0.8) {
-      for (let gx = sp / 2; gx < g; gx += sp) {
-        const x = gx + (hash(i++, 8, this.seed) - 0.5) * sp, y = gy + (hash(i++, 9, this.seed) - 0.5) * sp * 0.8;
-        if (!ok(x, y) || segAt(x, y).trait !== 'forest') continue;
-        if (vnoise(x / (14 * k), y / (14 * k), this.seed + 6) < 0.28) continue;   // clearing
-        place({ x, y, r: (3.2 + hash(i++, 6, this.seed) * 1.8) * k * Math.max(0.22, dt), seg: segAt(x, y).id });
-      }
-    }
-    // highland tiles: scattered low-poly boulders
-    for (let gy = rock / 2; gy < g; gy += rock * 0.8) {
-      for (let gx = rock / 2; gx < g; gx += rock) {
-        const x = gx + (hash(i++, 10, this.seed) - 0.5) * rock, y = gy + (hash(i++, 11, this.seed) - 0.5) * rock * 0.8;
-        if (!ok(x, y) || segAt(x, y).trait !== 'highland' || hash(i++, 12, this.seed) < 0.35) continue;
-        place({ kind: 'rock', x, y, r: (1.6 + hash(i++, 13, this.seed) * 2) * k * Math.max(0.25, dt), seg: segAt(x, y).id, a: hash(i++, 14, this.seed) });
-      }
-    }
-    // reeds: lakeside tiles along the shore, river tiles along the banks
-    const reedOk = (x, y) => { const c = Math.floor(y) * g + Math.floor(x); return x >= 0 && y >= 0 && x < g && y < g && ids[c] >= 0 && bdist[c] >= 2 * k; };
-    const rr = 2 * k * Math.max(0.6, dt);
-    if (near) for (let c = 0; c < g * g; c += 3) {
-      if (ids[c] < 0 || segs[ids[c]].trait !== 'lakeside' || near[c] !== 1 || nearType[c] !== 1 || hash(c, 15, this.seed) < 0.75) continue;
-      const x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5;
-      if (reedOk(x, y)) place({ kind: 'reed', x, y, r: rr, seg: ids[c] });
-    }
-    for (const pts of this.map.rivers ?? []) {
-      for (const [j, [rx, ry]] of pts.entries()) {
-        if (j % 3 || hash(j, 16, rx | 0) < 0.4) continue;   // points every 0.75 cells
-        const side = hash(j, 17, ry | 0) < 0.5 ? -1 : 1, x = rx + side * 4.5 * k, y = ry + (hash(j, 18, rx | 0) - 0.5) * 3 * k;
-        if (reedOk(x, y) && segAt(x, y).trait === 'river') place({ kind: 'reed', x, y, r: rr, seg: segAt(x, y).id });
-      }
-    }
-    this.trees.sort((a, b) => a.y - b.y);   // draw back to front
-  }
-
-  // ---------- camera: slight tilt ----------
-  // the ground plane is squashed vertically (tilt) so the map is seen at an angle; heights
-  // (cliffs, rocks, buildings, trees) stay upright, which gives the 2.5d diorama look.
-  // grid -> css: x * scale, y * scale * tilt + oy
 
   sx(gx) { return gx * this.scale; }
   sy(gy) { return gy * this.scale * this.tilt + this.oy; }
@@ -512,7 +366,11 @@ export class MapView {
   }
 
   // island shadow, lake water and cliff face (static per map and size)
-  buildUnder() {
+  buildUnder() { for (const _ of this.buildUnderSteps());   /* eslint-disable-line no-unused-vars */ }
+
+  // the same in steps: the gpu gets shadow, lakes and every cliff blit as separate batches
+  // (as one job it was a ~60 ms gpu stall)
+  *buildUnderSteps() {
     const [c, x] = this.newLayer(), t = this.theme, g = this.map.grid, px = 1 / this.scale, py = px / this.tilt;
     const ch = Math.max(4, this.size * 0.022) * py;   // cliff height (css px -> grid y units)
     // soft island shadow: blurred at 1/8 resolution and scaled up (looks the same, 64x fewer pixels
@@ -530,6 +388,7 @@ export class MapView {
     x.imageSmoothingEnabled = true;
     x.drawImage(sc, 0, 0, sc.width * k, sc.height * k);
     x.restore();
+    yield 'shadow';
     x.save();
     x.translate(0, ch);
     // lakes: deeper water in the middle, a light shallow band along the shore (blurred stroke
@@ -566,6 +425,7 @@ export class MapView {
     x.strokeStyle = css(t.foam, 0.8);
     x.stroke(this.lakesP);
     x.restore();
+    yield 'lakes';
     // cliff: island shape stacked downward, dark at the foot, lighter toward the top edge. the
     // shape is filled once per colour and smeared down by copying the canvas onto itself shifted by
     // 1, 2, 4 ... px (~7 blits instead of ~70 fills of the whole outline, a ~100 ms gpu job)
@@ -573,7 +433,7 @@ export class MapView {
     const T = document.createElement('canvas');
     T.width = c.width; T.height = c.height;
     const tx = T.getContext('2d');
-    const smear = (color, from, to) => {   // offsets in grid y units, from < to
+    const smear = function* (color, from, to) {   // offsets in grid y units, from < to
       tx.setTransform(1, 0, 0, 1, 0, 0);
       tx.clearRect(0, 0, T.width, T.height);
       this.gridT(tx);
@@ -581,14 +441,14 @@ export class MapView {
       tx.fill(this.islandP, 'evenodd');
       tx.setTransform(1, 0, 0, 1, 0, 0);
       const len = Math.round((to - from) * dy);
-      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); tx.drawImage(T, 0, d); done += d; }
+      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); tx.drawImage(T, 0, d); done += d; yield 'cliff'; }
       x.save();
       x.setTransform(1, 0, 0, 1, 0, 0);
       x.drawImage(T, 0, Math.round(from * dy));
       x.restore();
     };
-    smear(t.cliffDark, ch * 0.45, ch);
-    smear(t.cliffLight, py * 0.5, ch * 0.45);
+    yield* smear.call(this, t.cliffDark, ch * 0.45, ch);
+    yield* smear.call(this, t.cliffLight, py * 0.5, ch * 0.45);
     // no fog on the canvas: all fog around the island is the moving css layers behind it
     // (fog-twirl), so nothing static covers them in a square around the map
     this.under = c;
@@ -710,12 +570,19 @@ export class MapView {
 
   blit(x, sp) { x.drawImage(sp.c, sp.left, sp.top); }
 
-  // pre-render sprites in small idle-time chunks (trees for every segment, overlays for every
-  // faction colour), so a first capture or build never costs a frame
-  prewarm(colors, fill) {
+  // the sprites a battle may need later (trees with and without huts, every side's owner overlay
+  // on every tile), one job each; cached ones cost nothing (idle: made during the previous stage)
+  warmJobs(colors, fill) {
     const jobs = [];
     for (let id = 0; id < this.segP.length; id++) jobs.push(() => this.treeSprite(id, true), () => this.treeSprite(id));
     for (const col of colors) for (let id = 0; id < this.segP.length; id++) jobs.push(() => this.overlaySprite(id, col, fill));
+    return jobs;
+  }
+
+  // pre-render sprites in small idle-time chunks (trees for every segment, overlays for every
+  // faction colour), so a first capture or build never costs a frame
+  prewarm(colors, fill) {
+    const jobs = this.warmJobs(colors, fill);
     const map = this.map, size = this.size;
     const step = () => {
       if (this.map !== map || this.size !== size) return;   // map or size changed: stop
@@ -732,31 +599,35 @@ export class MapView {
   // map's first frame costs nothing. a resize midway just leaves the rest to drawBase, as before
   *prepSteps() {
     const size = this.size, dpr = this.dpr, same = () => this.size === size && this.dpr === dpr;
-    if (!this.under) { this.buildUnder(); yield; }
-    if (!this.base) { this.buildBase(); yield; }
-    if (!this.rocks) { this.buildRocks(); yield; }
+    if (!this.under) { yield* this.buildUnderSteps(); yield 'under'; }
+    if (!this.base) { yield* this.buildBaseSteps(); yield 'base'; }
+    if (!this.rocks) { this.buildRocks(); yield 'rocks'; }
     if (!this.st) return;
     for (let id = 0; id < this.st.length && same(); id++) {
       const s = this.st[id];
-      if (s.building) { this.groundSprite(id, s.building); yield; this.topSprite(id, s.building, s.color, s.skin); }
+      if (s.building) { this.groundSprite(id, s.building); yield 'ground ' + id; this.topSprite(id, s.building, s.color, s.skin); }
       else this.treeSprite(id, s.huts);
-      yield;
-      if (s.color) { this.overlaySprite(id, s.color, s.fill); yield; }
+      yield 'sprite ' + id;
+      if (s.color) { this.overlaySprite(id, s.color, s.fill); yield 'overlay ' + id; }
     }
     if (!same()) return;
-    if (!this.layerGround) { this.buildGroundLayer(); yield; }
-    if (!this.layerOwner) { this.buildOwnerLayer(); yield; }
+    if (!this.layerGround) { this.buildGroundLayer(); yield 'layerGround'; }
+    if (!this.layerOwner) { this.buildOwnerLayer(); yield 'layerOwner'; }
     if (!this.layerObjects) this.buildObjectLayer();
   }
 
   // static: ground texture, every segment border, light lip along the cliff edge
-  buildBase() {
+  buildBase() { for (const _ of this.buildBaseSteps());   /* eslint-disable-line no-unused-vars */ }
+
+  // the same in slices (the ground details a band of rows at a time)
+  *buildBaseSteps() {
     const [c, x] = this.newLayer(true), t = this.theme, g = this.map.grid, px = 1 / this.scale;
     x.save();
     x.clip(this.islandP, 'evenodd');
     x.imageSmoothingEnabled = true;
     x.drawImage(this.groundC, 0, 0, g, g);
-    this.drawGroundDetail(x, px);
+    yield 'base ground';
+    yield* this.groundDetailSteps(x, px);
     x.lineJoin = 'round';
     x.lineWidth = Math.max(1, this.size * 0.0022) * px * borderW * mapScale(this.map);
     x.strokeStyle = css(t.lineNeutral, 0.45);
@@ -772,7 +643,10 @@ export class MapView {
   // forest floors, stones on highland, dry tufts in the desert, snow-dusted tufts in winter.
   // spacing is in css px, so the density on screen is the same at any map size; same-coloured
   // details are batched into one path each (a few strokes/fills for thousands of details)
-  drawGroundDetail(x, px) {
+  drawGroundDetail(x, px) { for (const _ of this.groundDetailSteps(x, px));   /* eslint-disable-line no-unused-vars */ }
+
+  // the same in slices: every few rows of slots the batches are drawn and started anew
+  *groundDetailSteps(x, px) {
     const { ids, bdist, grid: g, segs } = this.map, k = this.k, ms = mapScale(this.map);
     if (!bdist) return;
     const step = (8.5 * ms) / this.scale;                 // grid units between detail slots (~8.5 css px)
@@ -785,8 +659,21 @@ export class MapView {
     };
     // ellipse as its own closed subpath in a batch path
     const dot = (pth, cx, cy, rx, ry) => { pth.moveTo(cx + rx, cy); pth.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); };
-    let i = 0;
+    // draw what the batches hold so far (same order of colours as one big batch per colour)
+    const flush = () => {
+      x.save();
+      x.lineCap = 'round';
+      x.lineWidth = Math.max(0.8, this.size / 1400) * ms * px;
+      for (const [key, pth] of batches) {
+        const [kind, col] = key.split('|');
+        if (kind === 'stroke') { x.strokeStyle = col; x.stroke(pth); } else { x.fillStyle = col; x.fill(pth); }
+      }
+      x.restore();
+      batches.clear();
+    };
+    let i = 0, row = 0;
     for (let gy = step / 2; gy < g; gy += step) {
+      if (++row % 12 === 0) { flush(); yield 'detail'; }
       for (let gx = step / 2; gx < g; gx += step) {
         i++;
         const xx = gx + (hash(i, 50, this.seed) - 0.5) * step, yy = gy + (hash(i, 51, this.seed) - 0.5) * step;
@@ -825,14 +712,7 @@ export class MapView {
         }
       }
     }
-    x.save();
-    x.lineCap = 'round';
-    x.lineWidth = Math.max(0.8, this.size / 1400) * ms * px;
-    for (const [key, pth] of batches) {
-      const [kind, col] = key.split('|');
-      if (kind === 'stroke') { x.strokeStyle = col; x.stroke(pth); } else { x.fillStyle = col; x.fill(pth); }
-    }
-    x.restore();
+    flush();
   }
 
   // ambient life, drawn every frame between the map and the troops (ctx in css px): sparkles that

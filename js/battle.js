@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=123';
-import { perks, combineMods } from './expedition.js?v=123';
-import { hops } from './mapgen.js?v=123';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=123';
-import { think } from './ai.js?v=123';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=124';
+import { perks, combineMods } from './expedition.js?v=124';
+import { hops } from './mapgen.js?v=124';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=124';
+import { think } from './ai.js?v=124';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -50,7 +50,7 @@ export class Battle {
     const pre = opts.equalStarts !== false && map.starts?.length === this.factions.length ? map.starts : null;
     delete map.starts;   // used once: a replay of this map object picks its own
     const startIds = pre ?? spreadStarts(map, this.factions.length, this.rand, first);
-    if (!pre && opts.equalStarts !== false) { equalizeStarts(map, startIds, first); delete map.outlines; }   // reshaped here: the worker's outlines are stale
+    if (!pre && opts.equalStarts !== false) { equalizeStarts(map, startIds, first); delete map.outlines; delete map.prep; }   // reshaped here: the worker's outlines are stale
     const maxArea = Math.max(...map.segs.map((s) => s.area));
     this.segs = map.segs.map((s) => {
       const cap = Math.round((rules.capMax * s.area) / maxArea / 5) * 5;

@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=123';
-import { rng, hops } from './mapgen.js?v=123';
-import { effects, rules } from './config.js?v=123';
+import { personalities, pickBuilding } from './ai.js?v=124';
+import { rng, hops } from './mapgen.js?v=124';
+import { effects, rules } from './config.js?v=124';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -37,6 +37,10 @@ export const idleCfg = {
   botArchersEvery: 6, // idle bots get one archer level every 6 stages (max 5)
   wellRate: 0.04,     // fog wells: sim-foglet Fog per owned tile per game second per level
   autoEvery: 1,       // auto-battle checks your tiles every game second
+  // auto-attack: a tile is also ready after waiting this long (game s, by level 1-5) without being
+  // full. tiles fill in 50-90 s at x1 growth (stages 1-9), longer than a whole stage, so a fullness
+  // rule alone left the auto-battle idle early on (sim 2026-11-15, see README)
+  autoWait: [30, 30, 25, 20, 15, 10],
   deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
   quietEnd: 30,       // nobody marching for 30 game s: the side with the most foglets wins the stage
   hornRate: 0.15,     // fog horn: sim Fog per real second per level (x display scale of your best stage); level 5 ~ 40% of active play
@@ -126,7 +130,7 @@ export const upgrades = [
   { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
   // command (auto-battle): auto-attack, then the expand path (auto-expand -> auto-reinforce) and the
   // signals path (signal fires -> auto-build); they meet at sharp eye
-  { id: 'auto', branch: 'command', ring: 0, off: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack enemies from ${Math.round(autoTh[v || 1] * 100)}% full tiles` },
+  { id: 'auto', branch: 'command', ring: 0, off: 0, icon: '🤖', name: 'Auto-attack', base: 40, grow: 2.6, max: 5, value: (l) => l, text: (v) => `attack from ${Math.round(autoTh[v || 1] * 100)}% full tiles, or after ${idleCfg.autoWait[v || 1]} s` },
   { id: 'autoneutral', branch: 'command', ring: 1, off: -20, needs: [['auto', 2]], icon: '🧭', name: 'Auto-expand', base: 200, grow: 1, max: 1, value: (l) => l, text: () => 'auto-attack takes neutral tiles too' },
   { id: 'signals', branch: 'command', ring: 1, off: 20, needs: [['auto', 2]], icon: '🔥', name: 'Signal fires', base: 300, grow: 2.5, max: 2, value: (l) => 1 + 0.5 * l, text: (v) => `auto-battle acts ${v === 1 ? 'every second' : `${v.toFixed(1)}x as often`}` },
   { id: 'reinforce', branch: 'command', ring: 2, off: -22, needs: [['autoneutral', 1]], icon: '🔁', name: 'Auto-reinforce', base: 700, grow: 1, max: 1, value: (l) => l, text: () => 'full back tiles feed the front, tiles under attack get help' },
@@ -261,7 +265,8 @@ export class Idle {
   }
 
   // auto-battle, run after every sim step while it is on. every autoEvery game seconds (signal fires:
-  // more often) your tiles that are full enough (90% at level 1 ... 50% at level 5) attack:
+  // more often) your tiles that are full enough (90% at level 1 ... 50% at level 5), or have waited
+  // autoWait seconds since they were taken or last sent (30 s ... 10 s), attack:
   //   - targets: enemy tiles next to a ready tile (neutrals too with auto-expand), cheapest first
   //   - need: the defenders when the army gets there (now + their growth on the way + armies marching
   //     in to help them) x their defense x the safety margin (sharp eye lowers it), minus what is
@@ -280,7 +285,11 @@ export class Idle {
     b.autoT = 0;
     const th = autoTh[this.lvl('auto')], neutral = this.lvl('autoneutral') > 0, margin = this.val('sharpeye');
     const mine = b.segs.filter((s) => s.owner === 0);
-    const ready = (s) => s.troops >= th * s.cap;
+    // ready = full enough, or waited autoWait since it was taken / last sent (b.autoSince: id -> time)
+    const since = (b.autoSince ??= new Map()), wait = idleCfg.autoWait[this.lvl('auto')];
+    for (const id of since.keys()) if (b.segs[id].owner !== 0) since.delete(id);
+    for (const s of mine) if (!since.has(s.id)) since.set(s.id, b.time);
+    const ready = (s) => s.troops >= th * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait);
     const used = new Set();   // tiles that already sent this round
     // already on the way: our strength (foglets x attack) per target, foglets marching in to help it
     const sent = new Map(), help = new Map();
@@ -327,6 +336,7 @@ export class Idle {
         if (type && s.troops >= b.costOf(0, type) + 0.3 * s.cap) { b.build(0, s.id, type); used.add(s.id); }
       }
     }
+    for (const id of used) since.set(id, b.time);
     if (!this.lvl('reinforce')) return;
     // tiles under attack: enemy strength marching at them above what they can hold -> neighbours
     // that are not attacked themselves send the difference (+25%), each the same share of its spare
@@ -345,8 +355,9 @@ export class Idle {
     for (const s of mine) {
       if (used.has(s.id) || front[s.id] < 1 || !ready(s)) continue;
       const next = s.adj.map((a) => b.segs[a]).filter((n) => n.owner === 0 && front[n.id] < front[s.id]).sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0];
-      if (next) b.send(0, s.id, next.id, s.troops - Math.max(1, 0.05 * s.cap), true);   // keeps 5% of its cap
+      if (next && b.send(0, s.id, next.id, s.troops - Math.max(1, 0.05 * s.cap), true)) since.set(s.id, b.time);   // keeps 5% of its cap
     }
+    for (const id of used) since.set(id, b.time);
   }
 
   // battle setup for the current stage (or stage n: main.js pre-builds the next stage's map).
