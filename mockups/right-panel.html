@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide right panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600&display=swap">
+<style>
+  /* right-side panel mockup: Upgrades and War Council share one panel on the right (the picked
+     war room format). the island moves left and keeps running. 1280x720 frame scaled to fit.
+     generals are the game's drawFoglet body (js/render.js) with general gear drawn on top */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101417; font-family: 'Josefin Sans', system-ui, sans-serif; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #161c20; color: #ddd; }
+  .top b { margin-right: 8px; font-size: 14px; }
+  .top button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a464d; background: #222b30; color: #cfd8dc; cursor: pointer; }
+  .top button.on { background: #c9a45c; color: #1a1408; border-color: #c9a45c; font-weight: 600; }
+  .top small { color: #8a979d; font-size: 12px; flex-basis: 100%; }
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 70px); overflow: hidden; }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; color: #232a2c; font-size: 14px; background: #a8b4bc; }
+  .frame::before { content: ''; position: absolute; inset: 0; background:
+    radial-gradient(ellipse 30% 22% at 18% 24%, rgba(255,255,255,0.35), transparent), radial-gradient(ellipse 34% 26% at 82% 70%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(ellipse 26% 20% at 70% 18%, rgba(255,255,255,0.28), transparent), radial-gradient(ellipse 30% 24% at 24% 80%, rgba(255,255,255,0.3), transparent), #a8b4bc; }
+  .map { position: absolute; inset: 0; background: url(img/idle-bg.jpg) center / cover; transform: translate(-330px, 0) scale(0.55);
+    -webkit-mask-image: radial-gradient(ellipse 48% 50% at 50% 50%, #000 62%, transparent 100%); mask-image: radial-gradient(ellipse 48% 50% at 50% 50%, #000 62%, transparent 100%); }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .fb { position: relative; isolation: isolate; }
+  .fb::before { content: ''; position: absolute; inset: -10% -8%; z-index: -1; background: rgba(238,239,233,0.92); filter: blur(10px); border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%; }
+
+  /* top bar */
+  .bar { position: absolute; left: 0; right: 0; top: 8px; display: flex; gap: 24px; align-items: center; padding: 0 20px; font-size: 13px; z-index: 4; }
+  .bar .it { display: flex; gap: 6px; align-items: center; padding: 5px 10px; position: relative; isolation: isolate; }
+  .bar .it::before { content: ''; position: absolute; inset: -6px -12px; z-index: -1; background: rgba(238,239,233,0.9); filter: blur(7px); border-radius: 50%; }
+  .bar b { font-weight: 600; }
+  .bar .grow { flex: 1; }
+  .bar .up { color: #f0f0ea; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+  .bar .up::before { background: #232a2c; filter: blur(3px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; inset: -2px -8px; }
+
+  /* the panel */
+  .panel { position: absolute; right: 0; top: 0; bottom: 0; width: 640px; z-index: 2; }
+  .panel::before { content: ''; position: absolute; inset: 0 -30px 0 0; background: linear-gradient(90deg, rgba(232,234,229,0) 0, rgba(232,234,229,0.93) 70px, rgba(232,234,229,0.97)); }
+  .ttl { position: absolute; left: 710px; top: 52px; z-index: 3; margin: 0; font-weight: 300; letter-spacing: 8px; text-transform: uppercase; font-size: 22px; }
+  .cats { position: absolute; left: 712px; top: 92px; z-index: 4; display: flex; gap: 26px; text-transform: uppercase; letter-spacing: 3px; font-size: 12px; font-weight: 600; }
+  .cats span { position: relative; padding: 4px 2px; color: #6c7679; cursor: pointer; }
+  .cats span.on { color: #232a2c; }
+  .cats span.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -3px; height: 1.5px; background: #232a2c; }
+  .cats kbd { font: inherit; font-size: 10px; letter-spacing: 1px; color: #8a9497; margin-left: 6px; }
+  .bank { position: absolute; left: 1080px; top: 92px; z-index: 3; font-size: 13px; letter-spacing: 1px; }
+  .bank b { font-weight: 600; }
+  .hint { position: absolute; z-index: 3; font-size: 12px; color: #4f595c; max-width: 270px; }
+  .lay { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+  .lay > * { pointer-events: auto; }
+
+  /* upgrade tree nodes */
+  svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  path.link { fill: none; stroke: rgba(35,42,44,0.55); stroke-width: 1.4; }
+  path.link.dim { stroke: rgba(35,42,44,0.2); stroke-dasharray: 3 5; }
+  .node { position: absolute; width: 38px; height: 38px; margin: -19px 0 0 -19px; display: grid; place-items: center; border-radius: 50%; cursor: pointer; isolation: isolate; }
+  .node.own { color: #f0f0ea; }
+  .node.own::after { content: ''; position: absolute; inset: 2px; z-index: -1; background: #232a2c; border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; filter: blur(1px); }
+  .node.open { color: #232a2c; box-shadow: inset 0 0 0 1.5px #232a2c; animation: breathe 2.4s ease-in-out infinite; background: rgba(238,239,233,0.7); }
+  .node.lock { color: rgba(35,42,44,0.35); box-shadow: inset 0 0 0 1px rgba(35,42,44,0.18); }
+  .node.mist { box-shadow: inset 0 0 0 1.5px #6b78c9; color: #4b57a8; }
+  .node.mist.lock { box-shadow: inset 0 0 0 1px rgba(107,120,201,0.45); color: rgba(75,87,168,0.55); }
+  .node .lv { position: absolute; right: -7px; bottom: -4px; font-size: 10px; font-weight: 600; color: #232a2c; background: rgba(238,239,233,0.97); border-radius: 8px; padding: 0 4px; }
+  .node.sel { outline: 1px solid #232a2c; outline-offset: 5px; }
+  .node .nn { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11px; letter-spacing: 0.5px; color: #3a4447; }
+  .node.lock .nn { color: #8a9497; }
+  @keyframes breathe { 50% { box-shadow: inset 0 0 0 1.5px #232a2c, 0 0 0 5px rgba(35,42,44,0.1); } }
+  .colh { position: absolute; transform: translateX(-50%); text-transform: uppercase; letter-spacing: 3px; font-size: 11px; font-weight: 600; color: #232a2c; white-space: nowrap; }
+  .colh small { display: block; text-align: center; font-size: 10px; letter-spacing: 1px; color: #7a8487; font-weight: 400; margin-top: 2px; }
+  .subtabs { position: absolute; left: 712px; top: 140px; display: flex; gap: 18px; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; }
+  .subtabs span { cursor: pointer; color: #6c7679; padding-bottom: 3px; }
+  .subtabs span.on { color: #232a2c; border-bottom: 1.5px solid #232a2c; font-weight: 600; }
+  .subtabs span b { font-weight: 400; font-size: 10px; color: #8a9497; margin-left: 4px; letter-spacing: 0; }
+
+  /* card */
+  .card { position: absolute; padding: 14px 16px; z-index: 3; font-size: 13px; line-height: 1.45; }
+  .card .br { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #6c7679; }
+  .card h4 { margin: 0 0 2px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; gap: 10px; }
+  .card p { margin: 6px 0; }
+  .card .q { font-style: italic; color: #5d676a; font-size: 12px; }
+  .card .new { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a5a1a; border: 1px solid #c9a45c; border-radius: 8px; padding: 0 5px; margin-left: 6px; vertical-align: 2px; }
+  .card .row { display: flex; justify-content: space-between; gap: 12px; color: #6c7679; font-size: 12px; margin-top: 4px; }
+  .card .ordh { margin-top: 10px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #232a2c; font-weight: 600; border-top: 1px solid rgba(35,42,44,0.16); padding-top: 8px; }
+  .card label { display: block; margin-top: 6px; font-size: 12.5px; }
+  .card input[type=range] { width: 100%; accent-color: #232a2c; }
+  .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .card .chips span { font-size: 11.5px; padding: 3px 9px; border-radius: 10px; border: 1px solid rgba(35,42,44,0.35); cursor: pointer; }
+  .card .chips span.on { background: #232a2c; color: #f0f0ea; border-color: #232a2c; }
+  .card .btns { display: flex; gap: 14px; margin-top: 10px; align-items: center; }
+  .btn { display: inline-flex; gap: 8px; align-items: center; position: relative; isolation: isolate; padding: 8px 16px; color: #f0f0ea; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .btn::before { content: ''; position: absolute; inset: 0; z-index: -1; background: #232a2c; filter: blur(2.5px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+  .btn.mist::before { background: #3e4a9a; }
+  .btn.off { opacity: 0.4; cursor: default; }
+  .lnk { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #4f595c; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .wide { display: grid; grid-template-columns: 1fr 190px; gap: 18px; align-items: end; }
+
+  /* council: seats + roster */
+  .seat { position: absolute; z-index: 3; text-align: center; cursor: pointer; }
+  .seat canvas { display: block; margin: 0 auto; }
+  .seat .nm { text-transform: uppercase; letter-spacing: 2px; font-size: 12px; font-weight: 600; margin-top: 2px; }
+  .seat .ord { font-size: 11.5px; color: #4f595c; margin-top: 2px; line-height: 1.3; min-height: 30px; }
+  .seat .num { position: absolute; left: 10px; top: 6px; font-size: 10px; letter-spacing: 2px; color: #7a8487; }
+  .seat.empty canvas { opacity: 0.3; }
+  .seat.locked { cursor: default; }
+  .seat.sel .nm { text-decoration: underline; text-underline-offset: 4px; }
+  .seat.drop { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { filter: drop-shadow(0 0 8px rgba(35,42,44,0.45)); } }
+  .roster { position: absolute; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .rg { position: relative; width: 84px; text-align: center; cursor: pointer; font-size: 9.5px; letter-spacing: 0.5px; text-transform: uppercase; color: #3a4447; }
+  .rg canvas { display: block; margin: 0 auto; }
+  .rg .tag { position: absolute; right: 6px; top: 2px; font-size: 10px; font-weight: 600; color: #f0f0ea; background: #232a2c; border-radius: 9px; padding: 1px 5px; letter-spacing: 0; }
+  .rg .cost { display: block; color: #4b57a8; font-size: 9.5px; letter-spacing: 0.5px; }
+  .rg.on canvas { opacity: 0.75; }
+  .rg.lock { color: #7a8487; } .rg.lock canvas { filter: grayscale(1) contrast(0.8) brightness(1.15); opacity: 0.55; }
+  .rg.pick { outline: 1px solid #232a2c; outline-offset: 2px; border-radius: 8px; }
+  .rh { position: absolute; z-index: 3; text-transform: uppercase; letter-spacing: 3px; font-size: 11px; font-weight: 600; color: #4f595c; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>Right panel</b>
+    <button data-v="ua" class="on">Upgrades A · All branches</button>
+    <button data-v="ub">Upgrades B · One branch at a time</button>
+    <button data-v="wc">War Council</button>
+    <small>Both categories live in one panel on the right (tabs inside the panel, keys U / C); the battle keeps running on the left. Click nodes, generals and seats. Locked generals unlock with Mist in any order. Sample levels.</small>
+  </div>
+  <svg width="0" height="0" style="position:absolute">
+    <symbol id="g-offense" viewBox="0 0 24 24"><path d="M5 19L17 5h2v2L5 19zM4 17l3 3"/></symbol>
+    <symbol id="g-defense" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></symbol>
+    <symbol id="g-growth" viewBox="0 0 24 24"><path d="M12 21V10M12 10c-4 0-6-3-6-6 4 0 6 3 6 6zm0 3c3 0 5-2 5-5-3 0-5 2-5 5z"/></symbol>
+    <symbol id="g-fog" viewBox="0 0 24 24"><path d="M4 10h11a3 3 0 100-6M2 14h16a3 3 0 110 6M6 17h8"/></symbol>
+    <symbol id="g-bridge" viewBox="0 0 24 24"><path d="M3 16c4-7 14-7 18 0M3 16h18M8 16v-3M16 16v-3M12 16v-4"/></symbol>
+    <symbol id="g-mist" viewBox="0 0 24 24"><path d="M12 3l6 9-6 9-6-9z"/></symbol>
+    <symbol id="g-up" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="g-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V8a4 4 0 018 0v3"/></symbol>
+  </svg>
+
+  <div class="stage" id="stage">
+    <div class="frame" id="frame">
+      <div class="map"></div>
+      <div class="bar">
+        <span class="it">Stage 12</span><span class="it">2:41</span><span class="it">Land <b>6 / 13</b></span><span class="it">Fog <b>18.6K</b></span>
+        <span class="grow"></span><span class="it up"><svg class="i"><use href="#g-up"/></svg>Upgrade</span>
+      </div>
+      <div class="panel"></div>
+      <div class="lay" id="lay"></div>
+    </div>
+  </div>
+
+<script type="module">
+  // the game's own figure drawing (body + head), so generals are the same foglets as on the map
+  import { drawFoglet, hexToRgb, shade } from '../js/render.js';
+
+  const frame = document.getElementById('frame'), stage = document.getElementById('stage'), bar = document.getElementById('bar');
+  function fit() {
+    document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px');
+    const s = Math.min(stage.clientWidth / 1280, stage.clientHeight / 720);
+    frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  }
+  addEventListener('resize', fit); fit();
+
+  const team = '#2f74d6', col = hexToRgb(team);
+  const tDark = `rgb(${shade(col, -0.35).join(',')})`, tLight = `rgb(${shade(col, 0.3).join(',')})`;
+  const fmt = (n) => (n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n));
+  let view = 'ua', mist = 6;
+
+  // ================= upgrades (command branch removed; archers node moved to the Marksman) =================
+  // [id, name, ring, off, needs, lv, max, text, mist?]
+  const branches = [
+    { id: 'offense', name: 'Offense', nodes: [
+      ['atk', 'Sharper blades', 0, 0, [], 6, 0, 'attack +5% per level'], ['march', 'Forced march', 1, -1, ['atk'], 2, 5, 'armies move +4% per level'],
+      ['veterans', 'Veterans', 1, 1, ['atk'], 0, 10, 'attack +1% more per level'], ['conscription', 'Conscription', 2, -1, ['march'], 0, 5, 'neutrals defend -3% per level'],
+      ['volley', 'Volley', 2, 1, ['veterans'], 0, 4, "the Marksman's arrows +15% per level"], ['plunder', 'Plunder', 3, -1, ['conscription'], 0, 5, 'taken enemy tiles add 0.5% of cap'],
+      ['mistblades', 'Mist blades', 4, 0, ['plunder', 'volley'], 0, 5, 'attack x1.1 per level (on top of blades)', 1]] },
+    { id: 'defense', name: 'Defense', nodes: [
+      ['def', 'Shield wall', 0, 0, [], 5, 0, 'defense +5% per level'], ['walls', 'Great walls', 1, -1, ['def'], 1, 4, 'capital defense +12% per level'],
+      ['masons', 'Stonemasons', 1, 1, ['def'], 0, 5, 'forts defend +0.05x per level'], ['start', 'Bigger camp', 2, -1, ['walls'], 0, 0, 'start with 8 more foglets per level'],
+      ['medics', 'Field medics', 2, 1, ['masons'], 0, 5, 'hospitals +4% per level'], ['stoneskin', 'Stoneskin', 3, 0, ['start', 'medics'], 0, 10, 'defense +1% more per level'],
+      ['mistveil', 'Mist veil', 4, 0, ['stoneskin'], 0, 5, 'defense x1.1 per level (on top of shields)', 1]] },
+    { id: 'growth', name: 'Growth', nodes: [
+      ['growth', 'Fertile fog', 0, 0, [], 4, 0, 'growth +4% per level'], ['granary', 'Master builders', 1, -1, ['growth'], 1, 5, 'farms, hospitals, labs +6% per level'],
+      ['rains', 'Spring rains', 1, 1, ['growth'], 0, 10, 'growth +1% more per level'], ['engineers', 'Engineers', 2, -1, ['granary'], 0, 5, 'buildings cost -4% per level'],
+      ['scholars', 'Scholars', 2, 1, ['rains'], 0, 4, 'labs +6% per level'], ['roots', 'Deep roots', 3, -1, ['engineers'], 0, 5, 'land raises more before it runs dry', 1],
+      ['harvest', 'Harvest moon', 3, 1, ['scholars'], 0, 5, 'farms +4% per level'], ['evergreen', 'Evergreen', 4, 0, ['roots', 'harvest'], 0, 5, 'growth x1.05 per level (on top of fertile fog)', 1]] },
+    { id: 'fog', name: 'Fog', nodes: [
+      ['fog', 'Fog harvest', 0, 0, [], 3, 0, 'Fog +5% per level'], ['wells', 'Fog wells', 1, -1, ['fog'], 0, 5, 'tiles you hold make Fog'],
+      ['scavengers', 'Scavengers', 1, 1, ['fog'], 0, 5, 'Fog from beaten foglets +2% per level'], ['horn', 'Fog horn', 2, -1, ['wells'], 0, 5, 'gathers Fog in real time, even while away'],
+      ['bounty', 'Bounty', 2, 1, ['scavengers'], 0, 4, 'stage clear bonus +5% per level'], ['deephorn', 'Deep horn', 3, -1.3, ['horn'], 0, 3, 'the horn holds 2 h more per level'],
+      ['drift', 'Fog drift', 3, 0, ['horn', 'bounty'], 0, 5, 'start runs further in'], ['mistseeker', 'Mist seeker', 3, 1.3, ['bounty'], 0, 3, 'bosses drop +25% Mist per level'],
+      ['mistborn', 'Mistborn', 4, 0, ['drift'], 0, 5, 'all Fog x1.2 per level', 1]] },
+  ];
+  // bridges between neighbouring branches (patrols and blitz hung off Command nodes: dropped here)
+  const bridges = [
+    ['warlord', 'Warlord', ['offense', 'defense'], ['volley', 'start'], 'attack and defense +1.5% per level'],
+    ['sanctuary', 'Sanctuary', ['defense', 'growth'], ['medics', 'engineers'], 'growth and defense +1% per level'],
+    ['mistgarden', 'Mist garden', ['growth', 'fog'], ['harvest', 'deephorn'], 'fog wells +8% per level'],
+  ];
+  const all = {};
+  branches.forEach((b) => b.nodes.forEach((n) => (all[n[0]] = { b: b.id, bn: b.name, id: n[0], name: n[1], ring: n[2], off: n[3], needs: n[4], lv: n[5], max: n[6], text: n[7], mist: n[8] })));
+  bridges.forEach(([id, name, bs, needs, text]) => (all[id] = { b: 'bridge', bn: 'Bridge · ' + bs.map((k) => k[0].toUpperCase() + k.slice(1)).join(' + '), id, name, ring: 5, needs, lv: 0, max: 5, text, or: true, bs }));
+  // state: own (lv > 0), open (a parent owned), lock
+  const stateOf = (n) => (n.lv > 0 ? 'own' : !n.needs.length || (n.or || n.ring === 4 || n.id === 'stoneskin' || n.id === 'drift' ? n.needs.some((k) => all[k].lv > 0) : n.needs.every((k) => all[k].lv > 0)) ? 'open' : 'lock');
+  const costOf = (n, i = 0) => (n.mist ? `${1 + n.lv} Mist` : `${fmt(Math.round(40 * 1.9 ** (n.lv + n.ring * 1.6 + 1)))} Fog`);
+  let selNode = 'veterans', subBranch = 'offense';
+
+  function nodeHtml(n, x, y, named) {
+    const st = stateOf(n), icon = n.mist ? 'mist' : n.b;
+    return `<div class="node ${st}${n.mist ? ' mist' : ''}${selNode === n.id ? ' sel' : ''}" data-node="${n.id}" style="left:${x}px;top:${y}px" title="${n.name}">
+      <svg class="i"><use href="#g-${icon}"/></svg>${n.lv ? `<span class="lv">${n.lv}${n.max ? '/' + n.max : ''}</span>` : ''}${named ? `<span class="nn">${n.name}</span>` : ''}</div>`;
+  }
+  const curve = (a, b, dim) => { const my = (a[1] + b[1]) / 2; return `<path class="link${dim ? ' dim' : ''}" d="M${a[0]},${a[1] + 19} C${a[0]},${my} ${b[0]},${my} ${b[0]},${b[1] - 19}"/>`; };
+  function upCard(n, style) {
+    const st = stateOf(n), maxed = n.max && n.lv >= n.max;
+    const txt = n.text[0].toUpperCase() + n.text.slice(1);
+    return `<div class="card fb" style="${style}"><div class="br">${n.bn}</div><h4><span>${n.name}</span><span>Lv ${n.lv}${n.max ? ' / ' + n.max : ''}</span></h4>
+      <p>${txt}.</p>
+      <div class="row"><span>${st === 'lock' ? 'Needs ' + n.needs.map((k) => all[k].name).join(n.or || n.ring === 4 ? ' or ' : ' and ') : maxed ? 'Maxed' : 'Next level'}</span><span>${maxed ? '' : costOf(n)}</span></div>
+      ${st === 'lock' || maxed ? '' : `<div class="btns"><span class="btn${n.mist ? ' mist' : ''}" data-buy="${n.id}"><svg class="i"><use href="#g-up"/></svg>Buy · ${costOf(n)}</span></div>`}</div>`;
+  }
+
+  // A: all 4 branches as columns, bridges on the bottom row between columns, card along the bottom
+  function upgradesA() {
+    const cx = { offense: 770, defense: 910, growth: 1050, fog: 1190 }, y0 = 228, dy = 56, dx = 36;
+    const pos = {};
+    for (const n of Object.values(all)) pos[n.id] = n.b === 'bridge' ? [(cx[n.bs[0]] + cx[n.bs[1]]) / 2, y0 + 5 * dy] : [cx[n.b] + n.off * dx, y0 + n.ring * dy];
+    let lines = '', h = '';
+    for (const n of Object.values(all)) for (const k of n.needs) lines += curve(pos[k], pos[n.id], stateOf(n) === 'lock');
+    for (const b of branches) {
+      const own = b.nodes.reduce((s, n) => s + n[5], 0);
+      h += `<div class="colh" style="left:${cx[b.id]}px;top:${y0 - 52}px">${b.name}<small>${own} levels</small></div>`;
+    }
+    for (const n of Object.values(all)) h += nodeHtml(n, ...pos[n.id]);
+    h += upCard(all[selNode], 'left:705px;top:560px;width:540px');
+    return `<svg class="lines">${lines}</svg>${h}<div class="hint" style="left:712px;top:${y0 + 5 * dy + 30}px;max-width:520px">Hover a node for its name, click for its card. Gold-ringed = can buy, filled = owned, blue = Mist.</div>`;
+  }
+  // B: one branch at a time (sub tabs), nodes with names, card on the right
+  function upgradesB() {
+    const b = subBranch, list = b === 'bridge' ? Object.values(all).filter((n) => n.b === 'bridge') : Object.values(all).filter((n) => n.b === b);
+    const cx = 845, y0 = 220, dy = 86, dx = 95, pos = {};
+    if (b === 'bridge') list.forEach((n, i) => (pos[n.id] = [cx, y0 + 40 + i * 120]));
+    else list.forEach((n) => (pos[n.id] = [cx + n.off * dx, y0 + n.ring * dy]));
+    let lines = '', h = '';
+    if (b !== 'bridge') for (const n of list) for (const k of n.needs) if (pos[k]) lines += curve(pos[k], pos[n.id], stateOf(n) === 'lock');
+    h += `<div class="subtabs">${[...branches.map((x) => [x.id, x.name, x.nodes.reduce((s, n) => s + n[5], 0)]), ['bridge', 'Bridges', 0]].map(([id, nm, lv]) => `<span class="${id === b ? 'on' : ''}" data-sub="${id}">${nm}${lv ? `<b>${lv}</b>` : ''}</span>`).join('')}</div>`;
+    for (const n of list) h += nodeHtml(n, ...pos[n.id], true);
+    if (b === 'bridge') list.forEach((n) => (h += `<div class="hint" style="left:${cx + 40}px;top:${pos[n.id][1] - 10}px;max-width:110px">${n.bs.join(' + ')}</div>`));
+    if (all[selNode].b !== b) selNode = list[0].id;
+    h += upCard(all[selNode], 'left:1010px;top:200px;width:245px');
+    return `<svg class="lines">${lines}</svg>${h}`;
+  }
+
+  // ================= war council =================
+  // generals: unlocked with Mist in any order (price rises per general unlocked). kit = base troop kit
+  // ('plain' = bare foglet body, gear drawn here). cape / epaulettes / back() / front() = general gear
+  const H = {};   // drawing helpers, bound per canvas in drawGeneral
+  const G = [
+    { id: 'warlord', name: 'Warlord', kit: 'plain', cape: '#7a2a20', role: 'Auto-attack', quote: '"Full is ready. Ready is now."',
+      text: 'Tiles attack the weakest neighbour on their own once they are full enough.',
+      orders: [{ k: 'range', label: 'Attack at', min: 50, max: 95, step: 5, val: 80, unit: '% full' }, { k: 'chips', label: 'Targets', opts: ['Enemies', 'Neutrals', 'Both'], val: 2 }],
+      sum: (o) => `attacks at ${o[0].val}% full`, back: () => greatsword(), front: () => warlordGear() },
+    { id: 'warden', name: 'Warden', kit: 'knight', cape: '#22406e', role: 'Auto-defend', quote: '"No tile falls alone."',
+      text: 'When a tile is attacked, neighbours send just enough foglets to hold it.',
+      orders: [{ k: 'range', label: 'Neighbours keep at least', min: 10, max: 60, step: 5, val: 30, unit: '%' }, { k: 'chips', label: 'Guard', opts: ['All tiles', 'Buildings', 'Capital'], val: 0 }],
+      sum: (o) => `helpers keep ${o[0].val}%` },
+    { id: 'marksman', name: 'Marksman', kit: 'archer', role: 'Arrows', quote: '"I never miss twice."',
+      text: 'Your border tiles shoot arrows into enemy neighbours. No Marksman, no arrows.',
+      orders: [{ k: 'chips', label: 'Aim at', opts: ['Weakest', 'Strongest', 'Attackers'], val: 2 }],
+      sum: (o) => `aims at ${['weakest', 'strongest', 'attackers'][o[0].val]}` },
+    { id: 'quartermaster', name: 'Quartermaster', kit: 'plain', epaulettes: false, role: 'Auto-build', quote: '"A farm today, a fort tomorrow."',
+      text: 'Full tiles build what pays back fastest, in your chosen order.',
+      orders: [{ k: 'chips', label: 'Build first', opts: ['Farms', 'Hospitals', 'Labs', 'Forts'], val: 0 }, { k: 'range', label: 'Build when', min: 60, max: 100, step: 5, val: 90, unit: '% full' }],
+      sum: (o) => `${['farms', 'hospitals', 'labs', 'forts'][o[0].val]} first`, back: () => bigHammer(), front: () => quartermasterGear() },
+    { id: 'pathfinder', name: 'Pathfinder', kit: 'viking', cape: '#5a4a30', role: 'Auto-expand', quote: '"Beyond the fog is just more land."',
+      text: 'Takes neutral tiles when it can win them cheaply, by the terrain you prefer.',
+      orders: [{ k: 'range', label: 'Spend at most', min: 10, max: 80, step: 5, val: 40, unit: '% of a tile' }, { k: 'chips', label: 'Prefer', opts: ['Closest', 'Highland', 'Forest', 'Rivers'], val: 1 }],
+      sum: (o) => `spends ≤${o[0].val}%` },
+    { id: 'marshal', name: 'Marshal', kit: 'plain', cape: '#2c3260', role: 'Supply lines', quote: '"The front eats. The back cooks."',
+      text: 'Full back tiles feed the front line, so your border is always stocked.',
+      orders: [{ k: 'range', label: 'Feed when a back tile is', min: 50, max: 100, step: 5, val: 70, unit: '% full' }],
+      sum: (o) => `feeds at ${o[0].val}%`, front: () => marshalGear() },
+    { id: 'siegemaster', name: 'Siegemaster', kit: 'plain', epaulettes: false, role: 'Catapults', fresh: true, quote: '"Walls are just slow rocks."',
+      text: 'New: forts throw stones at enemy tiles up to 2 tiles away. Slow, but a hit kills foglets and can knock down a building.',
+      orders: [{ k: 'chips', label: 'Hit', opts: ['Foglets', 'Buildings', 'Forts first'], val: 0 }],
+      sum: (o) => `hits ${['foglets', 'buildings', 'forts'][o[0].val]}`, back: () => catapult(), front: () => siegeGear() },
+    { id: 'drummer', name: 'War Drummer', kit: 'plain', role: 'Rally drums', fresh: true, quote: '"Feet follow the beat."',
+      text: 'New: a drum roll every 30 s: for 8 s your armies march +25% faster and tiles grow +25%.',
+      orders: [{ k: 'chips', label: 'Drum', opts: ['On cooldown', 'When I attack', 'When attacked'], val: 1 }],
+      sum: (o) => ['every 30 s', 'with attacks', 'when attacked'][o[0].val], front: () => drummerGear() },
+    { id: 'houndmaster', name: 'Houndmaster', kit: 'plain', epaulettes: false, role: 'War hounds', fresh: true, quote: '"They smell an army before I see it."',
+      text: 'New: hounds run out at enemy armies crossing near your border and bite off 10% before they arrive.',
+      orders: [{ k: 'range', label: 'Hunt within', min: 1, max: 3, step: 1, val: 1, unit: ' tile(s) of your border' }],
+      sum: (o) => `hunts ${o[0].val} tile${o[0].val > 1 ? 's' : ''} out`, back: () => hound(), front: () => houndGear() },
+  ];
+  const byId = Object.fromEntries(G.map((g) => [g.id, g]));
+  const unlocked = new Set(['warlord', 'warden', 'marksman', 'quartermaster']);
+  const lvl = { warlord: 3, warden: 2, marksman: 1, quartermaster: 1 };
+  const mistCosts = [1, 2, 3, 4, 5, 6, 8, 10, 12];
+  const nextCost = () => mistCosts[unlocked.size];
+  const seats = ['warlord', 'warden', 'marksman', null];
+  const seatLock = [null, null, null, 'Opens at stage 15'];
+  let sel = { seat: 0, gen: 'warlord' }, pick = null;
+
+  // ---- drawing ----
+  function drawGeneral(cv, g, sc, banner) {
+    const dpr = Math.min(3, devicePixelRatio || 1);
+    cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
+    const x = cv.getContext('2d');
+    x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = cv.clientWidth, Hh = cv.clientHeight, mx = W / 2, my = Hh - sc * 1.6;
+    const X = (u) => mx + u * sc, Y = (u) => my + u * sc;
+    Object.assign(H, {
+      x, sc, X, Y,
+      poly: (c, pts) => { x.fillStyle = c; x.beginPath(); pts.forEach(([a, b], i) => (i ? x.lineTo : x.moveTo).call(x, X(a), Y(b))); x.closePath(); x.fill(); },
+      disc: (c, a, b, r) => { x.fillStyle = c; x.beginPath(); x.arc(X(a), Y(b), r * sc, 0, Math.PI * 2); x.fill(); },
+      ell: (c, a, b, rx, ry) => { x.fillStyle = c; x.beginPath(); x.ellipse(X(a), Y(b), rx * sc, ry * sc, 0, 0, Math.PI * 2); x.fill(); },
+      R: (l, t, w, h, c) => { x.fillStyle = c; x.fillRect(X(l), Y(t), w * sc, h * sc); },
+      line: (c, lw, pts) => { x.strokeStyle = c; x.lineWidth = lw * sc; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); pts.forEach(([a, b], i) => (i ? x.lineTo : x.moveTo).call(x, X(a), Y(b))); x.stroke(); },
+    });
+    const { poly, disc, line } = H, gold = '#d9b65a', goldD = '#a8863a';
+    // shadow + stone plinth
+    x.fillStyle = 'rgba(35,42,44,0.25)'; x.beginPath(); x.ellipse(X(0), Y(0.9), 3.4 * sc, 0.75 * sc, 0, 0, Math.PI * 2); x.fill();
+    poly('#8d9396', [[-3, 0], [3, 0], [2.7, 1.05], [-2.7, 1.05]]); poly('#6f7679', [[-2.7, 0.75], [2.7, 0.75], [2.7, 1.05], [-2.7, 1.05]]);
+    line('rgba(255,255,255,0.35)', 0.08, [[-2.9, 0.06], [2.9, 0.06]]);
+    if (banner) {   // standard with the role sigil
+      line('#5a3a20', 0.22, [[2.6, 0.2], [2.6, -9.6]]); disc(gold, 2.6, -9.75, 0.22);
+      poly(team, [[2.7, -9.4], [5.1, -9.1], [4.6, -8.1], [5.1, -7.0], [2.7, -7.2]]);
+      sigil(x, g.id, X(3.75), Y(-8.25), sc * 0.55);
+    }
+    g.back?.();
+    if (g.cape) {
+      poly(g.cape, [[-1.55, -4.3], [1.55, -4.3], [2.25, 0.05], [0.8, -0.2], [0, 0.1], [-0.8, -0.2], [-2.25, 0.05]]);
+      line('rgba(0,0,0,0.18)', 0.08, [[-1.1, -3.6], [-1.6, -0.3]]); line('rgba(0,0,0,0.18)', 0.08, [[1.1, -3.6], [1.6, -0.3]]);
+    }
+    drawFoglet(x, mx, my, sc, col, g.kit);
+    g.front?.();
+    if (g.epaulettes !== false) for (const s of [-1, 1]) {
+      H.ell(gold, s * 1.25, -4.0, 0.55, 0.26);
+      for (let i = 0; i < 4; i++) line(goldD, 0.06, [[s * (0.95 + i * 0.2), -3.85], [s * (0.95 + i * 0.2), -3.5]]);
+    }
+    const lv = lvl[g.id] || 0;
+    for (let i = 0; i < lv; i++) star(x, X(-0.7 * ((lv - 1) / 2) + i * 0.7), Y(0.55), sc * 0.22, '#f0e2b0');
+  }
+  function star(x, cx, cy, r, c) {
+    x.fillStyle = c; x.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; (i ? x.lineTo : x.moveTo).call(x, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+    x.fill();
+  }
+  // banner sigils (off-white line marks)
+  function sigil(x, id, cx, cy, s) {
+    x.save(); x.translate(cx, cy); x.scale(s, s); x.strokeStyle = '#f2efe4'; x.fillStyle = '#f2efe4'; x.lineWidth = 0.32; x.lineCap = 'round'; x.lineJoin = 'round';
+    const L = (pts) => { x.beginPath(); pts.forEach(([a, b], i) => (i ? x.lineTo : x.moveTo).call(x, a, b)); x.stroke(); };
+    const C = (a, b, r, s0 = 0, s1 = 7) => { x.beginPath(); x.arc(a, b, r, s0, s1); x.stroke(); };
+    if (id === 'warlord') { L([[-1, 1.2], [1, -1.2]]); L([[-0.2, -0.2], [0.6, 0.6]]); L([[-1, -1.2], [1, 1.2]]); }
+    if (id === 'warden') L([[0, -1.3], [1.1, -0.8], [1, 0.4], [0, 1.3], [-1, 0.4], [-1.1, -0.8], [0, -1.3]]);
+    if (id === 'marksman') { C(-0.4, 0, 1.3, -1.2, 1.2); L([[-1.2, 0], [1.2, 0]]); L([[0.8, -0.4], [1.2, 0], [0.8, 0.4]]); }
+    if (id === 'pathfinder') { C(0, 0, 1.1); L([[0, -0.9], [0.3, 0], [0, 0.9], [-0.3, 0], [0, -0.9]]); }
+    if (id === 'quartermaster') { L([[-0.9, 1.2], [0.5, -0.4]]); L([[-0.1, -1.1], [1.2, 0.2]]); }
+    if (id === 'marshal') { L([[-1.2, 0.8], [1, -0.6]]); L([[0.4, -0.7], [1, -0.6], [0.8, 0]]); L([[-1.2, -0.4], [1, 1]]); }
+    if (id === 'siegemaster') { C(0.3, -0.5, 0.55); x.fill(); L([[-1.2, 1.1], [1.1, 1.1]]); L([[-0.8, 1.1], [0, -0.1]]); }
+    if (id === 'drummer') { x.beginPath(); x.ellipse(0, 0.2, 1.1, 0.8, 0, 0, 7); x.stroke(); L([[-1.2, -1.2], [-0.2, -0.3]]); L([[1.2, -1.2], [0.2, -0.3]]); }
+    if (id === 'houndmaster') { L([[-1, 0.9], [-0.6, -0.5], [0.4, -0.6], [1, -1.1], [1.1, -0.3], [0.6, 0], [0.6, 0.9]]); }
+    x.restore();
+  }
+  // ---- general gear (unit coords: body x -1.3..1.3, y -4..0; head -1.15..1.15, y -6.15..-3.9) ----
+  const gold = '#d9b65a', steel = '#c4ccd4', wood = '#7a5230', woodD = '#5a3a20', ink = '#22252c';
+  function greatsword() {
+    const { line, poly, disc } = H;
+    line(steel, 0.42, [[1.85, -1.4], [1.85, -7.6]]); poly(steel, [[1.64, -7.6], [2.06, -7.6], [1.85, -8.15]]);
+    line('#eef2f5', 0.1, [[1.85, -2], [1.85, -7.4]]);
+    line(gold, 0.3, [[1.15, -1.5], [2.55, -1.5]]); line('#3a2414', 0.3, [[1.85, -1.4], [1.85, -0.55]]); disc(gold, 1.85, -0.42, 0.22);
+  }
+  function warlordGear() {
+    const { R, poly, line } = H, br = '#b8924e', brD = '#94733a';
+    R(-1.3, -4, 2.6, 2.3, br); R(0.2, -4, 1.1, 2.3, brD);   // bronze cuirass
+    line('#7a5c2c', 0.07, [[-0.85, -3.45], [-0.15, -3.2]]); line('#7a5c2c', 0.07, [[0.05, -3.2], [0.75, -3.45]]); line('#7a5c2c', 0.06, [[-0.05, -3.0], [-0.05, -2.0]]);
+    for (let i = 0; i < 5; i++) R(-1.3 + i * 0.54, -1.7, 0.44, 1.35, i % 2 ? '#7a2420' : '#8e2a22');   // leather strips
+    R(-1.3, -1.85, 2.6, 0.25, '#5e3b20');
+    R(-1.3, -6.75, 2.6, 1.05, br); R(0.3, -6.75, 1.0, 1.05, brD);   // crested helmet + cheek guards
+    R(-1.3, -5.75, 0.45, 1.2, br); R(0.85, -5.75, 0.45, 1.2, brD);
+    poly('#c0302a', [[-1.55, -6.7], [-1.25, -7.55], [0, -7.95], [1.25, -7.55], [1.55, -6.7]]);
+    for (let i = -4; i <= 4; i++) line('#8e2a22', 0.06, [[i * 0.3, -6.75], [i * 0.32, -7.6 + Math.abs(i) * 0.06]]);
+    R(-0.15, -7.0, 0.3, 0.3, gold);
+  }
+  function bigHammer() {
+    const { line, poly } = H;
+    line(wood, 0.28, [[1.3, -1.4], [2.25, -6.3]]);
+    poly('#8e98a2', [[1.55, -6.95], [2.95, -6.45], [2.7, -5.75], [1.3, -6.25]]); poly(steel, [[1.55, -6.95], [2.95, -6.45], [2.88, -6.25], [1.48, -6.75]]);
+  }
+  function quartermasterGear() {
+    const { R, poly, line, ell } = H;
+    poly('#8a6440', [[-1.0, -3.6], [1.0, -3.6], [1.15, -0.2], [-1.15, -0.2]]);   // apron + straps
+    line('#6e4a2c', 0.14, [[-0.85, -3.6], [-0.75, -4.05]]); line('#6e4a2c', 0.14, [[0.85, -3.6], [0.75, -4.05]]);
+    R(-0.6, -2.2, 1.2, 0.7, '#74532f'); line(steel, 0.1, [[-0.35, -2.2], [-0.35, -2.75]]); line(wood, 0.1, [[0.2, -2.2], [0.32, -2.85]]); line('#e8e2d0', 0.1, [[0.4, -2.2], [0.5, -2.7]]);
+    R(-1.8, -2.1, 0.7, 0.95, '#7a5230'); line('#5a3a20', 0.1, [[-1.45, -2.1], [0.9, -4.0]]);   // satchel
+    R(-1.2, -6.75, 2.4, 0.7, tDark); poly(tDark, [[-1.2, -6.1], [1.75, -6.1], [1.45, -5.88], [-1.2, -5.88]]);   // flat cap
+    ell(tLight, -0.4, -6.65, 0.5, 0.12);
+    line('#e8d8a0', 0.1, [[1.05, -5.4], [1.35, -6.0]]);   // pencil behind the ear
+  }
+  function marshalGear() {
+    const { R, poly, line, disc, ell } = H;
+    for (const bx of [-0.45, 0.45]) for (const by of [-3.6, -3.0, -2.4, -1.8]) disc(gold, bx, by, 0.09);   // double-breasted
+    line('#efe9da', 0.36, [[-1.2, -4], [1.2, -1.5]]);   // sash
+    for (const [a, c] of [[-0.85, '#c03030'], [-0.55, '#e0b040']]) { line(c, 0.14, [[a, -3.8], [a, -3.4]]); disc(gold, a, -3.25, 0.13); }
+    R(-1.3, -1.4, 2.6, 0.3, '#2a2a30'); R(-0.2, -1.45, 0.4, 0.4, gold);
+    line('#2a2a30', 0.3, [[1.45, -2.0], [2.25, -3.8]]); disc(gold, 1.45, -2.0, 0.17); disc(gold, 2.25, -3.8, 0.17);   // baton
+    poly(ink, [[-2.15, -6.0], [-1.0, -6.6], [0, -7.45], [1.0, -6.6], [2.15, -6.0], [0, -6.3]]);   // bicorne
+    line(gold, 0.09, [[-2.15, -6.0], [-1.0, -6.6], [0, -7.45], [1.0, -6.6], [2.15, -6.0]]);
+    disc(team, 0, -6.65, 0.3); disc('#efe9da', 0, -6.65, 0.12);
+    ell('#efe9da', 0, -7.45, 0.65, 0.18);
+  }
+  function catapult() {
+    const { R, line, disc, ell } = H;
+    R(-5.0, -0.65, 2.7, 0.35, wood); for (const wx of [-4.6, -2.7]) { disc(woodD, wx, -0.25, 0.38); disc('#b8a080', wx, -0.25, 0.1); }
+    line(wood, 0.22, [[-4.2, -0.6], [-3.7, -2.5]]); line(wood, 0.22, [[-3.2, -0.6], [-3.7, -2.5]]);
+    line(woodD, 0.24, [[-4.95, -0.95], [-2.55, -3.7]]); line('#c8b48a', 0.06, [[-3.7, -2.5], [-4.6, -1.3]]);
+    ell(woodD, -2.55, -3.8, 0.42, 0.22); disc('#8d9396', -2.55, -4.05, 0.33); disc('#a8aeb2', -2.65, -4.15, 0.12);
+  }
+  function siegeGear() {
+    const { R, line, ell, disc } = H;
+    R(-1.3, -4, 0.85, 3.1, '#5a3e26'); R(0.45, -4, 0.85, 3.1, '#4a321e');   // leather vest
+    R(-1.3, -1.25, 2.6, 0.35, '#3a2414'); line(steel, 0.14, [[0.4, -1.1], [0.8, -0.4]]); disc(steel, 0.85, -0.35, 0.15);   // tool belt + wrench
+    line(wood, 0.25, [[1.4, -0.8], [1.9, -4.5]]); R(1.25, -5.35, 1.3, 0.85, '#7a5230'); R(1.25, -5.35, 1.3, 0.18, '#5e3b20'); R(1.25, -4.68, 1.3, 0.18, '#5e3b20');   // mallet
+    ell('#6e4a2c', 0, -6.55, 1.28, 0.5); R(-1.28, -6.6, 2.56, 0.55, '#6e4a2c');   // leather cap + flaps
+    R(-1.38, -6.1, 0.35, 1.0, '#5e3e22'); R(1.03, -6.1, 0.35, 1.0, '#5e3e22');
+    line('#3a2414', 0.16, [[-1.28, -6.35], [1.28, -6.35]]);
+    for (const gx of [-0.45, 0.45]) { disc('#c9a23a', gx, -6.4, 0.38); disc('#9fd0e0', gx, -6.4, 0.24); disc('rgba(255,255,255,0.8)', gx - 0.08, -6.48, 0.07); }   // goggles
+  }
+  function drummerGear() {
+    const { R, line, poly, ell, disc } = H;
+    line('#efe9da', 0.24, [[-1.2, -4], [1.2, -1.9]]); line('#efe9da', 0.24, [[1.2, -4], [-1.2, -1.9]]);   // cross belts
+    R(-1.6, -2.75, 3.2, 1.6, '#e9dfc4');   // drum: shell, rims, cords
+    R(-1.65, -2.85, 3.3, 0.24, team); R(-1.65, -1.3, 3.3, 0.24, team);
+    line(gold, 0.08, [[-1.5, -2.6], [-1.0, -1.35], [-0.5, -2.6], [0, -1.35], [0.5, -2.6], [1.0, -1.35], [1.5, -2.6]]);
+    R(0.6, -2.75, 1.0, 1.6, 'rgba(0,0,0,0.1)');
+    line(wood, 0.15, [[-1.95, -4.0], [-0.65, -2.95]]); line(wood, 0.15, [[1.95, -4.0], [0.65, -2.95]]); disc('#e8d8b0', -1.95, -4.0, 0.16); disc('#e8d8b0', 1.95, -4.0, 0.16);
+    R(-1.0, -7.75, 2.0, 1.7, tDark); R(0.35, -7.75, 0.65, 1.7, 'rgba(0,0,0,0.18)');   // shako
+    poly(gold, [[0, -7.25], [0.38, -6.85], [0, -6.45], [-0.38, -6.85]]);
+    R(-1.15, -6.1, 2.3, 0.2, '#1d1d22'); line(gold, 0.06, [[-1.0, -6.0], [0, -5.3], [1.0, -6.0]]);
+    ell('#efe9da', 0, -8.1, 0.24, 0.5); ell('#c0302a', 0, -8.5, 0.18, 0.22);
+  }
+  function hound() {
+    const { R, poly, line, disc } = H, fur = '#8a7a68', furD = '#6e604f';
+    line(fur, 0.28, [[-4.45, -0.5], [-5.0, -1.1], [-4.85, -1.75]]);   // tail
+    poly(fur, [[-4.5, -0.05], [-2.55, -0.05], [-2.65, -1.95], [-3.95, -2.15]]);   // sitting body
+    R(-3.0, -1.25, 0.32, 1.2, furD); R(-2.55, -1.25, 0.32, 1.2, fur);   // front legs
+    poly('#a8987f', [[-2.95, -1.3], [-2.55, -1.3], [-2.6, -2.1], [-2.95, -2.1]]);   // chest
+    R(-3.3, -3.45, 1.25, 1.15, fur); R(-2.05, -2.95, 0.65, 0.55, furD);   // head + snout
+    disc('#22252c', -1.45, -2.8, 0.13); disc('#22252c', -2.55, -3.05, 0.09);
+    poly(furD, [[-3.3, -3.45], [-2.8, -3.45], [-2.95, -2.55], [-3.35, -2.7]]);   // ear
+    R(-3.25, -2.42, 1.15, 0.22, team);   // collar
+    line('#5a3a20', 0.07, [[-2.4, -2.3], [-1.85, -1.6], [-1.25, -2.0]]);   // leash to the hand
+  }
+  function houndGear() {
+    const { R, line, disc, ell } = H;
+    R(-1.3, -4, 2.6, 2.6, '#7a5636'); R(0.2, -4, 1.1, 2.6, '#634528');   // leather jerkin + laces
+    for (let i = 0; i < 4; i++) line('#3a2414', 0.06, [[-0.25, -3.7 + i * 0.5], [0.15, -3.45 + i * 0.5]]);
+    R(-1.3, -1.6, 2.6, 0.3, '#3a2414');
+    line(gold, 0.05, [[-0.7, -4], [-0.2, -3.0]]); disc(gold, -0.2, -2.95, 0.15);   // whistle
+    ell('#5a3e26', 0, -6.1, 2.0, 0.36); R(-1.0, -7.05, 2.0, 1.0, '#6e4a2c'); R(-1.0, -6.45, 2.0, 0.2, team);   // wide hat
+    line('#c8a050', 0.1, [[0.8, -6.4], [1.6, -7.4]]);
+  }
+
+  // ---- council layout (inside the panel) ----
+  const seatX = [750, 890, 1030, 1170], seatY = 130, seatW = 135, seatH = 145;
+  function council() {
+    let h = '';
+    seats.forEach((id, i) => {
+      const g = id && byId[id], lock = seatLock[i];
+      const ord = lock ? `<svg class="i" style="width:13px;height:13px;vertical-align:-2px"><use href="#g-lock"/></svg> ${lock}` : g ? `${g.role}<br>${g.sum(g.orders)}` : 'Empty seat<br>pick a general';
+      h += `<div class="seat fb${!g ? ' empty' : ''}${lock ? ' locked' : ''}${sel.seat === i ? ' sel' : ''}${pick && !lock ? ' drop' : ''}" data-seat="${i}" style="left:${seatX[i] - seatW / 2}px;top:${seatY}px;width:${seatW}px">
+        <span class="num">${['I', 'II', 'III', 'IV'][i]}</span><canvas data-g="${id || ''}" data-sc="10" data-ban="1" style="width:${seatW}px;height:${seatH}px"></canvas>
+        <div class="nm">${g ? g.name : lock ? 'Locked' : '—'}</div><div class="ord">${ord}</div></div>`;
+    });
+    h += `<div class="rh" style="left:694px;top:373px">Generals · ${unlocked.size} of ${G.length} unlocked</div>`;
+    h += `<div class="roster" style="left:690px;top:395px;width:282px">`;
+    for (const g of G) {
+      const at = seats.indexOf(g.id), lock = !unlocked.has(g.id);
+      h += `<div class="rg${at >= 0 ? ' on' : ''}${lock ? ' lock' : ''}${pick === g.id || (sel.gen === g.id && sel.seat < 0) ? ' pick' : ''}" data-gen="${g.id}" title="${g.role}">
+        ${at >= 0 ? `<span class="tag">${['I', 'II', 'III', 'IV'][at]}</span>` : ''}<canvas data-g="${g.id}" data-sc="5.6" style="width:84px;height:62px"></canvas>${g.name}${lock ? `<span class="cost">${nextCost()} Mist</span>` : ''}</div>`;
+    }
+    h += '</div>';
+    const g = byId[sel.gen];
+    if (g) {
+      const at = seats.indexOf(g.id), lock = !unlocked.has(g.id), lv = lvl[g.id] || 0, cost = Math.round(900 * 3 ** lv);
+      const orders = g.orders.map((od, j) => od.k === 'range'
+        ? `<label>${od.label}: <b id="ov${j}">${od.val}${od.unit}</b><input type="range" min="${od.min}" max="${od.max}" step="${od.step}" value="${od.val}" data-ord="${j}"></label>`
+        : `<label>${od.label}</label><div class="chips">${od.opts.map((t, k) => `<span class="${k === od.val ? 'on' : ''}" data-ord="${j}" data-v="${k}">${t}</span>`).join('')}</div>`).join('');
+      h += `<div class="card fb" style="left:985px;top:362px;width:275px">
+        <div class="br">${g.role}${at >= 0 ? ` · seat ${['I', 'II', 'III', 'IV'][at]}` : ''}${g.fresh ? '<span class="new">new</span>' : ''}</div>
+        <h4><span>${g.name}</span><span>${lock ? '' : 'Lv ' + lv}</span></h4>
+        <p class="q">${g.quote}</p><p>${g.text.replace(/^New: /, '').replace(/^./, (c) => c.toUpperCase())}</p>
+        ${lock ? `<div class="row"><span>Each general you unlock raises the next price (1, 2, 3, 4, 5... Mist)</span></div>
+          <div class="btns"><span class="btn mist${mist < nextCost() ? ' off' : ''}" data-unlock="1"><svg class="i"><use href="#g-mist"/></svg>Unlock · ${nextCost()} Mist</span></div>`
+        : `<div class="ordh">Orders</div>${orders}
+        <div class="row"><span>Next level: reacts faster</span><span>${fmt(cost)} Fog</span></div>
+        <div class="btns"><span class="btn"><svg class="i"><use href="#g-up"/></svg>Promote · ${fmt(cost)}</span>${at >= 0 ? '<span class="lnk" data-unseat="1">Dismiss</span>' : '<span class="lnk" data-seatme="1">Give a seat</span>'}</div>`}
+      </div>`;
+    }
+    h += `<div class="hint" style="left:694px;top:676px">${pick ? `Pick a seat for the ${byId[pick].name}` : 'Swap any time; a new general takes 5 s to take their seat.'}</div>`;
+    return h;
+  }
+
+  // ================= render + events =================
+  function render() {
+    const lay = document.getElementById('lay'), up = view !== 'wc';
+    let h = `<div class="ttl">${up ? 'Upgrades' : 'War Council'}</div>
+      <div class="cats"><span class="${up ? 'on' : ''}" data-cat="up">Upgrades<kbd>U</kbd></span><span class="${up ? '' : 'on'}" data-cat="wc">War Council<kbd>C</kbd></span></div>
+      <div class="bank">Fog <b>18.6K</b> · Mist <b>${mist}</b></div>`;
+    h += view === 'ua' ? upgradesA() : view === 'ub' ? upgradesB() : council();
+    lay.innerHTML = h;
+    lay.querySelectorAll('canvas[data-g]').forEach((cv) => drawGeneral(cv, byId[cv.dataset.g] || ghost, +cv.dataset.sc, !!cv.dataset.ban));
+    wire(lay);
+  }
+  const ghost = { id: 'ghost', kit: 'plain', cape: 'rgba(90,100,105,0.5)', epaulettes: false };
+
+  function wire(lay) {
+    lay.querySelectorAll('[data-cat]').forEach((el) => el.onclick = () => { setView(el.dataset.cat === 'wc' ? 'wc' : view === 'wc' ? 'ua' : view); });
+    lay.querySelectorAll('[data-node]').forEach((el) => el.onclick = () => { selNode = el.dataset.node; render(); });
+    lay.querySelectorAll('[data-sub]').forEach((el) => el.onclick = () => { subBranch = el.dataset.sub; render(); });
+    lay.querySelectorAll('[data-buy]').forEach((el) => el.onclick = () => { const n = all[el.dataset.buy]; if (!n.max || n.lv < n.max) n.lv++; render(); });
+    lay.querySelectorAll('.rg').forEach((el) => el.onclick = () => {
+      const g = byId[el.dataset.gen];
+      sel = { seat: seats.indexOf(g.id), gen: g.id };
+      pick = unlocked.has(g.id) && seats.indexOf(g.id) < 0 ? g.id : null;
+      render();
+    });
+    lay.querySelectorAll('.seat').forEach((el) => el.onclick = () => {
+      const i = +el.dataset.seat;
+      if (seatLock[i]) return;
+      if (pick) { const old = seats.indexOf(pick); if (old >= 0) seats[old] = null; seats[i] = pick; sel = { seat: i, gen: pick }; pick = null; }
+      else sel = { seat: i, gen: seats[i] };
+      render();
+    });
+    lay.querySelectorAll('input[data-ord]').forEach((el) => el.oninput = () => {
+      const g = byId[sel.gen], od = g.orders[+el.dataset.ord]; od.val = +el.value;
+      document.getElementById('ov' + el.dataset.ord).textContent = od.val + od.unit;
+      const at = seats.indexOf(g.id);
+      if (at >= 0) lay.querySelector(`.seat[data-seat="${at}"] .ord`).innerHTML = `${g.role}<br>${g.sum(g.orders)}`;
+    });
+    lay.querySelectorAll('.chips span').forEach((el) => el.onclick = () => { byId[sel.gen].orders[+el.dataset.ord].val = +el.dataset.v; render(); });
+    const un = lay.querySelector('[data-unseat]'); if (un) un.onclick = () => { seats[seats.indexOf(sel.gen)] = null; sel.seat = -1; render(); };
+    const sm = lay.querySelector('[data-seatme]'); if (sm) sm.onclick = () => { pick = sel.gen; render(); };
+    const ul = lay.querySelector('[data-unlock]'); if (ul) ul.onclick = () => { const c = nextCost(); if (mist < c) return; mist -= c; unlocked.add(sel.gen); lvl[sel.gen] = 1; pick = sel.gen; render(); };
+  }
+  function setView(v) {
+    view = v;
+    document.querySelectorAll('.top button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+    render();
+  }
+  document.querySelectorAll('.top button').forEach((b) => b.onclick = () => setView(b.dataset.v));
+  // ?v=wc etc. opens a given view (for screenshots / links)
+  setView(new URLSearchParams(location.search).get('v') || 'ua');
+  window.__panel = { seats, unlocked, render, setView, select: (id) => { sel = { seat: seats.indexOf(id), gen: id }; render(); } };
+</script>
+</body>
+</html>
