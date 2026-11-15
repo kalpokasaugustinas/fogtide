@@ -22,6 +22,11 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - x1 speed only (no 2x/3x). No battle-start horn (user found it unnerving).
 - No offline earnings: the idle Fog horn / Deep horn were removed (user's call, build 131); old levels are refunded via `retired` in idle.js. Fog drift now opens from wells 1 or bounty 1, Mist garden from harvest 1 or wells 2.
 - Desktop window is created fullscreen (`fullscreen` in the BrowserWindow options), never switched after showing: switching made the page load at 1280x720 and jump to screen size ~4 s after launch.
+- Zoom sharpness: pixel budget per layer 16 M on PC (`pointer: fine`), 4 M on phones (`pxCapDefault`, render.js). The boost re-render runs sliced on a copy of the view (`reboostSteps`, main.js `reboost`) and swaps in; drawBase draws only `viewRect` (visible box) when zoomed. Before: one 1.7 s freeze at the bigger budget.
+- Idle island framing: `resize` always centres the island bbox (was only when scaled up) and lifts it 2.5% of the height for the taller bottom HUD; big islands may shrink to 0.7x so they clear the build bar.
+- Building spots rank by min(coast distance, tile-edge distance `bdist`), measured at the roof: borders, mountains and lakes all count (huts used to land on border lines / mountain walls).
+- Lake sparkles (`measureIsland`) only where the drawn spot (cell + lake drop) is open water and no mountain wall stands just below it.
+- Shop tabs have z-index 3: the upgrade tree (640x480, pointer-events auto) covered the tab row, so War Council only opened with C.
 - localStorage keys stay `frontlines.*` and the GoatCounter code stays `fogfront` (renames would wipe saves/stats).
 
 ## Tried and failed
@@ -35,7 +40,9 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Skirmish bot sim seed 104 stalemated (>1200 game s) in the smoke test; check the quiet-end rule for skirmish.
 - Idle: stage 20 is a wall (2-3 h in); capped specials max out by run ~3 (thin late game).
 - Bots rarely choose barracks; walls/recruiters/march/masons perks ~50% (no effect for bots).
-- Leftover phone code: build wheel in main.js, portrait rotation, pinch tutorial steps, compact HUD.
+- Leftover phone code: build wheel in main.js, portrait rotation, compact HUD (the tutorial zoom steps show a mouse wheel now; the step id/`pinch` field names stayed).
+- Zoomed in to 5x the map renders at ~3.7x density on PC (16 M px/layer budget), not full 5x: real native sharpness would need a viewport-only renderer. Zoom-in settle still has one ~200 ms frame (one big step in the sliced rebuild).
+- Tutorial: pressing Next on the zoom-in step without zooming auto-finishes the zoom-out step (camera is already at 1x).
 
 ## How to verify
 - `python tools/smoke_test.py`: page/console errors, portrait + landscape, bot battles end, frame times.

@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=131';
-import { generateMap, rng } from './mapgen.js?v=131';
-import { initAnalytics, track } from './analytics.js?v=131';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=131';
-import { Battle } from './battle.js?v=131';
-import { personalities } from './ai.js?v=131';
-import { Campaign } from './campaign.js?v=131';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=131';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=131';
-import { drawGeneral } from './generals.js?v=131';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=131';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=131';
-import { previewBuildings } from './structures.js?v=131';
-import { initTune, tuneChanges } from './tune.js?v=131';
-import { initFogNoise } from './fogui.js?v=131';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=132';
+import { generateMap, rng } from './mapgen.js?v=132';
+import { initAnalytics, track } from './analytics.js?v=132';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=132';
+import { Battle } from './battle.js?v=132';
+import { personalities } from './ai.js?v=132';
+import { Campaign } from './campaign.js?v=132';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=132';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=132';
+import { drawGeneral } from './generals.js?v=132';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=132';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=132';
+import { previewBuildings } from './structures.js?v=132';
+import { initTune, tuneChanges } from './tune.js?v=132';
+import { initFogNoise } from './fogui.js?v=132';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -490,6 +490,13 @@ function drawUnits(ctx, v, b, ac, numbers) {
 
 function drawBattle() {
   paintBattle();
+  // zoomed in: tell the view which canvas box (device px) is on screen, so it draws only that
+  const c = bv.canvas;
+  if (cam.z > 1.01) {
+    const wrap = $('battle-wrap'), d = bv.dpr, m = 8;
+    const x0 = -cam.x / cam.z - c.offsetLeft, y0 = -cam.y / cam.z - c.offsetTop;
+    bv.viewRect = [(x0 - m) * d, (y0 - m) * d, (x0 + wrap.clientWidth / cam.z + m) * d, (y0 + wrap.clientHeight / cam.z + m) * d];
+  } else bv.viewRect = null;
   const ctx = bv.drawBase();
   bv.drawAmbient(ctx, performance.now() / 1000);   // water sparkles + drifting cloud shadows
   // selected segment: glowing outline; its neighbours: dashed outlines
@@ -540,6 +547,7 @@ function drawBattle() {
     if (ok) label(ctx, '→ ' + num(battle.segs[drag.from].troops * pct), (fx + tx) / 2, (fy + ty) / 2 - fs, fs * 0.8, '#ffd76a');
   }
   if ((countdown > 0 && (!paused || userPaused)) || goFlash > 0) drawCountdown(ctx);
+  bv.endFrame();
 }
 
 // 3-2-1 countdown: a thin ink number that pops in and settles,
@@ -615,7 +623,7 @@ let zoomMax = 5;   // 5x, more on big conquest maps (5 / mapScale, set in startB
 const cam = { z: 1, x: 0, y: 0 }, pointers = new Map();
 let pinch = null, boostTimer = 0, boostLock = false;   // lock: the zoom-out has set the boost itself
 // render resolution for zoom z (MapView.resize caps the pixels), so zoomed-in maps stay sharp
-const boostFor = (z) => (z >= 3.6 ? 4 : z >= 2.6 ? 3 : z >= 1.9 ? 2 : z >= 1.4 ? 1.5 : 1);
+const boostFor = (z) => (z >= 4.4 ? 5 : z >= 3.6 ? 4 : z >= 2.6 ? 3 : z >= 1.9 ? 2 : z >= 1.4 ? 1.5 : 1);
 function setCam(z, x, y) {
   const w = $('battle-wrap').clientWidth, h = $('battle-wrap').clientHeight;
   cam.z = Math.min(zoomMax, Math.max(1, z));
@@ -627,8 +635,23 @@ function setCam(z, x, y) {
     // render resolution follows the zoom (a change rebuilds every layer, so it waits for the zoom to settle)
     if (boostLock) return;
     const boost = boostFor(cam.z);
-    if (bv && bv.boost !== boost) { bv.boost = boost; bv.resize(); }
+    if (bv && bv.boost !== boost && boostWant !== boost) reboost(boost);
   }, 300);
+}
+// re-render at a new zoom boost in time slices (MapView.reboostSteps), the old layers stay on screen
+// until the sharper ones are ready; a newer zoom or a new map cancels a running one
+let boostWant = null, boostRun = 0;
+function reboost(boost) {
+  const my = ++boostRun, view = bv, gen = bv.reboostSteps(boost);
+  boostWant = boost;
+  sliced((function* () {
+    for (;;) {
+      if (my !== boostRun || view !== bv || boostLock) return;
+      const r = gen.next();
+      if (r.done) { if (r.value) key = ''; break; }   // key = '': repaint, patches tiles that changed meanwhile
+      yield r.value;
+    }
+  })()).finally(() => { if (my === boostRun) boostWant = null; });
 }
 // glide the camera to zoom z centred on your capital (big conquest maps start zoomed in)
 function focusHome(z) {
@@ -2442,12 +2465,12 @@ const tutorSteps = [
     text: () => `🌾 Your new tile has ${battle.costOf(0, 'farm')} foglets. A Farm costs ${battle.costOf(0, 'farm')} and adds +${Math.round(effects.farmGrowth * 100)}% growth to its tile. Click the tile, then the glowing Farm in the build bar (or press 1).` },
   { id: 'time', ok: 'Got it', okAfter: 3, pulse: ['speed', 'clock'],
     text: () => '⏱️ Time runs now: every tile grows foglets each second (watch the numbers). Pause (bottom right) or Space stops time.' },
-  // zoom lesson: a pinch hint over the castle; the step ends when the camera actually zooms
-  // (Next shows after 8 s, for anyone whose device can't pinch)
+  // zoom lesson: a mouse-wheel hint in the middle of the screen; the step ends when the camera
+  // actually zooms (Next shows after 8 s)
   { id: 'zoomin', hold: true, ok: 'Next', okAfter: 8, pinch: 1,
-    text: () => '🔍 Zoom in: spread two fingers on the map (mouse: scroll up). Drag empty ground to look around.' },
+    text: () => '🔍 Zoom in: scroll the mouse wheel up over the map. Drag empty ground to look around.' },
   { id: 'zoomout', hold: true, ok: 'Next', okAfter: 8, pinch: -1,
-    text: () => '🔭 Now zoom back out: pinch two fingers together (mouse: scroll down) to see the whole island.' },
+    text: () => '🔭 Now zoom back out: scroll the mouse wheel down to see the whole island.' },
   { id: 'route', hold: true, finger: () => [tutor.home, tutor.target], allow: () => pair(tutor.home, tutor.target),
     enter() { tseg(tutor.home).troops = Math.max(tseg(tutor.home).troops, 20); },
     text: () => '🔁 Drag from your castle to your farm tile. This sets a route: spare foglets keep flowing there.' },
@@ -2529,34 +2552,35 @@ function drawTutor(ctx, fs) {
   };
   ctx.save();
   if (st.pinch) {
-    // two fingertips spreading apart (zoom in) or closing (zoom out) in the middle of the screen,
-    // on a loop, with arrowheads showing the direction. the canvas sits under the camera transform,
-    // so the screen centre is mapped back into canvas px and sizes divided by the zoom
-    const c = bv.canvas, wrap = $('battle-wrap'), fs = fs0 / cam.z;
+    // a mouse in the middle of the screen whose wheel rolls up (zoom in) or down (zoom out), with a
+    // chevron trail showing the direction. the canvas sits under the camera transform, so the
+    // screen centre is mapped back into canvas px and sizes divided by the zoom
+    const c = bv.canvas, wrap = $('battle-wrap'), fs = fs0 / cam.z, lw = 2.5 / cam.z;
     const x = (wrap.clientWidth / 2 - cam.x) / cam.z - c.offsetLeft, y = (wrap.clientHeight / 2 - cam.y) / cam.z - c.offsetTop;
-    const ang = -0.55, ca = Math.cos(ang), sa = Math.sin(ang);
-    const k = ((now * 0.6) % 1) / 0.75, e = Math.min(1, k) ** 2 * (3 - 2 * Math.min(1, k));
-    const near = fs * 1.4, far = fs * 6, d = st.pinch > 0 ? near + (far - near) * e : far - (far - near) * e;
-    ctx.globalAlpha = k > 1 ? Math.max(0, 1 - (k - 1) * 3) : 1;
-    // guide: dashed track with arrowheads at the ends it moves toward
-    ctx.setLineDash([8 / cam.z, 6 / cam.z]); ctx.lineWidth = 3 / cam.z; ctx.strokeStyle = 'rgba(255,215,106,0.85)';
-    ctx.beginPath(); ctx.moveTo(x - ca * far, y - sa * far); ctx.lineTo(x + ca * far, y + sa * far); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#ffd76a';
-    for (const sgn of [-1, 1]) {
-      const r = st.pinch > 0 ? far + fs * 0.9 : near - fs * 0.2, dir = st.pinch > 0 ? sgn : -sgn;
-      const tx = x + ca * r * sgn, ty = y + sa * r * sgn, hx = ca * dir, hy = sa * dir, w = fs * 0.7;
-      ctx.beginPath(); ctx.moveTo(tx + hx * w, ty + hy * w); ctx.lineTo(tx - hy * w * 0.8, ty + hx * w * 0.8); ctx.lineTo(tx + hy * w * 0.8, ty - hx * w * 0.8); ctx.fill();
-    }
-    // fingertips: glowing pads with a pointing finger
-    ctx.font = `${Math.round(fs * 2)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (const sgn of [-1, 1]) {
-      const fx = x + ca * d * sgn, fy = y + sa * d * sgn;
-      ctx.fillStyle = 'rgba(255, 215, 106, 0.45)';
-      ctx.beginPath(); ctx.arc(fx, fy, fs * 1.1, 0, Math.PI * 2); ctx.fill();
-      ctx.lineWidth = 3 / cam.z; ctx.strokeStyle = '#fff';
-      ctx.beginPath(); ctx.arc(fx, fy, fs * 1.1, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillText('👆', fx + fs * 0.4, fy + fs * 1.3);
+    const mw = fs * 3.2, mh = fs * 4.8, top = y - mh / 2, dir = st.pinch > 0 ? -1 : 1;   // -1 = wheel rolls up
+    const rr = (x0, y0, w, h, r) => { ctx.beginPath(); ctx.roundRect(x0, y0, w, h, r); };
+    // body: soft shadow, light shell, button split line
+    ctx.fillStyle = 'rgba(20,28,32,0.25)'; rr(x - mw / 2 + fs * 0.25, top + fs * 0.35, mw, mh, mw / 2); ctx.fill();
+    ctx.fillStyle = '#f2f1ea'; ctx.strokeStyle = '#2a3236'; ctx.lineWidth = lw;
+    rr(x - mw / 2, top, mw, mh, mw / 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - mw / 2, top + mh * 0.42); ctx.lineTo(x + mw / 2, top + mh * 0.42); ctx.moveTo(x, top); ctx.lineTo(x, top + mh * 0.42); ctx.stroke();
+    // wheel: a slot with ridges that slide in the scroll direction
+    const ww = fs * 0.75, wh = fs * 1.5, wy = top + mh * 0.12;
+    ctx.fillStyle = '#ffd76a'; rr(x - ww / 2, wy, ww, wh, ww / 2); ctx.fill(); ctx.stroke();
+    ctx.save(); rr(x - ww / 2, wy, ww, wh, ww / 2); ctx.clip();
+    ctx.strokeStyle = 'rgba(42,50,54,0.6)'; ctx.lineWidth = lw * 0.7;
+    const ph = ((now * 2.2) % 1) * (wh / 3) * dir;
+    for (let i = -1; i <= 4; i++) { const ly = wy + i * (wh / 3) + ph; ctx.beginPath(); ctx.moveTo(x - ww / 2, ly); ctx.lineTo(x + ww / 2, ly); ctx.stroke(); }
+    ctx.restore();
+    // chevrons beside the mouse, lighting up one after another in the scroll direction
+    ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = lw * 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const cx = x + mw / 2 + fs * 1.6, cw = fs * 0.8;
+    for (let i = 0; i < 3; i++) {
+      const j = dir < 0 ? 2 - i : i, cy = y - fs * 1.3 + j * fs * 1.3;
+      ctx.globalAlpha = 0.25 + 0.75 * Math.max(0, Math.sin((now * 3 - i * 0.9) % (Math.PI * 2)));
+      ctx.beginPath(); ctx.moveTo(cx - cw, cy - dir * cw * 0.55); ctx.lineTo(cx, cy + dir * cw * 0.55); ctx.lineTo(cx + cw, cy - dir * cw * 0.55);
+      ctx.strokeStyle = '#2a3236'; ctx.lineWidth = lw * 3; ctx.stroke();   // dark outline: readable on grass
+      ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = lw * 1.6; ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
@@ -2652,7 +2676,7 @@ function guardFps(dt) {
   fpsCool -= dt;
   const base = window.devicePixelRatio || 1;
   if (fpsCool > 0 || slowEma < 0.024 || bv.dpr <= base * 1.01) return;
-  bv.pxCap = (bv.pxCap ?? 4e6) * 0.7;
+  bv.pxCap = (bv.pxCap ?? (bv.W * bv.H)) * 0.7;
   bv.resize(); key = '';
   fpsCool = 2; slowEma = 1 / 60;
 }

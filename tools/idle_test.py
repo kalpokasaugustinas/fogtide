@@ -48,6 +48,15 @@ try:
             page.wait_for_timeout(2500)
             check(page.evaluate("__fl.battle && document.querySelector('#stage').textContent") == "Stage 1", f"{name}: stage 1 badge")
             check(page.is_visible("#idle-fogs") and page.is_visible("#idle-shop-btn"), f"{name}: fog counter + shop button visible")
+            # huts stay off tile lines, mountains and lakes: share of hut boxes (roof to base) that
+            # cover a cell of anything but their own tile (was ~60% when only the coast counted)
+            hut = page.evaluate("""() => { const v = __fl.view, m = v.map, g = m.grid; let bad = 0, n = 0;
+              m.segs.forEach((s, id) => { for (const h of v.hutList(id)) { n++; const [x0, y0, x1, y1] = h.box; let hit = false;
+                for (let py = y0; py <= y1 && !hit; py++) for (let px = x0; px <= x1; px++) {
+                  const gx = Math.floor(px / v.scale), gy = Math.floor((py - v.oy) / (v.scale * v.tilt));
+                  if (m.ids[gy * g + gx] !== id) { hit = true; break; } } if (hit) bad++; } });
+              return { n, bad }; }""")
+            check(hut["n"] > 0 and hut["bad"] / hut["n"] < 0.2, f"{name}: huts off tile lines / mountains ({hut})")
             page.evaluate("__fl.skipCountdown()")
             page.wait_for_timeout(4000)
             fogs = page.evaluate("__fl.idle.fogs")
@@ -70,6 +79,14 @@ try:
             # war council tab (C): unlock the warlord (1 Mist) -> seated at once, auto on; then the
             # pathfinder (2 Mist) and the marksman (3 Mist): arrows in the battle mods
             page.evaluate("__fl.idle.mist = 6; __fl.idle.mistTotal = 6")
+            # a real mouse click on the tab (the tree once covered the tab row, so only C worked)
+            tb = page.locator(".shop-tabs button[data-tab='wc']").bounding_box()
+            page.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            page.wait_for_timeout(200)
+            check(page.is_visible("#council"), f"{name}: mouse click on the War Council tab opens it")
+            tb = page.locator(".shop-tabs button[data-tab='up']").bounding_box()
+            page.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            page.wait_for_timeout(200)
             page.keyboard.press("c")
             page.wait_for_timeout(300)
             check(page.is_visible("#council") and not page.is_visible("#shop-tree"), f"{name}: C opens the war council tab")

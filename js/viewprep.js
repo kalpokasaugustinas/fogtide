@@ -197,11 +197,23 @@ export function measureIsland() {
   const { ids, terrain, grid: g } = this.map;
   let x0 = g, y0 = g, x1 = 0, y1 = 0;
   const pts = [];
+  // a lake sparkle is drawn every frame on top of the map, at its cell pushed down by the lake drop
+  // (render.js drawAmbient: ch css px = 0.022 * size, i.e. 0.0275 * g grid rows at tilt 0.8). keep
+  // only points whose drawn spot is open water: lake cells around it (not the near shore), and no
+  // mountain just below it whose wall (0.0375 * g rows high, buildRocks) would hide it
+  const at = (x, y) => (x >= 0 && y >= 0 && x < g && y < g ? terrain[(y | 0) * g + (x | 0)] : 0);
+  const drop = 0.0275 * g, wall = 0.0375 * g, rx = Math.max(2, 0.009 * g);
+  const openWater = (x, y) => {
+    const Y = y + drop;
+    for (const [dx, dy] of [[0, 0], [-rx, 0], [rx, 0], [0, -1.5], [0, 1.5], [-rx, -1], [rx, 1]]) if (at(x + dx, Y + dy) !== 1) return false;
+    for (let yy = Y; yy <= Y + wall + 2; yy += 1) for (const dx of [-rx, 0, rx]) if (at(x + dx, yy) === 2) return false;
+    return true;
+  };
   for (let c = 0; c < g * g; c++) {
     if (ids[c] < 0 && !(terrain && terrain[c])) continue;
     const x = c % g, y = Math.floor(c / g);
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-    if (terrain && terrain[c] === 1 && hash(x, y, this.seed + 40) < 0.012) pts.push([x + 0.5, y + 0.5, 1]);
+    if (terrain && terrain[c] === 1 && hash(x, y, this.seed + 40) < 0.012 && openWater(x + 0.5, y + 0.5)) pts.push([x + 0.5, y + 0.5, 1]);
   }
   this.isle = [x0, y0, x1 + 1, y1 + 1];
   // rivers: every few points along each course (rivers sit on the ground, no lake drop)

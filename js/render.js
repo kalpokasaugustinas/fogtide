@@ -5,10 +5,10 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=131';
-import * as structures from './structures.js?v=131';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=131';
-import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=131';
+import { themes, fogTwirl } from './config.js?v=132';
+import * as structures from './structures.js?v=132';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=132';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=132';
 export { mix };
 
 export function hexToRgb(hex) {
@@ -117,6 +117,10 @@ if (hasDom) {
 export const mapScale = (m) => Math.min(1, (m?.detail ?? 1) / 0.62);
 // tile border thickness (owner band + glow, terrain dashes, plain lines), times mapScale on big maps
 const borderW = 0.6;
+// pixel budget per cached layer (MapView.resize caps the zoom resolution with it). pc (mouse) gpus
+// hold ~16 M px per layer (~7 layers, ~450 MB); phones keep 4 M. main.js guardFps lowers it when
+// frames get slow
+const pxCapDefault = hasDom && typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches ? 16e6 : 4e6;
 
 export class MapView {
   // segThemes (optional): theme name per segment, e.g. campaign regions with their own climate
@@ -270,15 +274,15 @@ export class MapView {
     if (this.fitIsland && this.isle) {
       const g = this.map.grid, [x0, y0, x1, y1] = this.isle;
       const bw = (x1 - x0) / g, bh = (y1 - y0) / g;
-      // margins for the corner hud (top) and the send box / tile card (bottom)
+      // margins for the corner hud (top) and the send box / tile card (bottom). a big island may
+      // also shrink a bit (to 0.7x the grid fit) so it stays clear of the bottom build bar
       const fit = Math.floor(Math.min((r.width * 0.9) / bw, (r.height * 0.8) / (bh * this.tilt + pad * 0.6)));
-      const grown = Math.min(Math.floor(size * 1.8), Math.max(size, fit));
-      if (grown > size) {
-        size = grown;
-        // island centre -> container centre (the canvas centre is the grid centre)
-        shiftX = (0.5 - (x0 + x1) / 2 / g) * size;
-        shiftY = (0.5 - (y0 + y1) / 2 / g) * size * this.tilt + size * 0.015;
-      }
+      size = Math.max(50, Math.min(Math.floor(size * 1.8), Math.max(Math.floor(size * 0.7), fit)));
+      // always: island centre -> container centre (the canvas centre is the grid centre), lifted by
+      // 2.5% of the height because the bottom hud (build bar) is taller than the top one. before,
+      // this only ran when the island was scaled up, so other maps sat off-centre
+      shiftX = (0.5 - (x0 + x1) / 2 / g) * size;
+      shiftY = (0.5 - (y0 + y1) / 2 / g) * size * this.tilt - r.height * 0.025;
       this.canvas.style.position = 'relative';
       this.canvas.style.left = Math.round(shiftX) + 'px';
       this.canvas.style.top = Math.round(shiftY) + 'px';
@@ -286,14 +290,41 @@ export class MapView {
     }
     // zoomed in (boost > 1): render sharper, boost x the screen's own density, so a phone at 2x zoom
     // gets 2x its pixels too; capped at ~4 M px per layer (~6 cached layers, several drawn each frame)
-    const base = window.devicePixelRatio || 1, css = size * size * (this.tilt + pad);
-    const dpr = Math.max(base, Math.min(base * (this.boost ?? 1), Math.sqrt((this.pxCap ?? 4e6) / css)));
+    const dpr = this.dprFor(size, this.boost ?? 1);
     if (size === this.size && dpr === this.dpr && this.under) return;
     this.setSize(size, dpr);
     this.canvas.width = this.W;
     this.canvas.height = this.H;
     this.canvas.style.width = size + 'px';
     this.canvas.style.height = this.cssH + 'px';
+  }
+
+  // render density for css size `size` at zoom boost b, within the pixel budget, never below native
+  dprFor(size, b) {
+    const base = window.devicePixelRatio || 1, css = size * size * (this.tilt + 0.12);
+    return Math.max(base, Math.min(base * b, Math.sqrt((this.pxCap ?? pxCapDefault) / css)));
+  }
+
+  // zoom settled at boost b: re-render at the new density without a freeze. a copy of this view
+  // builds every layer and sprite at the new density in steps (main.js runs them a few ms per
+  // frame) while this one keeps drawing its current layers; then the new ones are swapped in.
+  // returns false when the map / size changed meanwhile (the result is dropped)
+  *reboostSteps(b) {
+    const dpr = this.dprFor(this.size, b), map = this.map, size = this.size, dpr0 = this.dpr;
+    if (dpr === dpr0) { this.boost = b; return true; }
+    const v = Object.assign(Object.create(MapView.prototype), this);
+    v.headless = true; v.clipped = false; v.viewRect = null;
+    v.setSize(size, dpr);
+    yield* v.prepSteps();
+    if (this.map !== map || this.size !== size || this.dpr !== dpr0) return false;
+    // take the new density's geometry, layers, sprites and the tile styles they were drawn with;
+    // the caller repaints, so tiles that changed meanwhile are patched in
+    for (const k of ['dpr', 'scale', 'oy', 'W', 'H', 'cssH', 'u', 'under', 'base', 'rocks', 'layerGround', 'layerOwner', 'layerObjects', 'sprites', 'spotCache', 'candCache', 'st', 'bkey', 'okey']) this[k] = v[k];
+    this.dirtyB = []; this.dirtyO = []; this.ofsX = this.ofsY = 0;
+    this.boost = b;
+    this.canvas.width = this.W;
+    this.canvas.height = this.H;
+    return true;
   }
 
   // the view's geometry for css size `size` at density dpr (the worker gets both from the page);
@@ -1318,7 +1349,13 @@ export class MapView {
     // cells at the coast, and a house close to the bank looks better than one on the fog
     // room is measured 0.5 u above the base point: scenes (hamlet rings, courtyards) centre there
     const up = Math.round((this.u * 0.5) / (sc * this.tilt)) * g;
-    const room = (e, r) => Math.floor(Math.min(cd[Math.max(0, e[3] - up)], r) / (u * 0.5)) - (e[4] ? 3 : 0);
+    // the tile edge counts too (bdist: steps to the border line, a mountain, lake or the coast),
+    // measured at the roof (1.2 u above the base): before, only the coast did, so extra houses
+    // landed on border lines or stood against mountain walls. bdist is in 4-neighbour steps,
+    // which overstate a diagonal distance by up to 1.41x, hence the 0.75
+    const roof = Math.round((this.u * 1.2) / (sc * this.tilt)) * g;
+    const edge = (c) => (c >= 0 && this.map.ids[c] === id ? bdist[c] * 0.75 : 0);   // a cell of another tile = on the line
+    const room = (e, r) => Math.floor(Math.min(cd[Math.max(0, e[3] - up)], edge(e[3] - up), edge(e[3] - roof), r) / (u * 0.5)) - (e[4] ? 3 : 0);
     const { cand, late } = this.spotCand(id);
     const order = (r) => [...cand.map((e) => [room(e, r), 1, e]), ...late.map((e) => [room(e, r), 0, e])]
       .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2][0] - a[2][0]).map((o) => o[2]);
@@ -1505,21 +1542,31 @@ export class MapView {
   drawBase() {
     if (!this.under) this.buildUnder();
     const ctx = this.ctx;
+    if (this.clipped) { ctx.restore(); this.clipped = false; }   // last frame's endFrame was skipped
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.drawImage(this.under, 0, 0);
+    // zoomed in, only a small part of the canvas is on screen: clear, copy and draw just that box
+    // (viewRect, device px), so a sharper (bigger) canvas doesn't cost more per frame. pixels
+    // outside it go stale, but they are off screen and redrawn as soon as the view reaches them
+    const W = this.canvas.width, H = this.canvas.height, v = this.viewRect;
+    const r = v ? [Math.max(0, Math.floor(v[0])), Math.max(0, Math.floor(v[1])), Math.min(W, Math.ceil(v[2])), Math.min(H, Math.ceil(v[3]))] : [0, 0, W, H];
+    if (v) { ctx.save(); ctx.beginPath(); ctx.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]); ctx.clip(); this.clipped = true; }
+    ctx.clearRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+    const put = (L) => { if (v) this.copyIn(ctx, L, r); else ctx.drawImage(L, 0, 0); };
+    put(this.under);
     if (this.st) {
       if (!this.layerGround) this.buildGroundLayer();
       if (!this.layerOwner) this.buildOwnerLayer();
       if (!this.layerObjects) this.buildObjectLayer();
       this.patchLayers();
-      ctx.drawImage(this.layerGround, 0, 0);
-      ctx.drawImage(this.layerOwner, 0, 0);
-      ctx.drawImage(this.layerObjects, 0, 0);
+      put(this.layerGround);
+      put(this.layerOwner);
+      put(this.layerObjects);
     }
     this.cssT(ctx);
     return ctx;
   }
+  // end of a frame drawn with a viewRect: drop drawBase's clip
+  endFrame() { if (this.clipped) { this.ctx.restore(); this.clipped = false; } }
 
   // segment under a screen point (-1 for sea)
   segAt(clientX, clientY) {
