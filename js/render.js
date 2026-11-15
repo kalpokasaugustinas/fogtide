@@ -5,10 +5,10 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=124';
-import * as structures from './structures.js?v=124';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=124';
-import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=124';
+import { themes, fogTwirl } from './config.js?v=125';
+import * as structures from './structures.js?v=125';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=125';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=125';
 export { mix };
 
 export function hexToRgb(hex) {
@@ -26,6 +26,28 @@ const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 let shadowBlob = null;   // soft cloud-shadow sprite (MapView.drawAmbient), made once
 
 // do two boxes [x0, y0, x1, y1] overlap? (terrain objects vs huts and buildings)
+// the map worker (mapworker.js) imports this module too, to draw a view's static layers and
+// sprites on OffscreenCanvases (paintInWorker); there is no page there
+const hasDom = typeof document !== 'undefined';
+// a canvas of w x h: a page canvas, or an OffscreenCanvas in the worker
+function newCanvas(w, h) {
+  const c = hasDom ? document.createElement('canvas') : new OffscreenCanvas(Math.max(1, w), Math.max(1, h));
+  c.width = Math.max(1, w);
+  c.height = Math.max(1, h);
+  return c;
+}
+// 2d context; cpu = drawn on the cpu (always in the worker: its results are read back as bitmaps)
+const ctx2d = (c, cpu = false) => c.getContext('2d', cpu || !hasDom ? { willReadFrequently: true } : undefined);
+// run a step generator to its end, return its value
+const runSteps = (g) => { let r; do r = g.next(); while (!r.done); return r.value; };
+// make the gpu run what was drawn into canvas c so far, in this frame, instead of all at once when
+// c is first shown or copied: drawing c into a 1 px canvas submits its pending drawing. step
+// generators yield 'gpu ...' right after, so the slice runner ends the frame's slice there
+// cpu canvases record their drawing and rasterise it later, at the end of the task, where a "2 ms"
+// step could leave 20-60 ms of hidden work; reading one pixel runs it now, inside the step's time
+const cpuFlush = (x) => { x.getImageData(0, 0, 1, 1); };
+let flushCtx = null;
+const gpuFlush = (c) => { if (hasDom) (flushCtx ??= newCanvas(1, 1).getContext('2d')).drawImage(c, 0, 0, 1, 1); };
 const boxHit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 
 // ---------- clouds ----------
@@ -84,8 +106,10 @@ function applyFogTwirl() {
   s.setProperty('--storm-in', fogTwirl.stormIn + 's');
   s.setProperty('--storm-out', fogTwirl.stormOut + 's');
 }
-applyFogTwirl();
-addEventListener('tune', applyFogTwirl);
+if (hasDom) {
+  applyFogTwirl();
+  addEventListener('tune', applyFogTwirl);
+}
 
 // map scale: conquest stages 4-5 are bigger maps (feature scale detail < 0.62). everything drawn on
 // them (buildings, trees, foglets, badges) shrinks by this, and the camera starts zoomed in by its
@@ -114,7 +138,7 @@ export class MapView {
   // returns the old map's canvases (layers, sprites), so the caller can free them a few at a time
   adopt(o) {
     const old = [this.under, this.base, this.rocks, this.layerGround, this.layerOwner, this.layerObjects, this.groundC, ...(this.sprites?.values() ?? [])].map((x) => x?.c ?? x).filter(Boolean);
-    const own = new Set(['canvas', 'ctx', 'twirl', 'storm', 'stormRaf', 'fogUrl', 'headless']);
+    const own = new Set(['canvas', 'ctx', 'twirl', 'fogBase', 'storm', 'stormRaf', 'fogUrl', 'headless']);
     for (const k of Object.keys(o)) if (!own.has(k)) this[k] = o[k];
     const c = this.canvas, oc = o.canvas;
     c.width = oc.width; c.height = oc.height;
@@ -146,7 +170,8 @@ export class MapView {
     yield 'island';
     if (!this.headless) this.applyFog();
     this.styleOf = this.st = null;
-    this.bkey = this.okey = null;
+    this.bkey = this.okey = this.order = null;
+    this.dirtyB = this.dirtyO = null;
     this.size = 0;   // forces resize() to rebuild every cached layer for the new map
     this.rivIdx = null;   // river footprint (nearRiver) belongs to the old map
     yield 'fog';
@@ -160,7 +185,16 @@ export class MapView {
     // layers on top of it slowly turn in opposite directions (css animation = gpu, no redraws);
     // the static texture stays underneath for zoomed-out views where the layers don't reach
     const el = this.canvas.parentElement, url = cloudTexture(this.theme);
-    el.style.background = `url(${url}) center / 720px 720px repeat, rgb(${this.theme.fogB})`;
+    // static texture on its own compositor layer (fog-base): the idle zoom-out scales it with a
+    // transform; animating the container's background-size repainted the whole screen every frame
+    el.style.background = `rgb(${this.theme.fogB})`;
+    if (!this.fogBase) {
+      this.fogBase = document.createElement('div');
+      this.fogBase.className = 'fog-base';
+      this.fogBase.setAttribute('aria-hidden', 'true');
+      el.prepend(this.fogBase);
+    }
+    this.fogBase.style.backgroundImage = `url(${url})`;
     if (!this.twirl) {
       this.twirl = ['a', 'b'].map((n) => {
         const d = document.createElement('div');
@@ -170,6 +204,7 @@ export class MapView {
         return d;
       });
     }
+    if (el.firstChild !== this.fogBase) el.prepend(this.fogBase);   // under the twirl layers
     // new fog colour (climate change): copies of the old layers keep turning in step on top and fade
     // out, so the colour changes gradually instead of snapping
     if (this.fogUrl && this.fogUrl !== url && fogTwirl.colorFade > 0 && el.offsetParent) {
@@ -222,6 +257,7 @@ export class MapView {
   // fitIsland (battle view): size so the island itself, not its square grid, fills the screen
   // (the grid's empty fog corners may run off-screen); the canvas shifts so the island is centred
   resize() {
+    if (this.worker) return;   // the worker's view is sized by setSize
     // layout size (clientWidth ignores the zoom transform on the parent)
     const el = this.canvas.parentElement, r = { width: el.clientWidth, height: el.clientHeight };
     this.tilt = 0.8;
@@ -250,15 +286,25 @@ export class MapView {
     const base = window.devicePixelRatio || 1, css = size * size * (this.tilt + pad);
     const dpr = Math.max(base, Math.min(base * (this.boost ?? 1), Math.sqrt((this.pxCap ?? 4e6) / css)));
     if (size === this.size && dpr === this.dpr && this.under) return;
+    this.setSize(size, dpr);
+    this.canvas.width = this.W;
+    this.canvas.height = this.H;
+    this.canvas.style.width = size + 'px';
+    this.canvas.style.height = this.cssH + 'px';
+  }
+
+  // the view's geometry for css size `size` at density dpr (the worker gets both from the page);
+  // every cached layer and sprite starts over
+  setSize(size, dpr) {
+    const pad = 0.12;
+    this.tilt = 0.8;
     this.size = size;
     this.dpr = dpr;
     this.scale = size / this.map.grid;
     this.oy = size * pad * 0.5;
     const h = Math.round(size * (this.tilt + pad));
-    this.canvas.width = Math.round(size * dpr);
-    this.canvas.height = Math.round(h * dpr);
-    this.canvas.style.width = size + 'px';
-    this.canvas.style.height = h + 'px';
+    this.W = Math.round(size * dpr);   // layer size in device px
+    this.H = Math.round(h * dpr);
     this.cssH = h;
     this.under = this.base = this.rocks = this.layerGround = this.layerOwner = this.layerObjects = null;
     this.sprites = new Map();
@@ -266,6 +312,7 @@ export class MapView {
     // building scale unit in css px; bigger conquest maps (mapScale < 1) draw everything smaller
     this.u = Math.max(3.5, size / 92) * mapScale(this.map);
     this.spotCache = new Map();
+    this.candCache = new Map();
   }
 
   // grid-res ground texture (grass/earth noise, shore and scree tints). it is only seen through the
@@ -276,9 +323,8 @@ export class MapView {
   *buildGroundSteps() {
     const g = this.map.grid, pre = this.prep;
     if (pre) { this.seed = pre.seed; this.groundPx = pre.ground; } else yield* groundPixels.call(this);
-    this.groundC = document.createElement('canvas');
-    this.groundC.width = this.groundC.height = g;
-    this.groundC.getContext('2d').putImageData(new ImageData(this.groundPx, g, g), 0, 0);
+    this.groundC = newCanvas(g, g);
+    ctx2d(this.groundC).putImageData(new ImageData(this.groundPx, g, g), 0, 0);
     this.groundPx = null;
     yield;
   }
@@ -305,6 +351,11 @@ export class MapView {
     // cracks on the rock tops: short kinked lines starting on random mountain cells
     const rockCells = [];
     for (let c = 0; c < g * g; c++) if (mtn(c)) rockCells.push(c);
+    this.mtnBox = null;   // [x0, y0, x1, y1] cells: the rocks layer is drawn only there
+    for (const c of rockCells) {
+      const cx = c % g, cy = Math.floor(c / g), b = (this.mtnBox ??= [cx, cy, cx, cy]);
+      if (cx < b[0]) b[0] = cx; if (cy < b[1]) b[1] = cy; if (cx > b[2]) b[2] = cx; if (cy > b[3]) b[3] = cy;
+    }
     this.cracks = [];
     const k = this.k, count = Math.round(rockCells.length / (450 * k * k));
     for (let i = 0; i < count; i++) {
@@ -356,10 +407,8 @@ export class MapView {
   // cpu = drawn on the cpu right away (layers only blitted when a composite is rebuilt: their
   // drawing then happens inside the zoom-out's time slices instead of as one deferred gpu stall)
   newLayer(cpu = false) {
-    const c = document.createElement('canvas');
-    c.width = this.canvas.width;
-    c.height = this.canvas.height;
-    const x = c.getContext('2d', cpu ? { willReadFrequently: true } : undefined);
+    const c = newCanvas(this.W, this.H);
+    const x = ctx2d(c, cpu);
     this.gridT(x);
     x.imageSmoothingQuality = 'high';
     return [c, x];
@@ -375,9 +424,8 @@ export class MapView {
     const ch = Math.max(4, this.size * 0.022) * py;   // cliff height (css px -> grid y units)
     // soft island shadow: blurred at 1/8 resolution and scaled up (looks the same, 64x fewer pixels
     // to blur; the full-size blur was a ~100 ms gpu job on every new map)
-    const k = 8, sc = document.createElement('canvas');
-    sc.width = Math.ceil(c.width / k); sc.height = Math.ceil(c.height / k);
-    const sx = sc.getContext('2d', { willReadFrequently: true });
+    const k = 8, sc = newCanvas(Math.ceil(c.width / k), Math.ceil(c.height / k));
+    const sx = ctx2d(sc, true);
     sx.setTransform((this.dpr * this.scale) / k, 0, 0, (this.dpr * this.scale * this.tilt) / k, -this.ofsX / k, (this.dpr * this.oy - this.ofsY) / k);
     sx.filter = `blur(${(this.size * 0.035 * this.dpr) / k}px)`;
     sx.translate(g * 0.015, ch + g * 0.05);
@@ -388,7 +436,8 @@ export class MapView {
     x.imageSmoothingEnabled = true;
     x.drawImage(sc, 0, 0, sc.width * k, sc.height * k);
     x.restore();
-    yield 'shadow';
+    gpuFlush(c);
+    yield 'gpu shadow';
     x.save();
     x.translate(0, ch);
     // lakes: deeper water in the middle, a light shallow band along the shore (blurred stroke
@@ -425,14 +474,14 @@ export class MapView {
     x.strokeStyle = css(t.foam, 0.8);
     x.stroke(this.lakesP);
     x.restore();
-    yield 'lakes';
+    gpuFlush(c);
+    yield 'gpu lakes';
     // cliff: island shape stacked downward, dark at the foot, lighter toward the top edge. the
     // shape is filled once per colour and smeared down by copying the canvas onto itself shifted by
     // 1, 2, 4 ... px (~7 blits instead of ~70 fills of the whole outline, a ~100 ms gpu job)
     const dy = this.dpr * this.scale * this.tilt;   // grid y units -> device px
-    const T = document.createElement('canvas');
-    T.width = c.width; T.height = c.height;
-    const tx = T.getContext('2d');
+    const T = newCanvas(c.width, c.height);
+    const tx = ctx2d(T);
     const smear = function* (color, from, to) {   // offsets in grid y units, from < to
       tx.setTransform(1, 0, 0, 1, 0, 0);
       tx.clearRect(0, 0, T.width, T.height);
@@ -441,11 +490,13 @@ export class MapView {
       tx.fill(this.islandP, 'evenodd');
       tx.setTransform(1, 0, 0, 1, 0, 0);
       const len = Math.round((to - from) * dy);
-      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); tx.drawImage(T, 0, d); done += d; yield 'cliff'; }
+      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); tx.drawImage(T, 0, d); done += d; gpuFlush(T); yield 'gpu cliff'; }
       x.save();
       x.setTransform(1, 0, 0, 1, 0, 0);
       x.drawImage(T, 0, Math.round(from * dy));
       x.restore();
+      gpuFlush(c);
+      yield 'gpu cliff';
     };
     yield* smear.call(this, t.cliffDark, ch * 0.45, ch);
     yield* smear.call(this, t.cliffLight, py * 0.5, ch * 0.45);
@@ -462,21 +513,30 @@ export class MapView {
 
   // small canvas covering segment id's box plus a margin (css px); draw(x) renders into it
   sprite(id, margin, draw) {
+    return runSteps(this.spriteSteps(null, id, margin, function* (x) { draw(x); }));   // eslint-disable-line require-yield
+  }
+
+  // the same in steps: draw is a generator (big forests are drawn a few dozen trees per step);
+  // key = cache key (null: not cached). returns the sprite
+  *spriteSteps(key, id, margin, draw) {
+    const have = key && this.sprites.get(key);
+    if (have) return have;
     const [bx0, by0, bx1, by1] = this.boxes[id], d = this.dpr;
     const left = Math.floor((this.sx(bx0) - margin) * d), top = Math.floor((this.sy(by0) - margin * 1.6) * d);
     const right = Math.ceil((this.sx(bx1 + 1) + margin) * d), bottom = Math.ceil((this.sy(by1 + 1) + margin * 0.6) * d);
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, right - left);
-    c.height = Math.max(1, bottom - top);
+    const c = newCanvas(right - left, bottom - top);
     // cpu canvas: the scene is drawn right here (inside the caller's time slice), not deferred to the
     // gpu process, where hundreds of fresh sprites (blurs, many paths) piled up into 100-300 ms
     // stalls when the layers were composed. composites only read it on a rebuild (one upload each)
-    const x = c.getContext('2d', { willReadFrequently: true });
+    const x = ctx2d(c, true);
     x.imageSmoothingQuality = 'high';
     this.ofsX = left;
     this.ofsY = top;
-    try { this.gridT(x); draw(x); } finally { this.ofsX = this.ofsY = 0; }
-    return { c, left, top };
+    try { this.gridT(x); yield* draw.call(this, x); } finally { this.ofsX = this.ofsY = 0; }
+    cpuFlush(x);
+    const sp = { c, left, top };
+    if (key) this.sprites.set(key, sp);
+    return sp;
   }
 
   cached(key, make) {
@@ -510,13 +570,16 @@ export class MapView {
 
   // building scene + the tile's own terrain (trees, boulders, reeds) around it: objects inside
   // the building's clearings are left out, the rest is drawn behind / in front of the buildings
-  topSprite(id, type, color, skin) {
-    return this.cached(`t${id}|${type}|${color}|${skin}`, () => this.sprite(id, this.u * 7, (x) => {
+  topSprite(id, type, color, skin) { return runSteps(this.topSpriteSteps(id, type, color, skin)); }
+  *topSpriteSteps(id, type, color, skin) {
+    return yield* this.spriteSteps(`t${id}|${type}|${color}|${skin}`, id, this.u * 7, function* (x) {
       const keep = this.terrainKeep(id, type), split = this.spots(id, 1, 0)[0]?.[1] ?? this.sy(this.map.segs[id].y);
-      this.drawTreesOf(x, id, (tr, px, py) => py <= split && keep(tr, px, py));
+      yield* this.treesSteps(x, id, (tr, px, py) => py <= split && keep(tr, px, py));
       structures.top(this, x, id, type, color, skin);
-      this.drawTreesOf(x, id, (tr, px, py) => py > split && keep(tr, px, py));
-    }));
+      cpuFlush(x);
+      yield 'top';
+      yield* this.treesSteps(x, id, (tr, px, py) => py > split && keep(tr, px, py));
+    });
   }
 
   // which terrain objects stay next to building type on tile id: clearings (ellipses, css px)
@@ -553,19 +616,20 @@ export class MapView {
   // trees (and boulders / reeds) of a segment; huts = a few small shacks (neutral tiles: people
   // live there). huts get a clearing (no object silhouette touches a hut) and are drawn in depth
   // order between the trees, so a tree behind a hut never pokes through it and none stands in front
-  treeSprite(id, huts = false) {
-    return this.cached(`r${id}|${huts ? 1 : 0}`, () => this.sprite(id, this.u * 4, (x) => {
-      if (!huts) { this.drawTreesOf(x, id); return; }
+  treeSprite(id, huts = false) { return runSteps(this.treeSpriteSteps(id, huts)); }
+  *treeSpriteSteps(id, huts = false) {
+    return yield* this.spriteSteps(`r${id}|${huts ? 1 : 0}`, id, this.u * 4, function* (x) {
+      if (!huts) { yield* this.treesSteps(x, id); return; }
       const list = this.hutList(id), free = (b) => !list.some((h) => boxHit(b, h.box));
       let prev = -Infinity;
       for (const h of list) {
         const lo = prev;
-        this.drawTreesOf(x, id, (tr, px, py, b) => py > lo && py <= h.y && free(b));
+        yield* this.treesSteps(x, id, (tr, px, py, b) => py > lo && py <= h.y && free(b));
         this.drawHut(x, h);
         prev = h.y;
       }
-      this.drawTreesOf(x, id, (tr, px, py, b) => py > prev && free(b));
-    }));
+      yield* this.treesSteps(x, id, (tr, px, py, b) => py > prev && free(b));
+    });
   }
 
   blit(x, sp) { x.drawImage(sp.c, sp.left, sp.top); }
@@ -577,6 +641,12 @@ export class MapView {
     for (let id = 0; id < this.segP.length; id++) jobs.push(() => this.treeSprite(id, true), () => this.treeSprite(id));
     for (const col of colors) for (let id = 0; id < this.segP.length; id++) jobs.push(() => this.overlaySprite(id, col, fill));
     return jobs;
+  }
+
+  // the same as steps (the idle prep runs them a few ms per frame)
+  *warmSteps(colors, fill) {
+    for (let id = 0; id < this.segP.length; id++) { yield* this.treeSpriteSteps(id, true); yield 'warm'; yield* this.treeSpriteSteps(id); yield 'warm'; }
+    for (const col of colors) for (let id = 0; id < this.segP.length; id++) { this.overlaySprite(id, col, fill); yield 'warm'; }
   }
 
   // pre-render sprites in small idle-time chunks (trees for every segment, overlays for every
@@ -601,19 +671,20 @@ export class MapView {
     const size = this.size, dpr = this.dpr, same = () => this.size === size && this.dpr === dpr;
     if (!this.under) { yield* this.buildUnderSteps(); yield 'under'; }
     if (!this.base) { yield* this.buildBaseSteps(); yield 'base'; }
-    if (!this.rocks) { this.buildRocks(); yield 'rocks'; }
+    if (!this.rocks) { yield* this.buildRocksSteps(); yield 'rocks'; }
     if (!this.st) return;
+    for (let id = 0; id < this.st.length && same(); id++) { yield* this.spotCandSteps(id); yield 'cand'; }
     for (let id = 0; id < this.st.length && same(); id++) {
       const s = this.st[id];
-      if (s.building) { this.groundSprite(id, s.building); yield 'ground ' + id; this.topSprite(id, s.building, s.color, s.skin); }
-      else this.treeSprite(id, s.huts);
+      if (s.building) { this.groundSprite(id, s.building); yield 'ground ' + id; yield* this.topSpriteSteps(id, s.building, s.color, s.skin); }
+      else yield* this.treeSpriteSteps(id, s.huts);
       yield 'sprite ' + id;
       if (s.color) { this.overlaySprite(id, s.color, s.fill); yield 'overlay ' + id; }
     }
     if (!same()) return;
-    if (!this.layerGround) { this.buildGroundLayer(); yield 'layerGround'; }
-    if (!this.layerOwner) { this.buildOwnerLayer(); yield 'layerOwner'; }
-    if (!this.layerObjects) this.buildObjectLayer();
+    if (!this.layerGround) yield* this.groundLayerSteps();
+    if (!this.layerOwner) yield* this.ownerLayerSteps();
+    if (!this.layerObjects) yield* this.objectLayerSteps();
   }
 
   // static: ground texture, every segment border, light lip along the cliff edge
@@ -621,22 +692,86 @@ export class MapView {
 
   // the same in slices (the ground details a band of rows at a time)
   *buildBaseSteps() {
+    // drawn unclipped and cut to the island once at the end: a clip to the island outline made the
+    // cpu canvas rebuild a full-size clip mask at every flush (5-10 ms per step)
     const [c, x] = this.newLayer(true), t = this.theme, g = this.map.grid, px = 1 / this.scale;
     x.save();
-    x.clip(this.islandP, 'evenodd');
     x.imageSmoothingEnabled = true;
-    x.drawImage(this.groundC, 0, 0, g, g);
-    yield 'base ground';
+    yield* this.clipBands(x, c, 12, () => x.drawImage(this.groundC, 0, 0, g, g));
     yield* this.groundDetailSteps(x, px);
     x.lineJoin = 'round';
     x.lineWidth = Math.max(1, this.size * 0.0022) * px * borderW * mapScale(this.map);
     x.strokeStyle = css(t.lineNeutral, 0.45);
-    for (const p of this.segP) x.stroke(p);
+    for (const p of this.segP) { x.stroke(p); cpuFlush(x); yield 'border'; }
     x.lineWidth = Math.max(2, this.size * 0.006) * px;
     x.strokeStyle = css(t.lip, 0.7);
-    x.stroke(this.islandP);
+    yield* this.clipBands(x, c, 6, () => x.stroke(this.islandP));
     x.restore();
-    this.base = c;
+    x.save();
+    x.globalCompositeOperation = 'destination-in';   // keep only the island
+    yield* this.clipBands(x, c, 8, () => x.fill(this.islandP, 'evenodd'));
+    x.restore();
+    this.base = yield* this.toGpuSteps(c);
+  }
+
+  // one costly full-layer drawing (fn, on cpu canvas c with ctx x) done in n horizontal clip bands,
+  // a step each: only the band's pixels are rasterised per step
+  *clipBands(x, c, n, fn) {
+    const bh = Math.ceil(c.height / n);
+    for (let y = 0; y < c.height; y += bh) {
+      x.save();
+      const m = x.getTransform();
+      x.setTransform(1, 0, 0, 1, 0, 0);
+      x.beginPath();
+      x.rect(0, y, c.width, bh);
+      x.clip();
+      x.setTransform(m);
+      fn();
+      x.restore();
+      cpuFlush(x);
+      yield 'band';
+    }
+  }
+
+  // the worker's drawing (paintInWorker) taken over: each static layer uploaded into a gpu canvas a
+  // band (~1 M px) per step, the tile sprites and spot cache as they are (sprites stay bitmaps)
+  *takePaintSteps(res) {
+    const up = function* (L) {
+      const g = newCanvas(L.W, L.H), gx = g.getContext('2d');
+      let prev = null;
+      for (const b of L.bands) {
+        gx.drawImage(b.bmp, L.ox, L.oy + b.y);
+        gpuFlush(g);
+        prev?.close();   // the one before is uploaded by now
+        prev = b.bmp;
+        yield 'gpu upload';
+      }
+      prev?.close();
+      return g;
+    };
+    this.under = yield* up(res.under);
+    this.base = yield* up(res.base);
+    this.rocks = yield* up(res.rocks);
+    for (const [k, c, left, top] of res.sprites) if (!this.sprites.has(k)) this.sprites.set(k, { c, left, top });
+    for (const [k, v] of res.spots) this.spotCache.set(k, v);
+  }
+
+  // a finished static layer (drawn on the cpu) moved to a gpu canvas in bands of ~1 M px, one per
+  // frame, then freed: uploaded once, ~4 MB at a time. composites and patches then copy from it on
+  // the gpu (a 16 MB cpu layer drawn into a gpu canvas was a 30-50 ms upload, again on many captures)
+  // c may cover only part of the view: it goes to (ox, oy) of a W x H gpu canvas
+  *toGpuSteps(c, ox = 0, oy = 0, W = c.width, H = c.height) {
+    if (this.worker) return { cpu: c, ox, oy, W, H };   // the worker hands it over as bitmaps
+    const g = newCanvas(W, H);
+    // rows read straight out of the cpu canvas and written into the gpu one (no full-size snapshot)
+    const gx = g.getContext('2d'), cx = c.getContext('2d', { willReadFrequently: true }), bh = Math.max(16, Math.ceil(1e6 / c.width));
+    for (let y = 0; y < c.height; y += bh) {
+      gx.putImageData(cx.getImageData(0, y, c.width, Math.min(bh, c.height - y)), ox, oy + y);
+      gpuFlush(g);
+      yield 'gpu upload';
+    }
+    c.width = c.height = 0;
+    return g;
   }
 
   // small ground details, crisp at display resolution: grass tufts, flowers, pebbles, ferns on
@@ -673,7 +808,7 @@ export class MapView {
     };
     let i = 0, row = 0;
     for (let gy = step / 2; gy < g; gy += step) {
-      if (++row % 12 === 0) { flush(); yield 'detail'; }
+      if (++row % 4 === 0) { flush(); cpuFlush(x); yield 'detail'; }
       for (let gx = step / 2; gx < g; gx += step) {
         i++;
         const xx = gx + (hash(i, 50, this.seed) - 0.5) * step, yy = gy + (hash(i, 51, this.seed) - 0.5) * step;
@@ -791,6 +926,18 @@ export class MapView {
     return false;
   }
 
+  // could any point of grid box [x0, y0, x1, y1] (cells, inclusive) be near a river with margin pad?
+  // false = none is (nearRiver can be skipped for the whole box)
+  riverInBox([x0, y0, x1, y1], pad = 0) {
+    const { b, bs, maxH } = this.riverIndex();
+    if (!b.size) return false;
+    const r = maxH + pad;
+    for (let by = Math.floor((y0 - r) / bs); by <= Math.floor((y1 + 1 + r) / bs); by++) {
+      for (let bx = Math.floor((x0 - r) / bs); bx <= Math.floor((x1 + 1 + r) / bs); bx++) if (b.has(by * 4096 + bx)) return true;
+    }
+    return false;
+  }
+
   // rivers (visual only): smoothed polylines, drawn in pieces so they widen toward the mouth
   drawRivers(x, px) {
     // same water as the lakes: lake colour, foam rim along the banks, light ripple in the middle
@@ -816,19 +963,162 @@ export class MapView {
   }
 
   // static: rock plateaus
-  buildRocks() {
-    const [c, x] = this.newLayer(true);
-    this.drawRocks(x, 1 / this.scale);
-    this.rocks = c;
+  buildRocks() { runSteps(this.buildRocksSteps()); }
+  // drawn on a cpu canvas covering only the mountains (plus shadow and wall height), in steps:
+  // shadow, the side walls smeared up (~7 copies instead of ~70 fills of the whole outline), top
+  // face, cracks, outline. then moved to a full-size gpu canvas
+  *buildRocksSteps() {
+    const W = this.W, H = this.H, mb = this.mtnBox, px = 1 / this.scale;
+    if (!mb) { this.rocks = this.worker ? { cpu: newCanvas(1, 1), ox: 0, oy: 0, W, H } : newCanvas(W, H); return; }
+    const hgt = (Math.max(4, this.size * 0.03) * px) / this.tilt, br = Math.max(1, this.size * 0.006) * this.dpr;
+    const kx = this.dpr * this.scale, ky = kx * this.tilt, oy = this.dpr * this.oy, m = 3 * br + 6;
+    const left = Math.max(0, Math.floor(kx * mb[0] - m)), right = Math.min(W, Math.ceil(kx * (mb[2] + 1 + hgt * 0.3) + m));
+    const top = Math.max(0, Math.floor(ky * (mb[1] - hgt) + oy - m)), bottom = Math.min(H, Math.ceil(ky * (mb[3] + 1 + hgt * 0.15) + oy + m));
+    const c = newCanvas(right - left, bottom - top);
+    const x = ctx2d(c, true);
+    x.imageSmoothingQuality = 'high';
+    const T = (q) => q.setTransform(kx, 0, 0, ky, -left, oy - top);   // grid units, like gridT
+    yield* this.rockSteps(x, c, T, px, hgt, br, ky);
+    this.rocks = yield* this.toGpuSteps(c, left, top, W, H);
+  }
+  *rockSteps(x, c, T, px, hgt, br, ky) {
+    const t = this.theme, g = this.map.grid;
+    // soft contact shadow, blurred at 1/4 resolution and scaled up (16x fewer pixels to blur)
+    const q = 4, sh = newCanvas(Math.ceil(c.width / q), Math.ceil(c.height / q));
+    const hx = ctx2d(sh, true);
+    hx.scale(1 / q, 1 / q);
+    T({ setTransform: (a, b, cc, d, e, f) => hx.transform(a, b, cc, d, e, f) });
+    hx.filter = `blur(${br / q}px)`;
+    hx.fillStyle = 'rgba(25,30,35,0.3)';
+    hx.translate(hgt * 0.3, hgt * 0.15);
+    hx.fill(this.mtnP);
+    x.save();
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.imageSmoothingEnabled = true;
+    x.drawImage(sh, 0, 0, sh.width * q, sh.height * q);
+    x.restore();
+    sh.width = sh.height = 0;
+    cpuFlush(x);
+    yield 'rocks shadow';
+    // side walls: the outline filled once and smeared upward by copying the canvas onto itself
+    // shifted 1, 2, 4 ... px; dark lower part, then the lighter upper part on top
+    const S = newCanvas(c.width, c.height);
+    const sx = ctx2d(S, true);
+    const wall = function* (color, from, to) {   // grid y units, from < to
+      sx.setTransform(1, 0, 0, 1, 0, 0);
+      sx.clearRect(0, 0, S.width, S.height);
+      T(sx);
+      sx.fillStyle = css(color);
+      sx.fill(this.mtnP);
+      sx.setTransform(1, 0, 0, 1, 0, 0);
+      const len = Math.round((to - from) * ky);
+      for (let done = 0; done < len;) { const d = Math.min(done + 1, len - done); sx.drawImage(S, 0, -d); done += d; cpuFlush(sx); yield 'rocks wall'; }
+      x.save();
+      x.setTransform(1, 0, 0, 1, 0, 0);
+      x.drawImage(S, 0, -Math.round(from * ky));
+      x.restore();
+      cpuFlush(x);
+      yield 'rocks wall';
+    };
+    yield* wall.call(this, t.rockSideDark, 0, hgt * 0.55);
+    yield* wall.call(this, t.rockSide, hgt * 0.55, hgt);
+    S.width = S.height = 0;
+    // top face with a gentle gradient
+    T(x);
+    x.save();
+    x.translate(0, -hgt);
+    const grad = x.createLinearGradient(0, 0, g, g);
+    grad.addColorStop(0, css(shade(t.rockTop, 0.06)));
+    grad.addColorStop(1, css(shade(t.rockTop, -0.1)));
+    x.fillStyle = grad;
+    x.fill(this.mtnP);
+    cpuFlush(x);
+    yield 'rocks top';
+    // cracks
+    x.save();
+    x.clip(this.mtnP);
+    x.lineCap = 'round';
+    x.lineJoin = 'round';
+    x.strokeStyle = css(t.rockSideDark, 0.9);
+    x.lineWidth = Math.max(1.2, this.size * 0.003) * px;
+    for (const line of this.cracks) {
+      x.beginPath();
+      x.moveTo(line[0][0], line[0][1]);
+      for (let i = 1; i < line.length; i++) x.lineTo(line[i][0], line[i][1]);
+      x.stroke();
+    }
+    x.restore();
+    cpuFlush(x);
+    yield 'rocks cracks';
+    // outline
+    x.lineJoin = 'round';
+    x.lineWidth = Math.max(1, this.size * 0.0025) * px;
+    x.strokeStyle = css(t.rockSideDark, 0.85);
+    x.stroke(this.mtnP);
+    x.restore();
+    cpuFlush(x);
+    yield 'rocks outline';
   }
 
   // composite 1: base + flat building scenes
-  buildGroundLayer() {
-    if (!this.base) this.buildBase();
-    const [c, x] = this.newLayer();
+  buildGroundLayer() { runSteps(this.groundLayerSteps()); }
+
+  // a composite built in pieces, each flushed to the gpu in its own frame: the static layer (a gpu
+  // copy), then sprites (~1 M px of uploads per frame). kept only if the view kept its size meanwhile
+  *compositeSteps(L, sprites, extra) {
+    const [c, x] = this.newLayer(), size = this.size, dpr = this.dpr;
+    x.save();
     x.setTransform(1, 0, 0, 1, 0, 0);
-    x.drawImage(this.base, 0, 0);
-    this.st.forEach((s, id) => { if (s.building) this.blit(x, this.groundSprite(id, s.building)); });
+    if (L) x.drawImage(L, 0, 0);   // gpu to gpu
+    let px = 0;
+    for (const sp of sprites) {
+      this.blit(x, sp);
+      px += sp.c.width * sp.c.height;
+      if (px > 1e6) { px = 0; gpuFlush(c); yield 'gpu sprites'; }
+    }
+    x.restore();
+    if (extra) { x.save(); extra.call(this, x); x.restore(); }
+    gpuFlush(c);
+    yield 'gpu composite';
+    return this.size === size && this.dpr === dpr ? c : null;
+  }
+  *groundLayerSteps() {
+    if (!this.base) yield* this.buildBaseSteps();
+    const sprites = [];
+    this.st.forEach((s, id) => { if (s.building) sprites.push(this.groundSprite(id, s.building)); });
+    const c = yield* this.compositeSteps(this.base, sprites, (x) => this.groundExtras(x, null));
+    if (c) this.layerGround = c;
+  }
+
+  // start of a composite draw: device px; r = [x0, y0, x1, y1] limits it to that box (cleared first)
+  clipTo(x, r) {
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    if (!r) return;
+    x.beginPath();
+    x.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+    x.clip();
+    x.clearRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+  }
+
+  // box r of a static layer (gpu canvas, same size as the composites) into x
+  copyIn(x, L, r) {
+    const x0 = Math.max(0, r[0]), y0 = Math.max(0, r[1]), x1 = Math.min(L.width, r[2]), y1 = Math.min(L.height, r[3]);
+    if (x1 > x0 && y1 > y0) x.drawImage(L, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  }
+
+  // composite 1 inside box r (a patch)
+  groundInto(x, r) {
+    const hit = (sp) => sp.left < r[2] && sp.left + sp.c.width > r[0] && sp.top < r[3] && sp.top + sp.c.height > r[1];
+    x.save();
+    this.clipTo(x, r);
+    this.copyIn(x, this.base, r);
+    this.st.forEach((s, id) => { if (s.building) { const sp = this.groundSprite(id, s.building); if (hit(sp)) this.blit(x, sp); } });
+    this.groundExtras(x, r);
+    x.restore();
+  }
+
+  // composite 1's top: rivers and the trait tiles' dashed inner borders (all, or the tiles meeting box r)
+  groundExtras(x, r) {
     // rivers above the building ground (farm fields never hide them), then the inner terrain
     // border of every trait tile: a band in the terrain's colour just inside the edge, so the tile
     // type stays readable under any building (dashed; the owner's solid colour band sits outside it)
@@ -844,7 +1134,7 @@ export class MapView {
     x.lineJoin = 'round';
     this.map.segs.forEach((s, id) => {
       const col = traitCol[s.trait];
-      if (!col) return;
+      if (!col || (r && !this.rectHits(id, r))) return;
       x.save();
       x.clip(this.segP[id]);
       // dashed, so it never reads as an owner's (solid) border
@@ -854,87 +1144,64 @@ export class MapView {
       x.stroke(this.segP[id]);
       x.restore();
     });
-    this.layerGround = c;
+  }
+
+  // tile id's sprite box meets device px box r
+  rectHits(id, r) {
+    const q = this.tileRect(id);
+    return q[0] < r[2] && q[2] > r[0] && q[1] < r[3] && q[3] > r[1];
   }
 
   // composite 2: owner overlays
-  buildOwnerLayer() {
-    const [c, x] = this.newLayer();
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    this.st.forEach((s, id) => { if (s.color) this.blit(x, this.overlaySprite(id, s.color, s.fill)); });
-    this.layerOwner = c;
+  buildOwnerLayer() { runSteps(this.ownerLayerSteps()); }
+  *ownerLayerSteps() {
+    const sprites = [];
+    this.st.forEach((s, id) => { if (s.color) sprites.push(this.overlaySprite(id, s.color, s.fill)); });
+    const c = yield* this.compositeSteps(null, sprites, null);
+    if (c) this.layerOwner = c;
+  }
+  ownerInto(x, r) {
+    x.save();
+    this.clipTo(x, r);
+    this.st.forEach((s, id) => { if (s.color && this.rectHits(id, r)) this.blit(x, this.overlaySprite(id, s.color, s.fill)); });
+    x.restore();
   }
 
   // composite 3: rocks, then trees or building scenes per segment, back to front
-  buildObjectLayer() {
-    if (!this.rocks) this.buildRocks();
-    const [c, x] = this.newLayer();
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.drawImage(this.rocks, 0, 0);
-    const order = this.map.segs.map((s) => s.id).sort((a, b) => this.map.segs[a].y - this.map.segs[b].y);
-    for (const id of order) {
-      const s = this.st[id];
-      this.blit(x, s.building ? this.topSprite(id, s.building, s.color, s.skin) : this.treeSprite(id, s.huts));
-    }
-    this.layerObjects = c;
+  buildObjectLayer() { runSteps(this.objectLayerSteps()); }
+  // tiles back to front (objects of a lower tile overlap the one behind it)
+  depthOrder() { return (this.order ??= this.map.segs.map((s) => s.id).sort((a, b) => this.map.segs[a].y - this.map.segs[b].y)); }
+  objSprite(id) { const s = this.st[id]; return s.building ? this.topSprite(id, s.building, s.color, s.skin) : this.treeSprite(id, s.huts); }
+  *objectLayerSteps() {
+    if (!this.rocks) yield* this.buildRocksSteps();
+    const c = yield* this.compositeSteps(this.rocks, this.depthOrder().map((id) => this.objSprite(id)), null);
+    if (c) this.layerObjects = c;
   }
-
-  // mountains as flat low-poly rock plateaus: soft contact shadow, stacked slate side walls,
-  // a light top face with a gentle gradient, dark cracks and outline
-  drawRocks(x, px) {
-    const t = this.theme, g = this.map.grid, hgt = (Math.max(4, this.size * 0.03) * px) / this.tilt;
+  objectsInto(x, r) {
     x.save();
-    x.filter = `blur(${Math.max(1, this.size * 0.006) * this.dpr}px)`;
-    x.fillStyle = 'rgba(25,30,35,0.3)';
-    x.translate(hgt * 0.3, hgt * 0.15);
-    x.fill(this.mtnP);
-    x.restore();
-    for (let i = 0; i <= hgt; i += (px * 0.5) / this.tilt) {
-      x.save();
-      x.translate(0, -i);
-      x.fillStyle = css(i < hgt * 0.55 ? t.rockSideDark : t.rockSide);
-      x.fill(this.mtnP);
-      x.restore();
-    }
-    x.save();
-    x.translate(0, -hgt);
-    const grad = x.createLinearGradient(0, 0, g, g);
-    grad.addColorStop(0, css(shade(t.rockTop, 0.06)));
-    grad.addColorStop(1, css(shade(t.rockTop, -0.1)));
-    x.fillStyle = grad;
-    x.fill(this.mtnP);
-    x.save();
-    x.clip(this.mtnP);
-    x.lineCap = 'round';
-    x.lineJoin = 'round';
-    x.strokeStyle = css(t.rockSideDark, 0.9);
-    x.lineWidth = Math.max(1.2, this.size * 0.003) * px;
-    for (const line of this.cracks) {
-      x.beginPath();
-      x.moveTo(line[0][0], line[0][1]);
-      for (let i = 1; i < line.length; i++) x.lineTo(line[i][0], line[i][1]);
-      x.stroke();
-    }
-    x.restore();
-    x.lineJoin = 'round';
-    x.lineWidth = Math.max(1, this.size * 0.0025) * px;
-    x.strokeStyle = css(t.rockSideDark, 0.85);
-    x.stroke(this.mtnP);
+    this.clipTo(x, r);
+    this.copyIn(x, this.rocks, r);
+    for (const id of this.depthOrder()) if (this.rectHits(id, r)) this.blit(x, this.objSprite(id));
     x.restore();
   }
 
   // trees of one segment: round crowns or low-poly pines with trunk and shadow
   // keep(tree, px, py) -> false skips an object (building tiles leave their clearings empty)
-  drawTreesOf(x, id, keep = null) {
+  drawTreesOf(x, id, keep = null) { runSteps(this.treesSteps(x, id, keep)); }
+  *treesSteps(x, id, keep = null) {
     const t = this.segTheme ? this.segTheme[id] : this.theme, sc = this.scale;
     x.save();
     this.cssT(x);
+    let n = 0, rmax = 0;
+    for (const tr of this.trees) if (tr.seg === id && tr.r > rmax) rmax = tr.r;
+    const dry = !this.riverInBox(this.boxes[id], rmax * 0.8);
     for (const tr of this.trees) {
       if (tr.seg !== id) continue;
+      if (++n % 20 === 0) { cpuFlush(x); yield 'trees'; }
       const px = this.sx(tr.x), py = this.sy(tr.y), r = Math.max(1.6, tr.r * sc);
       // nothing stands in a river: trees and boulders keep their crown off the band, reeds may
       // grow on the outer bank only
-      if (tr.kind === 'reed' ? this.nearRiver(tr.x, tr.y, 0, 0.6) : this.nearRiver(tr.x, tr.y, tr.r * 0.8)) continue;
+      if (!dry && (tr.kind === 'reed' ? this.nearRiver(tr.x, tr.y, 0, 0.6) : this.nearRiver(tr.x, tr.y, tr.r * 0.8))) continue;
       if (keep && !keep(tr, px, py, this.objBox(tr, px, py, r, t.tree === 'pine'))) continue;
       if (tr.kind === 'rock') {
         // low-poly boulder: lit top-left face, shaded right face, small shadow
@@ -1038,7 +1305,7 @@ export class MapView {
   spots(id, n, sep) {
     const key = `${id}:${n}:${Math.round(sep)}`;
     if (this.spotCache.has(key)) return this.spotCache.get(key);
-    const { bdist, grid: g, segs } = this.map, s = segs[id], sc = this.scale, u = this.u / sc;
+    const { bdist, grid: g } = this.map, sc = this.scale, u = this.u / sc;
     const wet = (x, y) => this.nearRiver(x, y, u * 3);   // building footprint margin
     const cells = this.segCells[id], cd = this.coastD;
     const mainR = this.u * 6.2 / sc, secR = Math.max(this.u * 2.6, sep * 0.45) / sc;   // grid units
@@ -1049,15 +1316,7 @@ export class MapView {
     // room is measured 0.5 u above the base point: scenes (hamlet rings, courtyards) centre there
     const up = Math.round((this.u * 0.5) / (sc * this.tilt)) * g;
     const room = (e, r) => Math.floor(Math.min(cd[Math.max(0, e[3] - up)], r) / (u * 0.5)) - (e[4] ? 3 : 0);
-    const cand = [], late = [];
-    for (let i = 0; i < cells.length; i += 2) {
-      const c = cells[i], x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5, dx = x - s.x, dy = (y - s.y) * this.tilt;
-      const damp = wet(x, y);
-      if (damp && this.nearRiver(x, y, u * 1.5)) continue;   // no house on a river
-      const e = [Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y, c, damp];
-      // the label area is allowed too, but only after every free cell with as much room
-      if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) late.push(e); else cand.push(e);
-    }
+    const { cand, late } = this.spotCand(id);
     const order = (r) => [...cand.map((e) => [room(e, r), 1, e]), ...late.map((e) => [room(e, r), 0, e])]
       .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2][0] - a[2][0]).map((o) => o[2]);
     const out = [];
@@ -1079,6 +1338,29 @@ export class MapView {
     }
     const res = out.map((p) => [this.sx(p[0]), this.sy(p[1])]);
     this.spotCache.set(key, res);
+    return res;
+  }
+
+  // the candidate cells for spots() on tile id (every 2nd cell, with its dry / damp state), cached
+  // per tile: the river test per cell is the costly part. the idle prep makes them in steps
+  spotCand(id) { return this.candCache.get(id) ?? runSteps(this.spotCandSteps(id)); }
+  *spotCandSteps(id) {
+    const have = this.candCache.get(id);
+    if (have) return have;
+    const { bdist, grid: g, segs } = this.map, s = segs[id], sc = this.scale, u = this.u / sc;
+    const cells = this.segCells[id], dry = !this.riverInBox(this.boxes[id], u * 3);
+    const cand = [], late = [];
+    for (let i = 0; i < cells.length; i += 2) {
+      if (i % 200 === 198) yield 'cand';
+      const c = cells[i], x = (c % g) + 0.5, y = Math.floor(c / g) + 0.5, dx = x - s.x, dy = (y - s.y) * this.tilt;
+      const damp = !dry && this.nearRiver(x, y, u * 3);   // building footprint margin
+      if (damp && this.nearRiver(x, y, u * 1.5)) continue;   // no house on a river
+      const e = [Math.min(bdist[c], 40 * this.k) + hash(c, 7, this.seed) * 3, x, y, c, damp];
+      // the label area is allowed too, but only after every free cell with as much room
+      if (Math.hypot(dx, dy) < u * 4.5 || (Math.abs(dx) < u * 4 && dy > 0 && dy < u * 7)) late.push(e); else cand.push(e);
+    }
+    const res = { cand, late };
+    this.candCache.set(id, res);
     return res;
   }
 
@@ -1183,10 +1465,37 @@ export class MapView {
   paint(styleOf) {
     this.styleOf = styleOf;
     this.st = this.map.segs.map((s) => styleOf(s.id));
-    const bkey = this.st.map((s) => (s.building ? s.building + (s.color ?? '') + (s.skin ?? '') : s.huts ? 'h' : '')).join('|');
-    const okey = this.st.map((s) => (s.color ? s.color.join(',') + ':' + s.fill : '')).join('|');
-    if (bkey !== this.bkey) { this.bkey = bkey; this.layerGround = this.layerObjects = null; }
-    if (okey !== this.okey) { this.okey = okey; this.layerOwner = null; }
+    // per tile keys: a few changed tiles (a capture, a new building) are redrawn in place inside
+    // their box (patchLayers); many at once (new map, first paint) rebuild the whole composite
+    const bkey = this.st.map((s) => (s.building ? s.building + (s.color ?? '') + (s.skin ?? '') : s.huts ? 'h' : ''));
+    const okey = this.st.map((s) => (s.color ? s.color.join(',') + ':' + s.fill : ''));
+    const diff = (a, b) => (a && a.length === b.length ? b.reduce((d, k, i) => (k !== a[i] ? (d.push(i), d) : d), []) : null);
+    const db = diff(this.bkey, bkey), dob = diff(this.okey, okey), most = Math.max(3, this.st.length * 0.3);
+    this.bkey = bkey;
+    this.okey = okey;
+    if (!db || db.length > most) { this.layerGround = this.layerObjects = null; this.dirtyB = []; }
+    else this.dirtyB = [...new Set([...(this.dirtyB ?? []), ...db])];
+    if (!dob || dob.length > most) { this.layerOwner = null; this.dirtyO = []; }
+    else this.dirtyO = [...new Set([...(this.dirtyO ?? []), ...dob])];
+  }
+
+  // device px box that every sprite of tile id fits in (the biggest margin: building top scenes)
+  tileRect(id) {
+    const [bx0, by0, bx1, by1] = this.boxes[id], d = this.dpr, m = this.u * 7;
+    return [Math.floor((this.sx(bx0) - m) * d), Math.floor((this.sy(by0) - m * 1.6) * d), Math.ceil((this.sx(bx1 + 1) + m) * d), Math.ceil((this.sy(by1 + 1) + m * 0.6) * d)];
+  }
+
+  // redraw the changed tiles' boxes in the existing composites (a few sprite blits each), instead of
+  // new full-screen canvases: those cost a 30-60 ms gpu frame on every capture
+  patchLayers() {
+    const run = (ids, L, into) => {
+      if (!L) return;
+      const x = L.getContext('2d');
+      for (const id of ids) into.call(this, x, this.tileRect(id));
+    };
+    if (this.dirtyB?.length || this.dirtyO?.length) window.__mk?.('patch');   // tests: time marks
+    if (this.dirtyB?.length) { const ids = this.dirtyB; this.dirtyB = []; run(ids, this.layerGround, this.groundInto); run(ids, this.layerObjects, this.objectsInto); }
+    if (this.dirtyO?.length) { const ids = this.dirtyO; this.dirtyO = []; run(ids, this.layerOwner, this.ownerInto); }
   }
 
   // clear and draw all layers; returns ctx in css-pixel units
@@ -1200,6 +1509,7 @@ export class MapView {
       if (!this.layerGround) this.buildGroundLayer();
       if (!this.layerOwner) this.buildOwnerLayer();
       if (!this.layerObjects) this.buildObjectLayer();
+      this.patchLayers();
       ctx.drawImage(this.layerGround, 0, 0);
       ctx.drawImage(this.layerOwner, 0, 0);
       ctx.drawImage(this.layerObjects, 0, 0);
@@ -1230,6 +1540,43 @@ export class MapView {
 
 // troop figures, drawn from small cached sprites (fast enough for hundreds per frame).
 // soldier = body + head; battalion = 2 x 3 tiny soldiers with a banner (zoomed-out maps)
+// map worker: every static layer (under, base, rocks) and tile sprite of a view of `map` at css size
+// `size` / density dpr, drawn on cpu OffscreenCanvases with the same code the page uses, plus the
+// sprites a battle may need later (trees with / without huts, every side's overlay on every tile).
+// returned as transferable ImageBitmaps (layers in ~1 M px bands) for MapView.takePaintSteps;
+// st = the page's per-tile styles (MapView.paint)
+export function paintInWorker(map, theme, size, dpr, st, colors, fill) {
+  const v = Object.create(MapView.prototype);
+  v.headless = v.worker = true;
+  runSteps(v.setMapSteps(map, theme));
+  v.setSize(size, dpr);
+  v.st = st;
+  runSteps(v.buildUnderSteps());
+  runSteps(v.buildBaseSteps());
+  runSteps(v.buildRocksSteps());
+  for (let id = 0; id < st.length; id++) {
+    const s = st[id];
+    v.spots(id, 1, 0);
+    if (s.building) { v.groundSprite(id, s.building); v.topSprite(id, s.building, s.color, s.skin); } else v.treeSprite(id, s.huts);
+    if (s.color) v.overlaySprite(id, s.color, s.fill);
+  }
+  runSteps(v.warmSteps(colors, fill));
+  const bands = (c) => {
+    const out = [], bh = Math.max(16, Math.ceil(1e6 / c.width));
+    for (let y = 0; y < c.height; y += bh) {
+      const b = new OffscreenCanvas(c.width, Math.min(bh, c.height - y));
+      b.getContext('2d').drawImage(c, 0, -y);
+      out.push({ y, bmp: b.transferToImageBitmap() });
+    }
+    return out;
+  };
+  const layer = (L) => (L.cpu ? { W: L.W, H: L.H, ox: L.ox, oy: L.oy, bands: bands(L.cpu) } : { W: L.width, H: L.height, ox: 0, oy: 0, bands: bands(L) });
+  const res = { size, dpr, under: layer(v.under), base: layer(v.base), rocks: layer(v.rocks), sprites: [], spots: [...v.spotCache] };
+  for (const [k, sp] of v.sprites) res.sprites.push([k, sp.c.transferToImageBitmap(), sp.left, sp.top]);
+  const transfer = [res.under, res.base, res.rocks].flatMap((L) => L.bands.map((b) => b.bmp)).concat(res.sprites.map((e) => e[1]));
+  return { res, transfer };
+}
+
 const unitCache = new Map();
 // one foglet (the troop figure), feet at (mx, my), sc = size (1 = the 5 x 8 map figure); also drawn
 // big on the menu. body block in the team colour with a shaded side, square head, then a kit that

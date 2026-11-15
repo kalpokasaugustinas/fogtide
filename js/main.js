@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=124';
-import { generateMap, rng } from './mapgen.js?v=124';
-import { initAnalytics, track } from './analytics.js?v=124';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=124';
-import { Battle } from './battle.js?v=124';
-import { personalities } from './ai.js?v=124';
-import { Campaign } from './campaign.js?v=124';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=124';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=124';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=124';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=124';
-import { previewBuildings } from './structures.js?v=124';
-import { initTune, tuneChanges } from './tune.js?v=124';
-import { initFogNoise } from './fogui.js?v=124';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=125';
+import { generateMap, rng } from './mapgen.js?v=125';
+import { initAnalytics, track } from './analytics.js?v=125';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=125';
+import { Battle } from './battle.js?v=125';
+import { personalities } from './ai.js?v=125';
+import { Campaign } from './campaign.js?v=125';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=125';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=125';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=125';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=125';
+import { previewBuildings } from './structures.js?v=125';
+import { initTune, tuneChanges } from './tune.js?v=125';
+import { initFogNoise } from './fogui.js?v=125';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -185,13 +185,37 @@ const mapKey = (o) => `${o.seed}|${o.cells}|${o.detail}|${o.shape}`;
 // by key, so a late answer for an older stage is ignored
 let mapWorker = null, mapWorkerFailed = false;
 const mapJobs = new Map();   // key -> resolve
+// paint jobs (idle prep: the next map view's layers and sprites drawn in the worker), id -> resolve
+const paintJobs = new Map();
+let paintId = 0;
+// resolves with the worker's paint result, or null (no worker, no OffscreenCanvas, error): the
+// caller then draws on the main thread in slices as before
+function workerPaint(key, theme, v, colors, fill) {
+  const w = getMapWorker();
+  if (!w || typeof OffscreenCanvas === 'undefined') return Promise.resolve(null);
+  const id = ++paintId;
+  const st = v.st.map((s) => ({ building: s.building, color: s.color, fill: s.fill, skin: s.skin, huts: s.huts }));
+  return new Promise((res) => {
+    paintJobs.set(id, (d) => { if (d.error) console.warn('worker paint failed:', d.error); res(d.res ?? null); });
+    w.postMessage({ paint: id, key, theme, size: v.size, dpr: v.dpr, st, colors, fill });
+  });
+}
 function getMapWorker() {
   if (mapWorker || mapWorkerFailed) return mapWorker;
   try {
     // same ?v= build stamp as this module, so the worker never mixes old and new files
     mapWorker = new Worker(new URL('./mapworker.js' + new URL(import.meta.url).search, import.meta.url), { type: 'module' });
-    mapWorker.onmessage = (e) => { const { key, map } = e.data; mapJobs.get(key)?.(map); mapJobs.delete(key); };
-    mapWorker.onerror = (e) => { console.warn('map worker failed:', e.message); mapWorkerFailed = true; mapWorker = null; for (const r of mapJobs.values()) r(null); mapJobs.clear(); };
+    mapWorker.onmessage = (e) => {
+      if (e.data.paint) { paintJobs.get(e.data.paint)?.(e.data); paintJobs.delete(e.data.paint); return; }
+      const { key, map } = e.data; mapJobs.get(key)?.(map); mapJobs.delete(key);
+    };
+    mapWorker.onerror = (e) => {
+      console.warn('map worker failed:', e.message); mapWorkerFailed = true; mapWorker = null;
+      for (const r of mapJobs.values()) r(null);
+      mapJobs.clear();
+      for (const r of paintJobs.values()) r({ error: 'worker failed' });
+      paintJobs.clear();
+    };
   } catch { mapWorkerFailed = true; }   // no module workers: the stage generates its map on start
   return mapWorker;
 }
@@ -296,16 +320,20 @@ function styleFor(b) {
 // drawn on view v; ac = not-yet-simulated time (smooth motion); numbers = draw the number badges
 // big conquest maps (continent, world): badges, labels and figures shrink by mapScale (render.js)
 // and the camera glides in by 1 / mapScale after the zoom-out
+// troop figures: one soldier per troopsPerDot troops (battalions of x5 on zoomed-out maps); z =
+// figure scale (small but visible), sp = spacing of the figures on a tile
+function unitLook(v, b) {
+  const z = Math.max(1, Math.min(1.9, v.size / 480)) * mapScale(b.map);
+  const kind = (b.map.detail ?? 1) < 0.7 ? 'battalion' : 'soldier';
+  return { z, kind, per: rules.troopsPerDot * (kind === 'battalion' ? 5 : 1), sp: (kind === 'battalion' ? 12 : 4.6) * z };
+}
 function drawUnits(ctx, v, b, ac, numbers) {
   // battle camera zoom: badges grow only with zoom^0.35 on screen (else they'd fill the view at 5x)
   // in 4% steps: badges / labels are cached per font size, and a smooth zoom (camera glide, pinch)
   // made every frame a new size, so every badge was re-rendered each frame (~30 ms frames)
   const lk = v === bv ? 1.04 ** Math.round(Math.log(cam.z ** 0.65) / Math.log(1.04)) : 1;
   const fs = Math.max(11, Math.min(18 * uiK, v.size / 30)) * mapScale(b.map) / lk;
-  // troop figures: one soldier per troopsPerDot troops (battalions of x5 on zoomed-out maps)
-  const z = Math.max(1, Math.min(1.9, v.size / 480)) * mapScale(b.map), dpr = v.dpr;   // figure scale: small but visible
-  const kind = (b.map.detail ?? 1) < 0.7 ? 'battalion' : 'soldier';
-  const per = rules.troopsPerDot * (kind === 'battalion' ? 5 : 1), sp = (kind === 'battalion' ? 12 : 4.6) * z;
+  const { z, kind, per, sp } = unitLook(v, b), dpr = v.dpr;
   // relic obelisks (tile without a building): a slow pulsing glow around the gem and a faint
   // light pool at its foot, added on top of the cached sprite so the special tiles catch the eye
   const glow = 0.5 + 0.5 * Math.sin(performance.now() / 650);
@@ -616,7 +644,7 @@ function focusHome(z) {
     // target: capital in the middle of the screen (setCam clamps at the map edges)
     setCam(zz, x0 + (w / 2 - px * z - x0) * e, y0 + (h / 2 - py * z - y0) * e);
     if (k < 1 && screen === 'battle') requestAnimationFrame(tick);
-    else $('cam').style.willChange = '';
+    else { $('cam').style.willChange = ''; window.__mk?.('glided'); }
   };
   requestAnimationFrame(tick);
 }
@@ -1183,10 +1211,13 @@ function endStage(won) {
 const zoomSteps = { hold: 0.5, shrink: 2.2, glow: 0.7, reveal: 1.8 };   // seconds
 // run a generator a few ms per frame (after each paint), so long work never blocks an animation
 // frame; resolves when it is done
+// a step that yields 'gpu ...' handed the gpu a piece of work: the slice ends there (one per frame)
+// a step yielding 'wait' waits for the worker: the slice ends there too
+const gpuStep = (v) => typeof v === 'string' && (v.startsWith('gpu') || v === 'wait');
 async function sliced(gen, budget = 6) {
   for (;;) {
     const t0 = performance.now();
-    while (performance.now() - t0 < budget) if (gen.next().done) return;
+    while (performance.now() - t0 < budget) { const r = gen.next(); if (r.done) return; if (gpuStep(r.value)) break; }
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   }
 }
@@ -1196,6 +1227,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   // the player may be zoomed in / panned (pinch, drag) or mid-gesture: put the camera back to the
   // whole map first, so the snapshot and the new map line up. the render boost stays as it is (the
   // snapshot doesn't need a rebuild) and is locked until the new map's camera has glided in
+  window.__mk?.('zoom');
   pointers.clear(); pinch = gesture = null;
   boostLock = true;
   setCam(1, 0, 0);
@@ -1238,6 +1270,7 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
   // the snapshot goes on screen first; the heavy part (new battle, map view, first draw of every
   // layer, ~0.5-1 s on big maps) runs behind it and counts as the hold, instead of adding to it
   requestAnimationFrame(() => setTimeout(async () => {
+    window.__mk?.('work');
     next.save();   // the new stage is where a reload picks up
     zoomHolding = true;   // no map drawing until the new view is ready (it is built in slices)
     // idle: the next stage was prepared during this one (battle + hidden map view with every layer):
@@ -1249,8 +1282,10 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       next.refresh?.(made);   // upgrades bought since it was prepared
       // the old map's canvases are emptied a few per frame once the zoom-out is over (left to the
       // garbage collector, freeing ~100 canvases at once was a 100+ ms pause right after the reveal)
+      window.__mk?.('pre');
       const trash = bv.adopt(pre.view);
-      const free = () => { if (zooming) { setTimeout(free, 300); return; } for (let i = 0; i < 6 && trash.length; i++) { const c = trash.pop(); c.width = c.height = 0; } if (trash.length) requestAnimationFrame(free); };
+      window.__mk?.('adopted');
+      const free = () => { if (zooming) { setTimeout(free, 300); return; } for (let i = 0; i < 6 && trash.length; i++) { const c = trash.pop(); if (c.close) c.close(); else c.width = c.height = 0; } if (trash.length) requestAnimationFrame(free); };
       setTimeout(free, 300);
     } else {
       setup = next.setup();
@@ -1262,19 +1297,30 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       await sliced(bv.setMapSteps(made.map, themeOf(setup)));
     }
     startBattle(setup, next.mode, -1, made);
+    window.__mk?.('started');
     paused = true;
     old.style.opacity = '0';
     // layers and tile sprites keep building in slices while the island shrinks; the reveal waits for
     // them. once ready the map draws again (still hidden), so the reveal's first frame is cheap
     paintBattle();
+    window.__mk?.('painted');
     let ready = false;
-    sliced(bv.prepSteps()).then(() => { ready = true; zoomHolding = false; });
+    sliced(bv.prepSteps()).then(() => { ready = true; window.__mk?.('ready'); });
+    // the new map stays hidden until the reveal: drawn once when its layers are ready, then not again
+    // (the battle is paused; a redraw per frame was gpu work behind the shrink). zoomHolding ends at the reveal
+    let drawn = false;
     const capId = battle.factions[0].capitalSeg, nr = { width: old.clientWidth, height: old.clientHeight }, no = { x: old.offsetLeft, y: old.offsetTop };
     const box = bv.boxes[capId] ?? [0, 0, g - 1, g - 1];
     const cc = { x: bv.sx((box[0] + box[2] + 1) / 2), y: bv.sy((box[1] + box[3] + 1) / 2), w: (box[2] - box[0] + 1) * bv.scale };
     const ratio = Math.min(1, cc.w / Math.max(1, oc.w));   // old island -> capital tile size
     const from = { x: so.x + sd.x + s0 * oc.x, y: so.y + sd.y + s0 * oc.y }, to = { x: no.x + cc.x, y: no.y + cc.y };   // island centre on screen
     const farthest = Math.hypot(Math.max(cc.x, nr.width - cc.x), Math.max(cc.y, nr.height - cc.y));   // reveal radius at the end
+    // the glow: a soft gold disc behind the little island (a css drop-shadow filter on the full-size
+    // snapshot cost a 50-70 ms gpu frame when it started)
+    const halo = document.createElement('i');
+    halo.className = 'zoom-halo';
+    Object.assign(halo.style, { left: to.x + 'px', top: to.y + 'px', width: Math.max(24, cc.w * 1.7) + 'px', height: Math.max(24, cc.w * 1.7 * 0.8) + 'px' });
+    wrap.insertBefore(halo, snap);
     const { hold, shrink, glow, reveal } = zoomSteps, total = hold + shrink + glow + reveal;
     const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
     const phase = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
@@ -1292,29 +1338,33 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       // the fog behind recedes too, slower than the island (parallax: we pull back through the
       // clouds), drifting a little, and settles at its normal size as the shrink ends
       const fs = 720 * (s / ratio) ** 0.35, drift = 40 * Math.sin(Math.PI * Math.min(1, t / total));   // back to 0 at the end
-      wrap.style.backgroundSize = `${fs}px ${fs}px, auto`;
-      wrap.style.backgroundPosition = `calc(50% + ${drift}px) calc(50% + ${drift * 0.6}px), 0 0`;
-      wrap.style.setProperty('--fog-zoom', fs / 720);   // the twirling fog layers shrink alike
+      wrap.style.setProperty('--fog-zoom', fs / 720);   // static and twirling fog layers (compositor only)
+      wrap.style.setProperty('--fog-drift', `${drift}px ${drift * 0.6}px`);
       // 2. glow: a gold pulse around the little island
       const gk = phase(t, hold + shrink, glow), pulse = Math.sin(gk * Math.PI);
-      snap.style.filter = pulse > 0.01 ? `drop-shadow(0 0 ${2 + 10 * pulse}px rgba(255, 210, 90, ${0.9 * pulse}))` : '';
+      halo.style.opacity = pulse > 0.01 ? String(pulse) : '0';
+      halo.style.scale = String(0.8 + 0.4 * pulse);
       // 3. reveal: the new map in a growing soft-edged circle around the capital; the island fades
       const rk = ease(phase(t, hold + shrink + glow * 0.5, reveal)), rad = 6 + rk * (farthest + 60);
+      if (ready && !drawn && t >= hold + 0.3) { drawn = true; drawBattle(); }   // a quiet frame mid-shrink
+      if (rk > 0 && zoomHolding) zoomHolding = false;
       const mask = `radial-gradient(circle at ${cc.x}px ${cc.y}px, #000 ${Math.max(0, rad - 50)}px, transparent ${rad}px)`;
       old.style.opacity = rk > 0 ? '1' : '0';
       old.style.webkitMaskImage = old.style.maskImage = rk >= 1 ? '' : mask;
       snap.style.opacity = String(1 - phase(t, hold + shrink + glow * 0.6, reveal * 0.5));
       if (t < total) { requestAnimationFrame(tick); return; }
+      window.__mk?.('end');
       snap.remove();
+      halo.remove();
       old.style.opacity = old.style.webkitMaskImage = old.style.maskImage = '';
-      wrap.style.backgroundSize = '720px 720px, auto';   // as MapView.setMap sets them
-      wrap.style.backgroundPosition = 'center, 0 0';
       wrap.style.removeProperty('--fog-zoom');
+      wrap.style.removeProperty('--fog-drift');
       zooming = false;
       paused = false;
       setSpeed(speed);
       boostLock = false;
       focusHome(1 / mapScale(battle.map));
+      prepCalm = performance.now() + 2500;   // glide (0.7 s) and the battle settling in first
     };
     requestAnimationFrame(tick);
   }, 0));
@@ -1346,6 +1396,9 @@ function preloadIdleNext() {
 // (MapView.adopt). a stage won before it is done finishes the rest at a faster pace behind the
 // zoom-out. nextPrep = { stage, seed, setup, battle, view, gen, done, budget, onDone }
 let nextPrep = null, prepBox = null;
+// no background prep before this time (performance.now ms): set at a stage change, so the prep never
+// competes with the zoom-out, the camera glide or the battle's first seconds for the gpu
+let prepCalm = 0;
 function prepareNext(setup, mapReadyP) {
   if (nextPrep) nextPrep.cancelled = true;
   const job = nextPrep = { stage: idleNext.stage, seed: idleNext.seed, setup, battle: null, view: null, done: false, cancelled: false, pumping: false, budget: 2, onDone: null, mapReady: mapReadyP };
@@ -1354,6 +1407,7 @@ function prepareNext(setup, mapReadyP) {
 }
 function* prepSteps(job) {
   const { setup } = job;
+  job.mapKey = mapKey(mapOpts(setup));   // the worker keeps this map for the paint job
   job.battle = makeBattle(setup);   // takes the worker's map (fair starts + outlines done there)
   yield 'battle';
   // hidden container the size of the camera layer, so the view sizes itself like the live one
@@ -1368,14 +1422,25 @@ function* prepSteps(job) {
   yield* v.setMapSteps(job.battle.map, themeOf(setup));
   yield 'resized';
   v.paint(styleFor(job.battle));
+  // the drawing itself (static layers, every tile sprite) runs in the map worker; here its bitmaps
+  // are only uploaded, ~1 M px per frame. no worker / an error: drawn here in slices instead
+  const cols = job.battle.factions.map((f) => colors[f.color]);
+  let res;
+  // (the worker's copy of the map must be the one shown: not when the battle reshaped it)
+  (job.battle.map.outlines ? workerPaint(job.mapKey, themeOf(setup), v, cols, 0.16) : Promise.resolve(null)).then((r) => { res = r; });
+  while (res === undefined) yield 'wait';
+  if (res && res.size === v.size && res.dpr === v.dpr) yield* v.takePaintSteps(res);
   yield* v.prepSteps();
   // gpu: each composite drawn once into a 1 px canvas, so the gpu rasterises it now (one per
   // frame), not all at once on the reveal's first frame
   const probe = document.createElement('canvas').getContext('2d');
-  for (const L of [v.under, v.layerGround, v.layerOwner, v.layerObjects]) { if (L) probe.drawImage(L, 0, 0, 1, 1); yield 'probe'; }
+  for (const L of [v.under, v.layerGround, v.layerOwner, v.layerObjects]) { if (L) probe.drawImage(L, 0, 0, 1, 1); yield 'gpu probe'; }
   // the sprites startBattle's prewarm would make right after the swap (all sides' overlays, trees)
-  for (const j of v.warmJobs(job.battle.factions.map((f) => colors[f.color]), 0.16)) { j(); yield 'warm'; }
-  // troop figures at the new map's scale: one hidden draw of the units makes their sprites
+  yield* v.warmSteps(job.battle.factions.map((f) => colors[f.color]), 0.16);
+  // troop figures at the new map's scale: their places per tile (a tile per step), then one hidden
+  // draw of the units makes their sprites
+  const { sp } = unitLook(v, job.battle);
+  for (const s of job.battle.segs) { v.troopSpots(s.id, sp); yield 'troops'; }
   const scratch = document.createElement('canvas').getContext('2d');
   drawUnits(scratch, v, job.battle, 0, false);
   yield 'units';
@@ -1387,8 +1452,10 @@ function pumpPrep(job) {
   job.pumping = true;
   const tick = () => requestAnimationFrame(() => setTimeout(() => {
     if (job.cancelled || mode !== 'idle') { job.pumping = false; job.cancelled = true; return; }
+    // stage change running: wait (unless the zoom-out itself is waiting for this job)
+    if (!job.onDone && (zooming || performance.now() < prepCalm)) { tick(); return; }
     const t0 = performance.now();
-    while (performance.now() - t0 < job.budget) if (job.gen.next().done) { job.done = true; break; }
+    while (performance.now() - t0 < job.budget) { const r = job.gen.next(); if (r.done) { job.done = true; break; } if (gpuStep(r.value)) break; }
     if (job.done) { job.pumping = false; job.onDone?.(); } else tick();
   }, 0));
   tick();
@@ -2548,6 +2615,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, get nextPrep() { return nextPrep; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

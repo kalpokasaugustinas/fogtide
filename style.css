@@ -639,7 +639,13 @@ html.compact .hub-horn { width: 78px; height: 48px; } html.compact .hub-horn svg
   animation: twirl var(--twirl-a, 480s) linear infinite; will-change: transform; }
 .fog-twirl.b { background-size: 980px 980px; opacity: var(--twirl-alpha, 0.35);
   animation-duration: var(--twirl-b, 340s); animation-direction: reverse; }
-.fog-twirl ~ canvas { position: relative; }   /* paint the map above the fog layers */
+/* idle zoom-out: gold glow behind the shrunk island (main.js zoomOut sets place, size, opacity) */
+.zoom-halo { position: absolute; transform: translate(-50%, -50%); opacity: 0; pointer-events: none; will-change: opacity, scale;
+  background: radial-gradient(closest-side, rgba(255, 214, 100, 0.95), rgba(255, 200, 80, 0.45) 55%, rgba(255, 200, 80, 0) 100%); }
+/* static fog texture under the twirl layers, its own layer: the idle zoom-out scales / drifts it */
+.fog-base { position: absolute; left: 50%; top: 50%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax;
+  background: center / 720px 720px repeat; pointer-events: none; scale: var(--fog-zoom, 1); translate: var(--fog-drift, 0 0); will-change: transform; }
+.fog-base ~ canvas, .fog-twirl ~ canvas { position: relative; }   /* paint the map above the fog layers */
 @keyframes twirl { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .fog-twirl { animation: none; } }
 
