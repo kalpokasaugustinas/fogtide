@@ -1,10 +1,10 @@
 // map generation off the main thread: the conquest pre-builds the next stage's map in here while
 // the perk card is up (main.js preloadMap), so the next stage starts without a pause
-import { generateMap, spreadStarts, equalizeStarts, rng } from './mapgen.js?v=129';
-import { mapOutlines } from './outline.js?v=129';
-import { groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=129';
-import { themes } from './config.js?v=129';
-import { paintInWorker } from './render.js?v=129';
+import { generateMap, spreadStarts, equalizeStarts, rng } from './mapgen.js?v=130';
+import { mapOutlines } from './outline.js?v=130';
+import { groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=130';
+import { themes } from './config.js?v=130';
+import { paintInWorker } from './render.js?v=130';
 
 // the last few maps sent, by key: a paint job (below) draws the view of one of them
 const maps = new Map();

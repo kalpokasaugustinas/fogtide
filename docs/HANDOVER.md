@@ -18,7 +18,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Idle fog reward per kill is divided by the enemy growth factor (otherwise the player out-scaled enemies).
 - Idle panel opens in battle on the right (tabs Upgrades / War Council): map canvas slides left + scales to 0.56, battle keeps running; panel hides the bottom HUD with `inert`; panel zoom `--pz` never exceeds the window.
 - Upgrade tree has 4 branches (Offense, Defense, Growth, Fog); the old Command branch is the War Council. Archers come only from the Marksman general.
-- War Council: 4 seats, generals unlocked with Mist only, in any order (price rises per unlock), promoted with Fog. Warlord attacks enemies only (neutrals are the Pathfinder's job). Rejected: Siegemaster (too strong), wizard / pirate generals, a barbarian look (same as viking). Field Surgeon = 1% revive chance per lost foglet at level 1.
+- War Council: 4 seats, generals unlocked with Mist only, in any order (price rises per unlock), promoted with Fog. Warlord attacks enemies only (neutrals are the Pathfinder's job). Rejected: Siegemaster (too strong), wizard / pirate generals, a barbarian look (same as viking). Field Surgeon = 1% revive chance per lost foglet at level 1. Council effects (hound dash + claws, drum rings + countdown, revive cross) are canvas fxs in main.js drawFx, fed by battle events 'hounds' / 'drum' / 'revive' from idle.js. Fogtide: rebuild the desktop exe after every change (user tests the exe).
 - x1 speed only (no 2x/3x). No battle-start horn (user found it unnerving).
 - localStorage keys stay `frontlines.*` and the GoatCounter code stays `fogfront` (renames would wipe saves/stats).
 

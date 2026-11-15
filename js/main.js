@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=129';
-import { generateMap, rng } from './mapgen.js?v=129';
-import { initAnalytics, track } from './analytics.js?v=129';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=129';
-import { Battle } from './battle.js?v=129';
-import { personalities } from './ai.js?v=129';
-import { Campaign } from './campaign.js?v=129';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=129';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=129';
-import { drawGeneral } from './generals.js?v=129';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=129';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=129';
-import { previewBuildings } from './structures.js?v=129';
-import { initTune, tuneChanges } from './tune.js?v=129';
-import { initFogNoise } from './fogui.js?v=129';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=130';
+import { generateMap, rng } from './mapgen.js?v=130';
+import { initAnalytics, track } from './analytics.js?v=130';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=130';
+import { Battle } from './battle.js?v=130';
+import { personalities } from './ai.js?v=130';
+import { Campaign } from './campaign.js?v=130';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=130';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=130';
+import { drawGeneral } from './generals.js?v=130';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=130';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=130';
+import { previewBuildings } from './structures.js?v=130';
+import { initTune, tuneChanges } from './tune.js?v=130';
+import { initFogNoise } from './fogui.js?v=130';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -2338,6 +2338,26 @@ function star(ctx, x, y, r) {
   ctx.quadraticCurveTo(x, y, x - r, y); ctx.quadraticCurveTo(x, y, x, y - r);
   ctx.fill();
 }
+// small text drawn on the map with a pale halo (fx numbers)
+function fxText(ctx, text, x, y, fs, color) {
+  ctx.font = `600 ${Math.round(fs * 0.85)}px 'Josefin Sans', sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(2, fs * 0.22); ctx.strokeStyle = 'rgba(238,239,233,0.9)'; ctx.lineJoin = 'round';
+  ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+// running hound silhouette (side view, faces dir), size ~ body length
+function houndMark(ctx, x, y, r, dir, a) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1); ctx.globalAlpha = a;
+  ctx.fillStyle = '#6e604f';
+  ctx.fillRect(-r, -r * 0.45, r * 1.6, r * 0.5);                  // body
+  ctx.fillRect(r * 0.45, -r * 0.85, r * 0.55, r * 0.5);           // head
+  ctx.fillRect(r * 0.9, -r * 0.7, r * 0.35, r * 0.25);            // snout
+  ctx.fillRect(r * 0.45, -r * 1.0, r * 0.18, r * 0.25);           // ear
+  ctx.strokeStyle = '#6e604f'; ctx.lineWidth = r * 0.16; ctx.lineCap = 'round';
+  const sw = Math.sin(performance.now() / 40) * r * 0.3;
+  for (const lx of [-r * 0.8, r * 0.4]) { ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx + sw, r * 0.45); ctx.moveTo(lx + r * 0.2, 0); ctx.lineTo(lx + r * 0.2 - sw, r * 0.45); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(-r, -r * 0.35); ctx.lineTo(-r * 1.4, -r * 0.75); ctx.stroke();   // tail
+  ctx.restore();
+}
 function drawFx(ctx, fs) {
   const now = performance.now();
   fxs = fxs.filter((f) => now - f.born < (f.life ?? 1.2) * 1000 + 100);
@@ -2380,6 +2400,39 @@ function drawFx(ctx, fs) {
       ctx.strokeStyle = 'rgba(255, 220, 130, 0.9)';
       ctx.stroke(p);
       ctx.restore();
+    } else if (f.kind === 'hound') {
+      // a hound dashes from the target tile to the army (0.45 s), then three claw marks and the
+      // foglets it bit off float up
+      const fr = battle.segs[f.from], ax = bv.sx(s.x + (fr.x - s.x) * (1 - f.t)), ay = bv.sy(s.y + (fr.y - s.y) * (1 - f.t));
+      const run = Math.min(1, age / 0.45), hx = x + (ax - x) * run, hy = y + (ay - y) * run - Math.abs(Math.sin(age * 22)) * fs * 0.25;
+      if (age < 0.65) houndMark(ctx, hx, hy, fs * 0.95, ax >= x ? 1 : -1, Math.min(1, (0.65 - age) / 0.15));
+      if (age > 0.4) {
+        const k = Math.min(1, (age - 0.4) / 1.2);
+        ctx.globalAlpha = 1 - k;
+        ctx.strokeStyle = '#8e2a22'; ctx.lineWidth = Math.max(2.5, fs * 0.2); ctx.lineCap = 'round';
+        for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(ax - fs * 0.8 + i * fs * 0.5, ay - fs * 0.9); ctx.quadraticCurveTo(ax + i * fs * 0.5, ay - fs * 0.2, ax + fs * 0.6 + i * fs * 0.5, ay + fs * 0.8); ctx.stroke(); }
+        fxText(ctx, `−${num(f.n)}`, ax, ay - fs * (1.6 + 1.2 * k), fs * 1.3, '#8e2a22');
+      }
+    } else if (f.kind === 'drum') {
+      // drum roll: soft ink rings beat out from every tile you hold, two beats a second, fading out
+      const k = age / f.life;
+      ctx.lineWidth = Math.max(2, fs * 0.16); ctx.strokeStyle = '#232a2c';
+      const beat = (age * 2) % 1;
+      for (const t of battle.segs) {
+        if (t.owner !== 0) continue;
+        ctx.globalAlpha = 0.6 * (1 - beat) * (1 - k * 0.5);
+        ctx.beginPath(); ctx.ellipse(bv.sx(t.x), bv.sy(t.y), fs * (1.2 + 2.4 * beat), fs * (0.65 + 1.3 * beat), 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      // label over the island while the roll lasts
+      ctx.globalAlpha = Math.min(1, age / 0.2, (f.life - age) / 0.4);
+      fxText(ctx, `War drums · march and growth +${Math.round(15 + 5 * idle.on('drummer'))}% · ${Math.ceil(f.life - age)} s`, bv.canvas.clientWidth / 2, 96, fs * 1.25, '#232a2c');   // just under the top bar
+    } else if (f.kind === 'revive') {
+      // revived foglets: a small white cross with a red heart rises from the tile, + count
+      const k = age / f.life, cy = y - fs * (1.2 + 1.8 * k), r = fs * 0.55;
+      ctx.globalAlpha = Math.min(1, age / 0.15) * (1 - k);
+      ctx.fillStyle = '#f2efe4'; ctx.fillRect(x - r * 0.35, cy - r, r * 0.7, r * 2); ctx.fillRect(x - r, cy - r * 0.35, r * 2, r * 0.7);
+      ctx.fillStyle = '#c03030'; ctx.fillRect(x - r * 0.18, cy - r * 0.8, r * 0.36, r * 1.6); ctx.fillRect(x - r * 0.8, cy - r * 0.18, r * 1.6, r * 0.36);
+      fxText(ctx, `+${num(f.n)}`, x + fs * 1.5, cy, fs * 1.25, '#2f6a35');
     } else if (f.kind === 'star') {
       // twinkle: grows and shrinks while drifting up a little
       const k = age / f.life, r = fs * 0.55 * f.size * Math.sin(Math.PI * Math.min(1, k));
@@ -2581,6 +2634,12 @@ function playBattleSounds(dt) {
     }
     // you took a tile: cheer + confetti
     if (e.type === 'capture' && e.owner === 0 && e.id !== undefined) { sfx.cheer(); celebrate(e.id); tutorEvent('capture'); }
+    // war council: a hound runs out from the target tile and bites the army; the drummer's roll
+    // pulses rings from your tiles; a revived foglet rises as a small cross over its tile
+    const now = performance.now();
+    if (e.type === 'hounds') { fxs.push({ kind: 'hound', id: e.to, from: e.from, t: e.t, n: e.n, born: now, life: 1.6 }); if (shoutCool <= 0) { sfx.bark(); shoutCool = 0.25; } }
+    if (e.type === 'drum') { sfx.warDrum(); fxs.push({ kind: 'drum', id: 0, born: now, life: council.drumFor / rules.timeScale }); }
+    if (e.type === 'revive' && !fxs.some((f) => f.kind === 'revive' && f.id === e.id && now - f.born < 600)) { fxs.push({ kind: 'revive', id: e.id, n: e.n, born: now, life: 1.4 }); sfx.revive(); }
   }
   if (paused || battle.state !== 'running') return;
   const marching = battle.armies.filter((a) => !a.fight && !a.clash), fights = battle.armies.filter((a) => a.fight || a.clash).length;

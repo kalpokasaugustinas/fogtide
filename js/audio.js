@@ -189,6 +189,10 @@ export const sfx = {
     noise({ type: 'highpass', freq: 7000, vol: 0.05, dur: 0.7, attack: 0.03, when: 0.3 });
   },
   click() { play('click', { vol: 0.5, jitter: 0.05 }); },
+  // war council: drummer's roll (4 low thumps, the last one louder), a hound's bark, a soft revive chime
+  warDrum() { [0, 0.18, 0.36, 0.6].forEach((w, i) => { noise({ when: w, dur: 0.22, type: 'lowpass', freq: 140, q: 0.8, vol: i === 3 ? 0.55 : 0.35 }); note({ when: w, freq: 70, dur: 0.2, type: 'sine', vol: i === 3 ? 0.35 : 0.22, glide: 0.6 }); }); },
+  bark() { note({ freq: 520, dur: 0.12, type: 'sawtooth', vol: 0.07, glide: 0.55, cutoff: 1400 }); note({ when: 0.16, freq: 480, dur: 0.1, type: 'sawtooth', vol: 0.05, glide: 0.55, cutoff: 1400 }); },
+  revive() { note({ freq: 660, dur: 0.25, vol: 0.08 }); note({ when: 0.1, freq: 990, dur: 0.35, vol: 0.06 }); },
   // idle fog horn collected: a long low war-horn blow rising a fifth, with breath noise
   horn() {
     note({ freq: 110, type: 'sawtooth', vol: 0.1, dur: 0.5, attack: 0.08, cutoff: 900 });

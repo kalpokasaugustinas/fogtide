@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=129';
-import { rng, hops } from './mapgen.js?v=129';
-import { effects, rules } from './config.js?v=129';
+import { personalities, pickBuilding } from './ai.js?v=130';
+import { rng, hops } from './mapgen.js?v=130';
+import { effects, rules } from './config.js?v=130';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -185,7 +185,7 @@ export const generals = [
     sum: (o) => ['every 30 s', 'with attacks', 'when attacked'][o.when] },
   { id: 'houndmaster', name: 'Houndmaster', role: 'War hounds', quote: 'They smell an army before I see it.',
     orders: [{ key: 'range', label: 'Hunt armies marching at', type: 'pick', opts: ['Your tiles', '+1 tile out', '+2 tiles out'], def: 0 }],
-    text: (l) => `Hounds run at enemy armies halfway to your land and bite off ${pct(0.08 + 0.02 * l)} of them.`,
+    text: (l) => `Hounds run at enemy armies halfway to your border and bite off ${pct(0.08 + 0.02 * l)} of them.`,
     sum: (o) => ['at your tiles', '1 tile out', '2 tiles out'][o.range] },
   { id: 'surgeon', name: 'Field Surgeon', role: 'Revive', quote: 'Not dead. Just resting.',
     orders: [{ key: 'to', label: 'Send them back to', type: 'pick', opts: ['Capital', 'Front line'], def: 0 }],
@@ -406,7 +406,7 @@ export class Idle {
     const used = new Set();   // tiles that already sent / built this step
     // passive generals (always on)
     this.drumTick(b);
-    if (due('houndmaster')) this.hounds(b);
+    if (this.on('houndmaster')) this.hounds(b);   // every step: armies only spend a moment in range
     this.revive(b, mine);
     if (!this.auto) return;
     // already on the way: our strength (foglets x attack) per target, foglets marching in to help it
@@ -514,13 +514,13 @@ export class Idle {
     refresh();
   }
 
-  // houndmaster: enemy armies past halfway to one of our tiles (or a tile 1-2 steps out) lose a
+  // houndmaster: enemy armies halfway to the border of one of our tiles (or a tile 1-2 steps out) lose a
   // share of their foglets once (counts as killed: Fog)
   hounds(b) {
     const l = this.on('houndmaster'), reach = this.ord('houndmaster').range, bite = 0.08 + 0.02 * l;
     const dist = reach ? hops(b.map, b.segs.filter((s) => s.owner === 0).map((s) => s.id)) : null;
     for (const a of b.armies) {
-      if (a.done || a.owner <= 0 || a.hounded || a.t < 0.5 || a.fight || a.clash) continue;
+      if (a.done || a.owner <= 0 || a.hounded || a.t < 0.35 || a.fight || a.clash) continue;
       const t = b.segs[a.to];
       if (!(t.owner === 0 || (dist && dist[t.id] <= reach))) continue;
       const k = a.n * bite;
