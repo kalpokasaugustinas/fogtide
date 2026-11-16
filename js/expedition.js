@@ -7,9 +7,9 @@
 //   - pick 1 of 3 perks
 // bots scale with you: base troops + 70% of your carried people, and capitals with the same
 // total bonus strength in a random mix. losing a stage ends the run.
-import { effects } from './config.js?v=136';
-import { personalities } from './ai.js?v=136';
-import { rng } from './mapgen.js?v=136';
+import { effects } from './config.js?v=137';
+import { personalities } from './ai.js?v=137';
+import { rng } from './mapgen.js?v=137';
 
 export const stages = [
   { name: 'Valley', detail: 1, cells: 12, bots: 1, shape: 'random', neutral: [0.12, 0.3] },
@@ -56,6 +56,8 @@ export function combineMods(list) {
 const best_key = 'frontlines.expedition.best';
 const runs_key = 'frontlines.conquest.runs';
 const save_key = 'frontlines.conquest.save';   // the run in progress (start of its current stage)
+// conquest left the menu (2026-11-16, campaign rework): drop its saved data once
+try { for (const k of [best_key, runs_key, save_key]) localStorage.removeItem(k); } catch { /* storage blocked */ }
 
 // conquest score, per stage; w = stage number (1-5), so later, harder stages count more:
 //   clear   500 x w                       (stage won)

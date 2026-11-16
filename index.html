@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=136">
-  <link rel="stylesheet" href="pc.css?v=136">
+  <link rel="stylesheet" href="style.css?v=137">
+  <link rel="stylesheet" href="pc.css?v=137">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -142,7 +142,7 @@
       <button id="btn-profile" class="round" title="Commander: your colour, foglets and buildings">👤</button>
       <button id="btn-sfx" class="round toggle" title="Sound">🔊</button>
       <button id="btn-music" class="round toggle" title="Music">🎵</button>
-      <button id="btn-board" class="round" title="Conquest leaderboard">🏅</button>
+      <button id="btn-board" class="round hidden" title="Conquest leaderboard">🏅</button>
       <button id="btn-help" class="round" title="How to play">❔</button>
       <button id="btn-settings" class="round" title="Settings (Esc)">⚙️</button>
     </header>
@@ -156,19 +156,19 @@
       </div>
       <div class="modes">
         <button id="btn-campaign" class="mode hidden"><span class="m-txt"><b>Campaign</b><small id="m-campaign">34 regions · 4 empires</small></span></button>
-        <button id="btn-expedition" class="mode"><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span></button>
-        <button id="btn-idle" class="mode"><span class="m-txt"><b>Idle</b><small id="m-idle">Endless zoom-out · upgrades</small></span></button>
+        <button id="btn-expedition" class="mode hidden"><span class="m-txt"><b>Conquest</b><small id="m-expedition">Valley → World roguelite</small></span></button>
+        <button id="btn-idle" class="mode"><span class="m-txt"><b>Campaign</b><small id="m-idle">Light the obelisks · drive back the Fog</small></span></button>
         <button id="btn-skirmish" class="mode"><span class="m-txt"><b>Skirmish</b><small>Random island · 3 rivals</small></span></button>
       </div>
       <div class="modes sub">
         <button id="m-profile" class="mode"><span class="m-txt"><b>Commander</b></span></button>
-        <button id="m-board" class="mode"><span class="m-txt"><b>Leaderboard</b></span></button>
+        <button id="m-board" class="mode hidden"><span class="m-txt"><b>Leaderboard</b></span></button>
         <button id="m-help" class="mode"><span class="m-txt"><b>How to play</b></span></button>
         <button id="m-settings" class="mode"><span class="m-txt"><b>Settings</b></span></button>
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 136 · 2026-11-16 10:27</span>
+    <span id="version">build 137 · 2026-11-16 10:36</span>
   </section>
 
   <!-- campaign world map -->
@@ -199,7 +199,7 @@
       <span class="item fog"><svg class="i"><use href="#i-time"/></svg><b id="clock">0:00</b></span>
       <span class="item fog"><svg class="i"><use href="#i-land"/></svg>Land <b id="hud-land">0 / 0</b></span>
       <span class="item fog"><svg class="i"><use href="#i-troops"/></svg>Foglets <b id="hud-troops">0</b> <span class="muted" id="hud-rate"></span></span>
-      <span id="idle-fogs" class="item fog hidden" title="Fog: spend it on upgrades. +/s = Fog from beaten foglets and fog wells, average of the last 10 s (stage bonuses not included)"><svg class="i"><use href="#i-fog"/></svg>Fog <b>0</b> <span class="muted" id="idle-fog-rate"></span></span>
+      <span id="idle-fogs" class="item fog hidden" title="Wisp: spend it on upgrades. +/s = Wisp from beaten foglets and wisp wells, average of the last 10 s (stage bonuses not included)"><svg class="i"><use href="#i-fog"/></svg>Wisp <b>0</b> <span class="muted" id="idle-fog-rate"></span></span>
       <span id="idle-mist" class="item fog hidden" title="Mist: dropped by bosses, buys the advanced upgrades"><svg class="i"><use href="#i-mist"/></svg>Mist <b>0</b></span>
       <span class="grow"></span>
       <button id="test-fill" class="ibtn fog" title="Test: fill all my tiles to their cap">F</button>
@@ -357,11 +357,10 @@
         <li>Each segment can hold one building, paid with its own foglets. Captured buildings switch sides.</li>
       </ul>
       <ul id="help-buildings"></ul>
-      <p><b>🧭 Conquest</b> (roguelite): 5 stages from a valley to the whole world. Win a stage and everything you hold collapses into one capital on a bigger map: all your people come along (the capital fills up, the rest waits in a 🏕️ reserve), and each building type becomes a capital bonus = its effect × the share of your segments that had it (4 farms of 10 segments → +60% × 40% = +24% growth). Nothing can be built in a capital. Bots start with part of your strength and their own capitals. Pick a perk at every zoom-out. Lose once and the run ends.</p>
-      <p><b>🌫️ Idle</b>: endless zoom-out. Every defeated foglet gives 🌫️ Fog, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree during a run (Upgrade or U): the island slides up and keeps fighting, upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Fog x2). The ⚔️ War Council (tab next to the upgrades, or C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Fog. Lose a stage and the run ends; your Fog, Mist and upgrades stay.</p>
+      <p><b>🌫️ Campaign</b>: zoom out stage by stage. Every defeated foglet gives 🌫️ Wisp, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree during a run (Upgrade or U): the island slides up and keeps fighting, upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (tab next to the upgrades, or C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. Lose a stage and the run ends; your Wisp, Mist and upgrades stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
-      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = idle upgrades, C = war council, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
+      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = upgrades, C = war council, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
       <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
       <button id="help-feedback">💬 Send feedback</button>
       <button id="help-close" class="primary">Got it</button>
@@ -369,6 +368,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=136"></script>
+  <script type="module" src="js/main.js?v=137"></script>
 </body>
 </html>

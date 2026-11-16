@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=136';
-import { generateMap, rng } from './mapgen.js?v=136';
-import { initAnalytics, track } from './analytics.js?v=136';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=136';
-import { Battle } from './battle.js?v=136';
-import { personalities } from './ai.js?v=136';
-import { Campaign } from './campaign.js?v=136';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=136';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=136';
-import { drawGeneral } from './generals.js?v=136';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=136';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=136';
-import { previewBuildings } from './structures.js?v=136';
-import { initTune, tuneChanges } from './tune.js?v=136';
-import { initFogNoise } from './fogui.js?v=136';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=137';
+import { generateMap, rng } from './mapgen.js?v=137';
+import { initAnalytics, track } from './analytics.js?v=137';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=137';
+import { Battle } from './battle.js?v=137';
+import { personalities } from './ai.js?v=137';
+import { Campaign } from './campaign.js?v=137';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=137';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=137';
+import { drawGeneral } from './generals.js?v=137';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=137';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=137';
+import { previewBuildings } from './structures.js?v=137';
+import { initTune, tuneChanges } from './tune.js?v=137';
+import { initFogNoise } from './fogui.js?v=137';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1124,7 +1124,7 @@ function endBattle() {
   $('end-retry').classList.toggle('hidden', won && mode !== 'skirmish');
   // quick battle: play again or withdraw to the menu (no 'continue': there is nothing to continue)
   $('end-continue').textContent = mode === 'skirmish' ? 'Withdraw' : won ? 'Continue' : 'Menu';
-  if (mode === 'tutorial') $('end-continue').textContent = afterTutor === startExpedition ? '▶ Conquest' : afterTutor === startIdle ? '▶ Idle' : afterTutor ? '▶ Quick battle' : 'Menu';
+  if (mode === 'tutorial') $('end-continue').textContent = afterTutor === startExpedition ? '▶ Conquest' : afterTutor === startIdle ? '▶ Campaign' : afterTutor ? '▶ Quick battle' : 'Menu';
   withdrawLook();
   showEnd(won, won ? battle : null);
   setTrack(won ? 'victory' : 'defeat');
@@ -1560,7 +1560,7 @@ function takePrep(stage, seed) {
 }
 
 function startIdle() {
-  track('play-idle');
+  track('play-campaign');
   idle = idle ?? Idle.load();
   if (idle.stage > 1) flash(`🌫️ Stage ${idle.stage}`, 1800);
   startBattle(idle.setup(), 'idle');
@@ -1571,7 +1571,7 @@ function startIdle() {
 function idleIntro() {
   const f = battle.factions.find((x) => x.boss || x.ghost);
   if (f?.boss) flash('👑 Boss stage: one rival is much stronger · stage bonus x3', 2600);
-  else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · Fog x2 this stage`, 2600);
+  else if (f?.ghost) flash(`👤 ${f.name}'s army (sample profile) · Wisp x2 this stage`, 2600);
 }
 
 // every frame of a running idle battle: Fog for newly defeated foglets (fights and arrows) and
@@ -1671,11 +1671,11 @@ function endIdleStage(won) {
   const secs = battle.time / rules.timeScale;
   if (won) {
     const { bonus, mist } = idle.win(secs), stamp = islandShape(battle);
-    if (idleMilestones.has(idle.stage)) track(`idle-stage-${idle.stage}`);
-    if (mist) track(`idle-boss-${idle.stage - 1}`);
+    if (idleMilestones.has(idle.stage)) track(`campaign-stage-${idle.stage}`);
+    if (mist) track(`campaign-boss-${idle.stage - 1}`);
     idle.save();
     const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
-    flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Fog` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
+    flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Wisp` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
     sfx.perk();
     fogRise($('idle-shop-btn'));
     bv.setStorm(false);   // the storm clears as the boss falls
@@ -1697,7 +1697,7 @@ function endIdleStage(won) {
   $('end-title').textContent = 'Run over';
   $('end-stats').innerHTML = (battle.closedIn ? '<p class="next-up">🌫️ The fog closed in: the bigger army took the island</p>' : '')
     + `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
-    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Fog this run · <b>${fmtBig(idle.fogs)}</b> Fog`
+    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this run · <b>${fmtBig(idle.fogs)}</b> Wisp`
     + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend next run</div></div>`
     + statsHtml(battle);
   $('end-perks').innerHTML = '';   // Fog is spent during the next run (Upgrade in the top bar)
@@ -1714,8 +1714,8 @@ function endIdleStage(won) {
 function trackIdleRun(run) {
   const stage = [1, 2, 3, 5, 10, 15, 20, 30, 50, 100].filter((s) => run.reached >= s).pop();
   const mins = [0, 1, 3, 5, 10, 20, 30, 60].filter((m) => run.secs / 60 >= m).pop();
-  track(`idle-run-stage-${stage}plus`);
-  track(`idle-run-${mins}min-plus`);
+  track(`campaign-run-stage-${stage}plus`);
+  track(`campaign-run-${mins}min-plus`);
 }
 
 // upgrades + war council in one panel on the right: the island slides left, shrinks and keeps
@@ -1771,7 +1771,7 @@ function toggleShop(tab = 'up') {
 function renderShop() {
   const key = shopTab + upgrades.map((u) => `${idle.lvl(u.id)}${idle.canBuy(u.id) ? 1 : 0}`).join('') + idle.stage + shopSel + idle.best + genSel + genPick
     + JSON.stringify([idle.gens, idle.seats, idle.orders, idle.mist, generals.map((g) => idle.canPromote(g.id))]);
-  $('shop-fogs').innerHTML = `Fog <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
+  $('shop-fogs').innerHTML = `Wisp <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
   if (key === shopKey || ordDrag) return;
   shopKey = key;
   $('shop-title').textContent = shopTab === 'up' ? 'Upgrades' : 'War Council';
@@ -1812,7 +1812,7 @@ function renderShopDetail() {
   const now = l ? u.text(u.value(l), sc, idle) : '', next = u.text(u.value(l + 1), sc, idle);
   const needs = (u.needs ?? []).map(([n, lv]) => `<span class="${idle.lvl(n) >= lv ? 'ok' : ''}">${upgradeById[n].name} ${lv}</span>`).join(', ');
   const what = maxed ? `${now} · <b>max</b>` : l ? `${now} → <b>${next}</b>` : `<b>${next}</b>`;
-  const br = branches.find((b) => b.id === u.branch), cur = u.cur === 'mist' ? 'Mist' : 'Fog';
+  const br = branches.find((b) => b.id === u.branch), cur = u.cur === 'mist' ? 'Mist' : 'Wisp';
   const btn = maxed ? '<button class="up-buy" disabled>Max level</button>'
     : idle.locked(u.id) ? '<button class="up-buy" disabled>Locked</button>'
     : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>Buy · ${fmtBig(idle.cost(u.id))} ${cur}</button>`;
@@ -1854,7 +1854,7 @@ function renderCouncil() {
     const maxed = lv >= council.maxLv;
     act = (orders ? `<p class="ordh">Orders</p>${orders}` : '')
       + `<p class="d-needs">${maxed ? 'Max level' : `Next level: acts every ${(1 / (1 + 0.25 * lv)).toFixed(2).replace(/0$/, '')} s${g.id === 'marksman' || g.id === 'drummer' || g.id === 'houndmaster' || g.id === 'surgeon' ? ', stronger' : ''}`}</p>`
-      + `<div class="d-act">${maxed ? '' : `<button class="up-buy" id="gen-promote" ${idle.canPromote(g.id) ? '' : 'disabled'}>Promote · ${fmtBig(idle.promoteCost(g.id))} Fog</button>`}`
+      + `<div class="d-act">${maxed ? '' : `<button class="up-buy" id="gen-promote" ${idle.canPromote(g.id) ? '' : 'disabled'}>Promote · ${fmtBig(idle.promoteCost(g.id))} Wisp</button>`}`
       + `<button class="lnk" id="gen-seat">${at >= 0 ? 'Dismiss' : 'Give a seat'}</button></div>`;
   }
   h += `<div class="gen-card"><span class="d-tag">${g.role}${at >= 0 ? ` · seat ${seatNames[at]}` : ''}</span>
@@ -1892,7 +1892,7 @@ function renderCouncil() {
   for (const c of el.querySelectorAll('.chips button')) c.onclick = () => { sfx.click(); idle.setOrder(genSel, c.dataset.ord, +c.dataset.v); idle.save(); renderShop(); };
   if ($('gen-unlock')) $('gen-unlock').onclick = () => {
     if (!idle.unlock(genSel)) return;
-    sfx.build(); track(`idle-general-${genSel}`);
+    sfx.build(); track(`campaign-general-${genSel}`);
     // straight into an empty open seat if there is one, else pick a seat
     const free = idle.seats.findIndex((x, i) => !x && idle.seatOpen(i));
     if (free >= 0) idle.seat(free, genSel); else genPick = genSel;
@@ -1918,7 +1918,7 @@ function councilChanged() {
 function buyUpgrade(id) {
   if (!idle.buy(id)) return;
   sfx.build();
-  if (idle.lvl(id) === 1) track(`idle-buy-${id}`);
+  if (idle.lvl(id) === 1) track(`campaign-buy-${id}`);
   // live: the running battle gets the new modifiers straight away (auto-play reads the levels itself)
   if (mode === 'idle' && battle && screen === 'battle') {
     battle.factions[0].mods = idle.mods();
@@ -2144,7 +2144,7 @@ function renderMenuStats() {
   $('m-expedition').textContent = run ? `Continue: stage ${run.stage + 1}/5` : best ? `Best: stage ${best.stage}/5` : 'Valley → World roguelite';
   const id = idle ?? Idle.load();
   renderHub();
-  $('m-idle').textContent = id.stage > 1 ? `Continue: stage ${id.stage} · 🌫️ ${fmtBig(id.fogs)}` : id.best ? `Best: stage ${id.best} · 🌫️ ${fmtBig(id.fogs)}` : 'Endless zoom-out · upgrades';
+  $('m-idle').textContent = id.stage > 1 ? `Continue: stage ${id.stage} · 🌫️ ${fmtBig(id.fogs)}` : id.best ? `Best: stage ${id.best} · 🌫️ ${fmtBig(id.fogs)}` : 'Light the obelisks · drive back the Fog';
 }
 const wins_key = 'frontlines.quickwins';
 function quickWins() { try { return +localStorage.getItem(wins_key) || 0; } catch { return 0; } }
@@ -2259,7 +2259,7 @@ $('battle-quit').onclick = () => {
   if (battle.state !== 'running') { closeShop(); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
-    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your Fog, Mist and upgrades are kept.`
+    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your Wisp, Mist and upgrades are kept.`
     : 'Are you sure you want to withdraw? Your progress in this battle will not be saved.';
   pausedBeforeLeave = paused;
   setSpeed(0);

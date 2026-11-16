@@ -108,45 +108,7 @@ try:
                 page.locator("#battle-canvas").screenshot(path=str(out / "buildings.png"))
                 page.evaluate("document.querySelectorAll('.screen').forEach(s => s.classList.toggle('hidden', s.id !== 'menu'))")
 
-            if name == "landscape":
-                # expedition: force-win every stage, pick perks, check carry-over and bot scaling
-                page.click("#btn-expedition")
-                page.wait_for_timeout(500)
-                for stage in range(5):
-                    # give the player a few buildings, then take every bot segment
-                    page.evaluate("__fl.skipCountdown()")
-                    page.evaluate("""(() => { const b = __fl.battle, types = ['farm', 'farm', 'lab', 'fort', 'barracks', 'hospital'];
-                      const free = b.segs.filter(s => !s.capital).slice(0, 6);
-                      free.forEach((s, i) => { s.owner = 0; s.building = types[i]; s.troops = 300; });
-                      for (const s of b.segs) if (s.owner > 0) s.owner = 0;
-                      b.armies = []; b.version++; b.updateGrowth(); })()""")
-                    page.wait_for_timeout(400)
-                    title = page.inner_text("#end-title")
-                    perks = page.locator("#end-perks .perk").count()
-                    print(f"expedition stage {stage + 1}: '{title}', perk choices: {perks}")
-                    if stage == 4:
-                        page.screenshot(path=str(out / "expedition-won.png"))
-                        break
-                    if stage == 0:
-                        page.screenshot(path=str(out / "expedition-card.png"))
-                    page.locator("#end-perks .perk").first.click()
-                    if stage == 0:
-                        # frames of the zoom-out: still frame, early, middle, late pull-back
-                        for i, ms in enumerate([1200, 1500, 1000, 900]):
-                            page.wait_for_timeout(ms)
-                            page.screenshot(path=str(out / f"expedition-zoom{i}.png"))
-                        page.wait_for_timeout(1000)
-                    else:
-                        page.wait_for_timeout(5400)
-                    info = page.evaluate("""(() => { const b = __fl.battle, e = __fl.expedition, me = b.segs[b.factions[0].capitalSeg];
-                      return { stage: e.stage + 1, segs: b.segs.length, capital_troops: Math.round(me.troops), reserve: Math.round(b.factions[0].reserve),
-                        bonus: Object.fromEntries(Object.entries(me.bonus).map(([k, v]) => [k, +v.toFixed(3)])),
-                        bot_capitals: b.factions.slice(1).map(f => Math.round(b.segs[f.capitalSeg].troops + f.reserve)), perks: e.perks }; })()""")
-                    print(f"  -> {info}")
-                    if stage == 3:
-                        page.screenshot(path=str(out / "expedition-world.png"))
-                page.evaluate("document.querySelectorAll('.screen').forEach(s => s.classList.toggle('hidden', s.id !== 'menu'))")
-                page.evaluate("document.getElementById('end').classList.add('hidden')")
+            # (conquest left the menu on 2026-11-16: its expedition run test is gone; idle_test covers the zoom-out)
 
             if name == "pc":
                 t0 = time.time()

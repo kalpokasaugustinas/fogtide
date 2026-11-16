@@ -27,6 +27,8 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Building spots rank by min(coast distance, tile-edge distance `bdist`), measured at the roof: borders, mountains and lakes all count (huts used to land on border lines / mountain walls).
 - Lake sparkles (`measureIsland`) only where the drawn spot (cell + lake drop) is open water and no mountain wall stands just below it.
 - Shop tabs have z-index 3: the upgrade tree (640x480, pointer-events auto) covered the tab row, so War Council only opened with C.
+- Campaign rework (2026-11-16, phases 1-6 in Context notes): Idle is shown as **Campaign**, its run currency as **Wisp** (internal names `idle`, `fogs`, save key `frontlines.idle` unchanged). Conquest + its leaderboard are hidden from the menu and its saves are cleared on load (expedition.js); its code stays because idle uses `islandShape` / `zoomOut`. Skirmish stays (future online multiplayer).
+- Campaign obelisks: idle battles set `capObelisks` / `homeLit`; styleFor turns a capital into `capital-fog` (bot, grey shine) or `capital-lit` (yours after stage 1). `capitalObelisk` (structures.js) puts it beside the keep (>= 4.4 u sideways, on dry land of the tile, off the number badge, skipping houses it would touch); terrainKeep clears trees there. Relic tiles show a mausoleum (the old relic obelisk became `drawObelisk`).
 - localStorage keys stay `frontlines.*` and the GoatCounter code stays `fogfront` (renames would wipe saves/stats).
 
 ## Tried and failed
@@ -36,6 +38,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Number badges redrawn each frame: main cause of idle stage-change lag (now sprite-cached).
 
 ## Known issues
+- `idle_test.py` sometimes fails with one `ERR_CONNECTION_REFUSED` console error (the local server starts after a fixed 1 s sleep); a re-run passes.
 - `tools/idle_economy_test.py`: boss Mist check fails and the Mist veil click times out (stale since the right-side panel, build 130); later checks don't run.
 - Skirmish bot sim seed 104 stalemated (>1200 game s) in the smoke test; check the quiet-end rule for skirmish.
 - Idle: stage 20 is a wall (2-3 h in); capped specials max out by run ~3 (thin late game).

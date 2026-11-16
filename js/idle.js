@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=136';
-import { rng, hops } from './mapgen.js?v=136';
-import { effects, rules } from './config.js?v=136';
+import { personalities, pickBuilding } from './ai.js?v=137';
+import { rng, hops } from './mapgen.js?v=137';
+import { effects, rules } from './config.js?v=137';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -80,7 +80,7 @@ export const branches = [
   { id: 'offense', icon: '⚔️', name: 'Offense', ang: -90, color: '#e2483d' },
   { id: 'defense', icon: '🛡️', name: 'Defense', ang: -18, color: '#2f74d6' },
   { id: 'growth', icon: '🌱', name: 'Growth', ang: 54, color: '#33b366' },
-  { id: 'fog', icon: '🌫️', name: 'Fog', ang: 126, color: '#16a3b5' },
+  { id: 'fog', icon: '🌫️', name: 'Wisp', ang: 126, color: '#16a3b5' },
 ];
 export const bridgeColor = '#e0961a';   // bridge nodes (between two branches) are gold
 export const upgrades = [
@@ -114,13 +114,13 @@ export const upgrades = [
   { id: 'evergreen', branch: 'growth', ring: 4, off: 0, cur: 'mist', or: true, needs: [['roots', 1], ['harvest', 1]], icon: '🌲', name: 'Evergreen', base: 2, grow: 2, max: 5, value: (l) => 1.05 ** l, text: (v) => `growth x${v.toFixed(2)} (on top of fertile fog)` },
   // fog: harvest, then the wells path and the hunters path
   // (scavengers -> bounty -> mist seeker); fog drift sits between them, then mistborn
-  { id: 'fog', branch: 'fog', ring: 0, off: 0, icon: '🧺', name: 'Fog harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Fog ${pctUp(v)}` },
-  { id: 'wells', branch: 'fog', ring: 1, off: -20, needs: [['fog', 2]], icon: '⛲', name: 'Fog wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Fog/s per tile held` : 'tiles you hold make Fog') },
-  { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Fog from beaten foglets ${pctUp(v)}` },
+  { id: 'fog', branch: 'fog', ring: 0, off: 0, icon: '🧺', name: 'Wisp harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Wisp ${pctUp(v)}` },
+  { id: 'wells', branch: 'fog', ring: 1, off: -20, needs: [['fog', 2]], icon: '⛲', name: 'Wisp wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Wisp/s per tile held` : 'tiles you hold make Wisp') },
+  { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Wisp from beaten foglets ${pctUp(v)}` },
   { id: 'bounty', branch: 'fog', ring: 2, off: 22, needs: [['scavengers', 2]], icon: '🏆', name: 'Bounty', base: 2700, grow: 2.5, max: 4, value: (l) => 1 + 0.05 * l, text: (v) => `stage clear bonus ${pctUp(v)}` },
   { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['wells', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
   { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
-  { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Fog x${v.toFixed(2)}` },
+  { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Wisp x${v.toFixed(2)}` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
   { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
   { id: 'sanctuary', branch: 'bridge', ring: 4, ang: 18, or: true, needs: [['medics', 1], ['engineers', 1]], icon: '⛪', name: 'Sanctuary', base: 27000, grow: 2.6, max: 5, value: (l) => 1.01 ** l, text: (v) => `growth and defense ${pctUp(v)}` },
