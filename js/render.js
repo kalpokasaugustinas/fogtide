@@ -5,10 +5,10 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=149';
-import * as structures from './structures.js?v=149';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=149';
-import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=149';
+import { themes, fogTwirl } from './config.js?v=150';
+import * as structures from './structures.js?v=150';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=150';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=150';
 export { mix };
 
 export function hexToRgb(hex) {
