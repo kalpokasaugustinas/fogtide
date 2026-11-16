@@ -110,7 +110,7 @@ try:
             check(page.evaluate("JSON.stringify(__fl.idle.ord('warlord'))") == '{"at":60,"prefer":1}', f"{name}: warlord orders set")
             page.wait_for_timeout(300)
             page.screenshot(path=str(out / f"idle-{name}-council.png"))
-            page.click("#shop-close")
+            page.evaluate("document.querySelector('#idle-shop-btn').click()")   # the upgrade button closes the panel (no close button)
             page.evaluate("document.querySelector('#idle-auto').click()")   # phone: the top bar can overflow 844 px
             check(not page.evaluate("__fl.idle.autoOn"), f"{name}: auto toggle off")
             page.evaluate("document.querySelector('#idle-auto').click()")   # phone: the top bar can overflow 844 px
@@ -151,6 +151,7 @@ try:
             check(mist1 == mist0 + 2 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 2 Mist on the first clear ({mist0} -> {mist1})")
             # legacy tab: the permanent Mist nodes, no prerequisites
             page.evaluate("__fl.idle.mist += 3")
+            page.wait_for_function("!__fl.zooming && __fl.battle.state === 'running'", timeout=20000)   # light-up + zoom-out done
             page.keyboard.press("l")
             page.wait_for_timeout(700)
             lg = page.evaluate("({ title: document.querySelector('#shop-title').textContent, nodes: [...document.querySelectorAll('#shop-tree .node')].map((n) => n.dataset.id), veiled: document.querySelectorAll('#shop-tree .node.veiled').length })")
@@ -180,33 +181,27 @@ try:
             mig = page.evaluate("""(() => { const I = __fl.idle.constructor; const o = new I({ fogs: 0, mist: 0, levels: { atk: 3, auto: 2, archers: 1, sharpeye: 1, reinforce: 1 } });
               return { fogs: o.fogs, mist: o.mist, seats: o.seats, gens: o.gens, levels: o.levels }; })()""")
             check(mig["fogs"] == 40 + 104 + 1400 + 700 and mig["mist"] == 1 and mig["seats"][:2] == ["warlord", "marksman"] and "auto" not in mig["levels"], f"{name}: old command upgrades refunded, warlord + marksman seated ({mig})")
-            # lose at stage 2: hand every player tile to bot 1 -> pushed back to stage 1 (3 back, min 1)
-            page.evaluate("""(() => { const b = __fl.battle; for (const s of b.segs) if (s.owner === 0) s.owner = 1;
+            # lose at stage 2: hand every player tile to bot 1 -> the campaign is lost, a new one begins
+            page.evaluate("""(() => { const id = __fl.idle; id.levels.mistblades = 1; id.gens.warlord = 3;
+              const b = __fl.battle; for (const s of b.segs) if (s.owner === 0) s.owner = 1;
               b.armies = b.armies.filter((a) => a.owner !== 0); b.version++; b.updateGrowth(); b.step(0.1); })()""")
             page.wait_for_timeout(1500)
             title = page.text_content("#end-title")
-            kept = page.evaluate("({ atk: __fl.idle.lvl('atk'), fogs: __fl.idle.fogs })")
-            check(title == "Pushed back" and page.evaluate("__fl.idle.stage") == 1 and kept["atk"] == 2, f"{name}: pushed back to stage 1, upgrades kept ({title}, {kept})")
-            page.screenshot(path=str(out / f"idle-{name}-pushed.png"))
+            r = page.evaluate("(() => { const id = __fl.idle; return { campaign: id.campaign, fogs: id.fogs, atk: id.lvl('atk'), blades: id.lvl('mistblades'), warlord: id.gens.warlord, stage: id.stage, cleared: id.cleared }; })()")
+            check(title == "The Fog wins" and r["campaign"] == 2 and r["fogs"] == 0 and r["atk"] == 0 and r["blades"] == 1 and r["warlord"] == 1 and r["stage"] == 1 and r["cleared"] == 0, f"{name}: a lost stage loses the campaign, Mist side kept ({title}, {r})")
+            page.screenshot(path=str(out / f"idle-{name}-lost.png"))
             page.evaluate("document.querySelector('#end-retry').click()")
             page.wait_for_timeout(2500)
-            check(page.evaluate("__fl.idle.stage") == 1 and page.evaluate("__fl.battle.state") == "running", f"{name}: stage 1 starts again")
-            # replaying stage 1: no second obelisk Mist this campaign
-            m = page.evaluate("__fl.idle.mist")
-            page.evaluate("document.querySelector('#test-win').click()")
-            page.wait_for_timeout(1500)
-            check(page.evaluate("__fl.idle.mist") == m, f"{name}: no Mist for clearing stage 1 again")
-            # campaign end: Wisp, Wisp tree and promotions reset; Mist, legacy and unlocks stay
-            r = page.evaluate("""(() => { const id = __fl.idle; id.gens.warlord = 3; const r = __fl.finishCampaign();
-              return { campaign: id.campaign, fogs: id.fogs, atk: id.lvl('atk'), blades: id.lvl('mistblades'), warlord: id.gens.warlord, stage: id.stage, cleared: id.cleared, mist: id.mist }; })()""")
-            check(r["campaign"] == 2 and r["fogs"] == 0 and r["atk"] == 0 and r["blades"] == 1 and r["warlord"] == 1 and r["stage"] == 1 and r["cleared"] == 0, f"{name}: campaign end resets the Wisp side, keeps Mist side ({r})")
+            check(page.evaluate("!!__fl.cmap") and page.evaluate("__fl.idle.stage") == 1, f"{name}: the new campaign opens on its campaign screen")
+            # campaign end by debug hook: next campaign
+            page.evaluate("__fl.finishCampaign()")
             # the 60-year clock: at 0 years the Fog Tide card ends the campaign mid-stage
             page.evaluate("__fl.startIdle(false)")
             page.wait_for_timeout(1500)
             page.evaluate("__fl.idle.clock = 3599.5; __fl.skipCountdown()")
             page.wait_for_timeout(2500)
             tide = page.evaluate("({ title: document.querySelector('#end-title').textContent, c: __fl.idle.campaign, clock: __fl.idle.clock })")
-            check(tide["title"] == "The Fog Tide" and tide["c"] == 3 and tide["clock"] == 0, f"{name}: the clock runs out -> Fog Tide, next campaign ({tide})")
+            check(tide["title"] == "The Fog Tide" and tide["c"] == 4 and tide["clock"] == 0, f"{name}: the clock runs out -> Fog Tide, next campaign ({tide})")
             # exact battle save: play a little, withdraw, reload, continue -> same tiles, buildings, time
             page.evaluate("__fl.startIdle(false)")
             page.wait_for_timeout(800)

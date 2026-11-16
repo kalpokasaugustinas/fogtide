@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=142">
-  <link rel="stylesheet" href="pc.css?v=142">
+  <link rel="stylesheet" href="style.css?v=143">
+  <link rel="stylesheet" href="pc.css?v=143">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -168,7 +168,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 142 · 2026-11-16 12:14</span>
+    <span id="version">build 143 · 2026-11-16 12:57</span>
   </section>
 
   <!-- campaign world map -->
@@ -359,8 +359,8 @@
   <!-- rules -->
   <div id="help" class="overlay hidden">
     <div class="card scroll">
-      <button id="help-tutor" class="menu-btn sky">▶ Play tutorial</button>
       <h2>How to play</h2>
+      <button id="help-tutor" class="primary">▶ Play tutorial</button>
       <ul>
         <li>The map is split into segments. Each one you own grows <b>1% of its cap per second</b> up to the cap (largest tile: 400). Bigger tiles grow faster and hold more.</li>
         <li><b>Send:</b> drag from your tile to a neighbour, or click your tile and <b>right click</b> the neighbour. It sends the chosen % of its foglets (slider bottom right, Q / E): an attack on enemy / neutral, a move to your own.</li>
@@ -375,10 +375,22 @@
         <li>Each segment can hold one building, paid with its own foglets. Captured buildings switch sides.</li>
       </ul>
       <ul id="help-buildings"></ul>
-      <p><b>🌫️ Campaign</b>: 60 years before the Fog Tide (1 year = 1 minute of play); clear as many stages as you can, each zooming out to a bigger island. Every Fogbound chief guards an obelisk by its keep: clear the stage and the obelisks shine (💠 Mist, the first time this campaign), every 👑 boss (stage 10, 20, 30...) drops more. Every defeated foglet gives 🌫️ Wisp: spend it in the ⬆️ upgrade tree during the campaign (Upgrade or U); the island slides aside and keeps fighting, upgrades apply at once and each one opens the next. Mist buys the 📜 Legacy upgrades (L), kept forever. Lose a stage and the Fog pushes you back 3 stages; your Wisp and upgrades stay. Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and Fogbound tiles with dry land slowly lose faith. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. When the Fog Tide comes, Wisp, its upgrades and promotions fade; Mist, Legacy and your generals stay, and the next campaign starts generations later. The campaign screen (before you play) shows the year and lets you abandon a campaign to start over.</p>
+      <p><b>Win:</b> wipe out every enemy faction.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
+      <h3>Hotkeys</h3>
+      <ul class="hotkeys">
+        <li><kbd>Space</kbd></li><li>Pause / play</li>
+        <li><kbd>1–5</kbd></li><li>Build on the selected tile</li>
+        <li><kbd>Q</kbd> <kbd>E</kbd></li><li>Send less / more %</li>
+        <li><kbd>Right click</kbd></li><li>Send from the selected tile</li>
+        <li><kbd>Esc</kbd></li><li>Deselect / close / leave</li>
+        <li><kbd>U</kbd></li><li>Upgrades</li>
+        <li><kbd>C</kbd></li><li>War council</li>
+        <li><kbd>L</kbd></li><li>Legacy</li>
+        <li><kbd>A</kbd></li><li>Generals' orders on / off</li>
+        <li><kbd>F11</kbd></li><li>Fullscreen (desktop app)</li>
+      </ul>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
-      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = upgrades, C = war council, L = legacy, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
       <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
       <button id="help-feedback">💬 Send feedback</button>
       <button id="help-close" class="primary">Got it</button>
@@ -386,6 +398,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=142"></script>
+  <script type="module" src="js/main.js?v=143"></script>
 </body>
 </html>

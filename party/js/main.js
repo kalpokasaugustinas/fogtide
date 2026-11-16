@@ -1,18 +1,18 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=142';
-import { generateMap, rng } from './mapgen.js?v=142';
-import { initAnalytics, track } from './analytics.js?v=142';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=142';
-import { Battle } from './battle.js?v=142';
-import { personalities } from './ai.js?v=142';
-import { Campaign } from './campaign.js?v=142';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=142';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=142';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=142';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=142';
-import { previewBuildings } from './structures.js?v=142';
-import { initTune, tuneChanges } from './tune.js?v=142';
-import { net, hostRoom, joinRoom, startGame, backToLobby, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=142';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=143';
+import { generateMap, rng } from './mapgen.js?v=143';
+import { initAnalytics, track } from './analytics.js?v=143';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=143';
+import { Battle } from './battle.js?v=143';
+import { personalities } from './ai.js?v=143';
+import { Campaign } from './campaign.js?v=143';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=143';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale } from './idle.js?v=143';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=143';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=143';
+import { previewBuildings } from './structures.js?v=143';
+import { initTune, tuneChanges } from './tune.js?v=143';
+import { net, hostRoom, joinRoom, startGame, backToLobby, attach, tick as netTick, leave as netLeave, detMath } from './net.js?v=143';
 
 const $ = (id) => document.getElementById(id);
 
