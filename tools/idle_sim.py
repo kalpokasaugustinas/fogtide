@@ -1,6 +1,6 @@
 # campaign balance sim: plays careers of campaigns headless (tools/idle_sim.js) and prints per
 # campaign: highest stage cleared, push-backs, Mist earned / banked, Wisp, Legacy levels; with
-# --stages also every stage (game s, result, Wisp). a campaign = 30 stages or the 60-year clock
+# --stages also every stage (game s, result, Wisp). a campaign = the 60-year clock
 # (1 year = 1 game minute). use it to see how far campaign 1, 2, 3... get and where the walls are.
 # usage: python tools/idle_sim.py [--careers 2] [--campaigns 5] [--years 60] [--stages] [--set enemyAtk=1.08]
 import argparse
@@ -77,10 +77,10 @@ async def main():
             for row in r["rows"]:
                 res = "win" if row["won"] else ("TIME" if row["timeUp"] else ("STALL" if row["timeout"] else "lost"))
                 print(f"{row['campaign']:>3} {row['stage']:>3} {res:<5} {row['game']:>6} {row['clock']:>6} {fmt(row['fogs']):>8} {fmt(row['bank']):>8} {row['levels']:>4}")
-        print(f"{'cmp':>3} {'cleared':>7} {'top':>3} {'done':>4} {'push':>4} {'mist+':>5} {'bank':>4} {'gens':>4} {'wispLv':>6} {'min':>5} {'next':>4}  legacy")
+        print(f"{'cmp':>3} {'cleared':>7} {'top':>3} {'push':>4} {'mist+':>5} {'bank':>4} {'gens':>4} {'wispLv':>6} {'min':>5} {'next':>4}  legacy")
         for k in r["camps"]:
             lv = " ".join(f"{a}{b}" for a, b in k["legacy"].items())
-            print(f"{k['campaign']:>3} {k['cleared']:>7} {k['top']:>3} {'yes' if k['complete'] else '':>4} {k['pushes']:>4} {k['mistGot']:>5} {k['mistBank']:>4} {k['gens']:>4} {k['wispLv']:>6} {k['minutes']:>5} {k['startNext']:>4}  {lv}")
+            print(f"{k['campaign']:>3} {k['cleared']:>7} {k['top']:>3} {k['pushes']:>4} {k['mistGot']:>5} {k['mistBank']:>4} {k['gens']:>4} {k['wispLv']:>6} {k['minutes']:>5} {k['startNext']:>4}  {lv}")
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=1), encoding="utf-8")
 

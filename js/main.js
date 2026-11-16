@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=138';
-import { generateMap, rng } from './mapgen.js?v=138';
-import { initAnalytics, track } from './analytics.js?v=138';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=138';
-import { Battle } from './battle.js?v=138';
-import { personalities } from './ai.js?v=138';
-import { Campaign } from './campaign.js?v=138';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=138';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg } from './idle.js?v=138';
-import { drawGeneral } from './generals.js?v=138';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=138';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=138';
-import { previewBuildings } from './structures.js?v=138';
-import { initTune, tuneChanges } from './tune.js?v=138';
-import { initFogNoise } from './fogui.js?v=138';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=139';
+import { generateMap, rng } from './mapgen.js?v=139';
+import { initAnalytics, track } from './analytics.js?v=139';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=139';
+import { Battle } from './battle.js?v=139';
+import { personalities } from './ai.js?v=139';
+import { Campaign } from './campaign.js?v=139';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=139';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg } from './idle.js?v=139';
+import { drawGeneral } from './generals.js?v=139';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=139';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=139';
+import { previewBuildings } from './structures.js?v=139';
+import { initTune, tuneChanges } from './tune.js?v=139';
+import { initFogNoise } from './fogui.js?v=139';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1665,16 +1665,15 @@ function floatText(text, at) {
   setTimeout(() => el.remove(), 1400);
 }
 
-// stage over: a win zooms straight out to the next stage (stage 30: the campaign is over); a loss
+// stage over: a win zooms straight out to the next stage (no last stage: the clock ends a campaign); a loss
 // pushes you back 3 stages (Wisp, Mist, upgrades kept)
 function endIdleStage(won) {
   idleTick(0);
   const secs = battle.time / rules.timeScale;
   if (won) {
-    const { bonus, mist, obelisks, boss, done } = idle.win(secs), stamp = islandShape(battle);
+    const { bonus, mist, obelisks, boss } = idle.win(secs), stamp = islandShape(battle);
     if (idleMilestones.has(idle.stage)) track(`campaign-stage-${idle.stage}`);
     if (boss) track(`campaign-boss-${idle.stage - 1}`);
-    if (done) { idle.save(); endCampaignCard(secs); return; }
     idle.save();
     const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
     const lit = obelisks ? ` · ${obelisks === 1 ? 'the obelisk shines' : `${obelisks} obelisks shine`} +${mist} 💠 Mist` : '';
@@ -1711,7 +1710,7 @@ function endIdleStage(won) {
   setTrack('defeat');
 }
 
-// the campaign is over (stage 30 cleared; phase 5 adds the 60-year clock): Wisp, the Wisp tree and
+// the campaign is over (the 60-year clock ran out: phase 5; for now only __fl.finishCampaign): Wisp, the Wisp tree and
 // general promotions reset, Mist, the Legacy tree and unlocked generals stay
 function endCampaignCard(secs) {
   closeShop();
@@ -1720,7 +1719,7 @@ function endCampaignCard(secs) {
   trackIdleRun(run);
   track(`campaign-complete-${run.campaign}`);
   $('end-title').textContent = 'The continent is safe';
-  $('end-stats').innerHTML = `<p class="next-up">All ${idleCfg.stages} obelisks shine. For now.</p>`
+  $('end-stats').innerHTML = `<p class="next-up">The Fog Tide rolls in. The obelisks of ${run.cleared} stages hold it back. For now.</p>`
     + `<div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this campaign · ${fmtTime((run.secs + secs) * rules.timeScale)}`
     + ` · <b>${idle.mist}</b> 💠 Mist kept</div></div>`
     + '<p class="next-up">Wisp and its upgrades fade with the old campaign; Mist, the Legacy tree and your generals stay.</p>';

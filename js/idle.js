@@ -12,15 +12,15 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=138';
-import { rng, hops } from './mapgen.js?v=138';
-import { effects, rules } from './config.js?v=138';
+import { personalities, pickBuilding } from './ai.js?v=139';
+import { rng, hops } from './mapgen.js?v=139';
+import { effects, rules } from './config.js?v=139';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
   enemyBase: 0.75,    // stage 1 bots: attack / defense x0.75 (an easy first island)
-  enemyAtk: 1.08,     // bot attack and defense x1.08 per stage
-  enemyGrowth: 1.08,  // bot growth x1.08 per stage (growth decides attrition fights, so it must keep up)
+  enemyAtk: 1.12,     // bot attack and defense x1.12 per stage (sim 2026-11-16: 1.08 let campaign 1 reach stage 23, target ~11)
+  enemyGrowth: 1.12,  // bot growth x1.12 per stage (growth decides attrition fights, so it must keep up)
   enemyGrowthBase: 0.85,   // stage 1 bots grow at x0.85
   neutralExp: 0.55,   // neutral garrisons x (enemy strength ^ 0.55), at most neutralMax
   neutralMax: 3,
@@ -44,9 +44,9 @@ export const idleCfg = {
   deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
   quietEnd: 0,        // (old quiet rule, off in the campaign: faith fade ends stalled stages instead)
   faithFade: 0.01,    // a Fogbound tile with dry land loses 1% of its foglets per game second
-  stages: 30,         // a campaign: 30 stages (stage 30 cleared = campaign over; later also the 60-year clock)
   pushBack: 3,        // a lost stage pushes you back 3 stages (Wisp and upgrades are kept)
-  obeliskMist: 1,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
+  legacyGrow: 1.4,    // Legacy (Mist) prices x1.4 per level (x2 left campaigns 2+ barely ahead of campaign 1)
+  obeliskMist: 2,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
 };
 
 // stage n (1-based): map size, rivals, climate. something new every 10 stages (climate, a rival)
@@ -253,10 +253,8 @@ export class Idle {
     }
     // levels of upgrades that no longer exist (e.g. the old time warp) are dropped
     this.levels = Object.fromEntries(Object.entries(old).filter(([id]) => upgradeById[id]));
-    // a campaign has 30 stages: older saves (endless idle) past that continue at stage 30, and
-    // stages already reached count as cleared (no second Mist for them)
-    this.stage = Math.min(this.stage, idleCfg.stages);
-    if (data.cleared === undefined) this.cleared = Math.min(idleCfg.stages, Math.max(0, (this.best || 1) - 1));
+    // older saves (endless idle): stages already reached count as cleared (no second Mist for them)
+    if (data.cleared === undefined) this.cleared = Math.max(0, (this.best || 1) - 1);
   }
 
   static load() {
@@ -270,7 +268,8 @@ export class Idle {
   lvl(id) { return this.levels[id] ?? 0; }
   val(id) { return upgradeById[id].value(this.lvl(id)); }
   cur(id) { return upgradeById[id].cur ?? 'fog'; }
-  cost(id) { const u = upgradeById[id]; return Math.ceil(u.base * u.grow ** this.lvl(id)); }
+  // legacy nodes share one price growth (idleCfg.legacyGrow), so it can be tuned in one place
+  cost(id) { const u = upgradeById[id]; return Math.ceil(u.base * (u.cur === 'mist' ? idleCfg.legacyGrow : u.grow) ** this.lvl(id)); }
   wallet(id) { return this.cur(id) === 'mist' ? this.mist : this.fogs; }
   maxed(id) { const u = upgradeById[id]; return u.max !== undefined && this.lvl(id) >= u.max; }
   // the requirements still missing (empty = open)
@@ -570,8 +569,8 @@ export class Idle {
   }
 
   // a stage was won: bonus Wisp; Mist for its obelisks (one per Fogbound chief) and its boss, but
-  // only the first time this campaign clears it. returns { bonus, mist, obelisks, done } (done =
-  // stage 30 cleared: the campaign is over, see endCampaign)
+  // only the first time this campaign clears it. there is no last stage: the campaign runs until its
+  // clock (60 years) runs out. returns { bonus, mist, obelisks, boss }
   win(secs) {
     const n = this.stage, st = stageSpec(n), first = n > this.cleared;
     const bonus = this.clearFogs();
@@ -583,10 +582,9 @@ export class Idle {
     this.runTime += secs;
     if (n === 10 && (!this.fast10 || this.runTime < this.fast10)) this.fast10 = Math.round(this.runTime);
     this.cleared = Math.max(this.cleared, n);
-    const done = n >= idleCfg.stages;
-    if (!done) this.stage++;
+    this.stage++;
     this.best = Math.max(this.best, this.stage);   // best = highest stage reached
-    return { bonus, mist, obelisks, boss, done };
+    return { bonus, mist, obelisks, boss };
   }
 
   // a stage was lost: the Fog pushes you back pushBack stages; Wisp, upgrades and generals stay.
@@ -598,7 +596,7 @@ export class Idle {
     return { from, to: this.stage };
   }
 
-  // the campaign is over (stage 30 cleared; later also the 60-year clock): what Wisp bought resets
+  // the campaign is over (its 60-year clock ran out, phase 5): what Wisp bought resets
   // (Wisp, the Wisp tree, general promotions back to level 1), what Mist bought stays (Legacy tree,
   // unlocked generals and their seats). the next campaign starts at the head start stage.
   // returns the summary for the end card

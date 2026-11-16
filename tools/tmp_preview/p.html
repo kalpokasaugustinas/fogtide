@@ -1,0 +1,9 @@
+<!doctype html><canvas id="c" width="900" height="360" style="background:#d9a184"></canvas>
+<script type="module">
+// preview: mausoleum + obelisk looks at a big unit size
+import { mausoleum, drawObelisk } from '../../js/structures.js';
+const x = document.getElementById('c').getContext('2d');
+mausoleum(x, 160, 260, 26); drawObelisk(x, 450, 280, 26, 'fog'); drawObelisk(x, 700, 280, 26, 'lit');
+mausoleum(x, 820, 330, 9); drawObelisk(x, 870, 330, 9, 'lit');
+window.done = true;
+</script>

@@ -142,7 +142,7 @@ try:
             check(st["stage"] == 2 and st["badge"] == "Stage 2" and st["state"] == "running", f"{name}: zoomed out to stage 2 ({st})")
             check(st["fogs"] > bank, f"{name}: stage bonus paid ({bank:.0f} -> {st['fogs']:.0f})")
             mist1 = page.evaluate("__fl.idle.mist")
-            check(mist1 == mist0 + 1 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 1 Mist on the first clear ({mist0} -> {mist1})")
+            check(mist1 == mist0 + 2 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 2 Mist on the first clear ({mist0} -> {mist1})")
             # legacy tab: the permanent Mist nodes, no prerequisites
             page.evaluate("__fl.idle.mist += 3")
             page.keyboard.press("l")
