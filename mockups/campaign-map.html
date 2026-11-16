@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide campaign map</title>
+<style>
+  /* campaign continent screen mockup: the stage 30 continent in fog, the start dot, lit obelisks and
+     the freed land, year + fog tide + modifiers. 1280x720 frame scaled to fit. the continent is drawn
+     procedurally (sample seed), stages are nested rings grown from the start village. sample data only */
+  @font-face { font-family: 'Josefin Sans'; font-weight: 300 700; src: url(../fonts/josefin-sans.woff2) format('woff2'); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101417; font-family: 'Josefin Sans', system-ui, sans-serif; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #161c20; color: #ddd; }
+  .top b { margin-right: 8px; font-size: 14px; }
+  .top button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a464d; background: #222b30; color: #cfd8dc; cursor: pointer; }
+  .top button.on { background: #c9a45c; color: #1a1408; border-color: #c9a45c; font-weight: 600; }
+  .top .sep { width: 1px; height: 22px; background: #3a464d; margin: 0 6px; }
+  .top small { color: #8a979d; font-size: 12px; flex-basis: 100%; }
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 70px); overflow: hidden; }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; color: #232a2c; font-size: 14px; background: #a8b4bc; }
+
+  /* map layers: ground canvas, fog canvas, obelisk canvas, clickable dot. .zoom animates into the dot */
+  .map { position: absolute; inset: 0; transition: transform 1.4s cubic-bezier(.6,0,.3,1); }
+  .map canvas { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; }
+  .map .fogc { animation: drift 18s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: translate(-6px, 0) scale(1.01); } to { transform: translate(6px, -3px) scale(1.02); } }
+  .dot { position: absolute; width: 0; height: 0; cursor: pointer; z-index: 3; }
+  .dot i { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%; background: #2f74d6; border: 2px solid #f4f1e6; box-shadow: 0 0 8px rgba(47,116,214,.9); }
+  .dot::before { content: ''; position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%; border: 2px solid rgba(244,241,230,.9); animation: ping 1.8s ease-out infinite; }
+  @keyframes ping { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+  .dot span { position: absolute; left: 14px; top: -11px; white-space: nowrap; font-size: 13px; font-weight: 600; color: #f4f1e6; text-shadow: 0 1px 3px #000, 0 0 8px #000; letter-spacing: .5px; }
+  .dot:hover i { transform: scale(1.3); }
+
+  /* fogged blob behind text (same as the game's fog & ink ui) */
+  .fb { position: relative; isolation: isolate; }
+  .fb::before { content: ''; position: absolute; inset: -10% -8%; z-index: -1; background: rgba(238,239,233,0.92); filter: blur(10px); border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%; }
+  .ink { display: inline-block; padding: 12px 26px; color: #f0f0ea; text-transform: uppercase; letter-spacing: 3px; font-weight: 600; font-size: 16px; cursor: pointer; position: relative; isolation: isolate; border: 0; background: none; font-family: inherit; }
+  .ink::before { content: ''; position: absolute; inset: 0; z-index: -1; background: #232a2c; filter: blur(3px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+  .ink:hover::before { background: #2f74d6; }
+
+  .year { font-size: 44px; font-weight: 300; letter-spacing: 1px; line-height: 1; }
+  .tide { font-size: 15px; text-transform: uppercase; letter-spacing: 4px; font-weight: 600; color: #4a4f63; }
+  .lore { font-size: 14px; line-height: 1.45; color: #384044; }
+  .k { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #6a7478; margin: 0 0 6px; }
+
+  /* modifier rows / chips with hover tooltip */
+  .mod { position: relative; display: flex; gap: 8px; align-items: center; padding: 5px 0; font-size: 13px; cursor: default; }
+  .mod svg { width: 18px; height: 18px; flex: none; fill: none; stroke: #4a4f63; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .mod .tip { display: none; position: absolute; left: 0; bottom: 100%; width: 240px; padding: 8px 10px; background: #232a2c; color: #eee; font-size: 12px; line-height: 1.4; border-radius: 6px; z-index: 9; }
+  .mod:hover .tip { display: block; }
+  .mod.up svg { stroke: #2f74d6; }
+
+  .toast { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 22px; letter-spacing: 3px; text-transform: uppercase; color: #f4f1e6; text-shadow: 0 2px 10px #000; opacity: 0; transition: opacity .4s; pointer-events: none; z-index: 8; }
+  .toast.on { opacity: 1; }
+
+  /* option a: chronicle column on the left */
+  .a-col { position: absolute; left: 0; top: 0; bottom: 0; width: 360px; padding: 40px 36px; z-index: 4; display: flex; flex-direction: column; gap: 18px;
+    background: linear-gradient(90deg, rgba(232,234,228,.97) 0%, rgba(232,234,228,.93) 70%, rgba(232,234,228,0) 100%); }
+  .a-col .stats { display: flex; gap: 22px; font-size: 13px; }
+  .a-col .stats b { display: block; font-size: 22px; font-weight: 600; }
+  .a-col .go { margin-top: auto; }
+
+  /* option b: war table, full-bleed map with a banner, stage ladder and chips */
+  .b-ban { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); text-align: center; z-index: 4; padding: 8px 40px; }
+  .b-ban .year { font-size: 34px; }
+  .b-ban .lore { font-size: 13px; margin-top: 4px; }
+  .b-mods { position: absolute; left: 22px; bottom: 22px; z-index: 4; padding: 10px 18px; width: 300px; }
+  .b-ladder { position: absolute; left: 350px; right: 330px; bottom: 34px; z-index: 4; display: flex; gap: 3px; align-items: flex-end; }
+  .b-ladder i { flex: 1; height: 10px; border-radius: 2px; background: rgba(35,42,44,.35); position: relative; }
+  .b-ladder i.done { background: #2f74d6; box-shadow: 0 0 6px rgba(255,215,106,.8); }
+  .b-ladder i.next { background: #f4f1e6; outline: 2px solid #232a2c; }
+  .b-ladder i.boss { height: 18px; }
+  .b-ladder i b { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); font-size: 11px; font-weight: 600; color: #f4f1e6; text-shadow: 0 1px 3px #000; }
+  .b-go { position: absolute; right: 26px; bottom: 20px; z-index: 4; }
+  .b-res { position: absolute; right: 24px; top: 22px; z-index: 4; display: flex; gap: 18px; font-size: 13px; padding: 6px 14px; }
+  .b-res b { font-weight: 600; }
+
+  /* option c: ink chronicle, parchment map with a book page on the right */
+  .c-page { position: absolute; right: 0; top: 0; bottom: 0; width: 380px; z-index: 4; padding: 38px 34px; display: flex; flex-direction: column; gap: 16px;
+    background: linear-gradient(270deg, #e9dfc4 0%, #e9dfc4 82%, rgba(233,223,196,0) 100%); color: #3b3226; }
+  .c-page .year { font-family: Georgia, serif; font-weight: 400; }
+  .c-page .tide { color: #6b2f2a; }
+  .c-page .lore { color: #4a3f30; font-family: Georgia, serif; font-style: italic; }
+  .c-page .k { color: #8a7a5c; }
+  .c-page .mod svg { stroke: #6b2f2a; }
+  .c-page .hist { font-size: 12px; line-height: 1.7; color: #5a4e3a; border-top: 1px solid #c8b890; padding-top: 10px; }
+  .c-page .go { margin-top: auto; }
+  .c-page .ink::before { background: #3b3226; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>Campaign map</b>
+    <button data-v="a" class="on">A · Chronicle column</button>
+    <button data-v="b">B · War table</button>
+    <button data-v="c">C · Ink chronicle</button>
+    <span class="sep"></span>
+    <button data-s="new">New campaign</button>
+    <button data-s="mid" class="on">Stage 12 cleared</button>
+    <small>Switch the state (fresh campaign vs mid-campaign). Hover the modifiers. Click the dot or the March button: the map zooms into the stage. Sample continent and numbers.</small>
+  </div>
+  <div class="stage" id="stage"><div class="frame" id="frame"><div id="lay"></div></div></div>
+<script type="module">
+  // ---------- frame scaling ----------
+  const frame = document.getElementById('frame'), stage = document.getElementById('stage'), bar = document.getElementById('bar');
+  function fit() {
+    document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px');
+    const s = Math.min(stage.clientWidth / 1280, stage.clientHeight / 720);
+    frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  }
+  addEventListener('resize', fit);
+
+  // ---------- noise helpers (value noise + fbm, seeded) ----------
+  const seed = 7;
+  function hash(x, y) { let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
+  function vnoise(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  }
+  function fbm(x, y, oct = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < oct; i++) { s += a * vnoise(x * f, y * f); n += a; a *= 0.5; f *= 2.03; } return s / n; }
+  function rng(n) { let s = n; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; }
+
+  // ---------- continent: land mask, height, nested stage index per pixel ----------
+  const W = 640, H = 360, N = W * H, STAGES = 30;
+  const land = new Uint8Array(N), hgt = new Float32Array(N), dist = new Float32Array(N), stg = new Uint8Array(N);
+  let start = [0, 0], radii = [];
+  (function build() {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u = x / W, v = y / H;
+      // domain warp so the coast is ragged, then an oval falloff keeps one continent in the middle
+      const wx = u + 0.12 * (fbm(u * 3 + 11, v * 3) - 0.5), wy = v + 0.12 * (fbm(u * 3, v * 3 + 7) - 0.5);
+      const fall = 1 - Math.pow((wx - 0.52) / 0.34, 2) - Math.pow((wy - 0.5) / 0.4, 2);
+      const h = fbm(u * 4.5, v * 4.5) * 0.9 + fall * 0.55;
+      const i = y * W + x; hgt[i] = h; land[i] = h > 0.62 ? 1 : 0;
+    }
+    // start village: coastal land in the south-west
+    let best = 1e9;
+    for (let i = 0; i < N; i++) if (land[i]) { const x = i % W, y = (i / W) | 0; const sc = x * 1.0 - y * 0.9; if (sc < best) { best = sc; start = [x, y]; } }
+    start = [start[0] + 8, start[1] - 5];
+    // warped distance from the village: stages grow outward as blobs, not perfect circles
+    const ds = [];
+    for (let i = 0; i < N; i++) if (land[i]) {
+      const x = i % W, y = (i / W) | 0;
+      const d = Math.hypot(x - start[0], (y - start[1]) * 1.15) * (0.75 + 0.5 * fbm(x / 60 + 3, y / 60 + 9, 3));
+      dist[i] = d; ds.push(d);
+    }
+    ds.sort((a, b) => a - b);
+    // stage k covers (k/30)^2 of the land: stage 1 is a village, stage 30 is the whole continent
+    for (let k = 1; k <= STAGES; k++) radii[k] = ds[Math.min(ds.length - 1, Math.floor(Math.pow(k / STAGES, 2) * (ds.length - 1)))];
+    radii[0] = 0;
+    for (let i = 0; i < N; i++) if (land[i]) { let k = 1; while (k < STAGES && dist[i] > radii[k]) k++; stg[i] = k; }
+  })();
+
+  // obelisks: one per bot. bots per stage 1 -> 4 (sample), placed in that stage's ring
+  const obelisks = [];
+  (function place() {
+    const r = rng(99);
+    for (let k = 1; k <= STAGES; k++) {
+      const bots = k < 4 ? 1 : k < 11 ? 2 : k < 21 ? 3 : 4;
+      const pool = [];
+      for (let i = 0; i < N; i += 7) if (stg[i] === k && dist[i] > (radii[k - 1] + radii[k]) / 2) pool.push(i);
+      for (let b = 0; b < bots && pool.length; b++) { const i = pool[Math.floor(r() * pool.length)]; obelisks.push({ k, x: i % W, y: (i / W) | 0, boss: k % 10 === 0 && b === 0 }); }
+    }
+  })();
+
+  // the next stage's click point: middle of the next ring, towards the heart of the continent
+  function nextPoint(cur) {
+    const k = cur + 1, cx = W * 0.55, cy = H * 0.45; let best = 1e9, p = start;
+    if (cur === 0) return start;
+    for (let i = 0; i < N; i += 3) if (stg[i] === k && Math.abs(dist[i] - (radii[cur] + radii[k]) / 2) < 3) {
+      const x = i % W, y = (i / W) | 0, d = Math.hypot(x - cx, y - cy); if (d < best) { best = d; p = [x, y]; }
+    }
+    return p;
+  }
+
+  // ---------- palettes ----------
+  const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const PAL = {
+    game: { deep: hex('#5f747c'), shallow: hex('#8a9ea2'), sand: hex('#c9c0a0'), low: hex('#8d9b69'), forest: hex('#6b7c55'), hill: hex('#9b9377'), peak: hex('#c4c0b4'),
+      coast: hex('#2e3638'), grey: hex('#a9b0ae'), mine: hex('#2f74d6'), fog: [238, 240, 234], ring: hex('#f4f1e6'), hatch: false },
+    ink: { deep: hex('#cdbf98'), shallow: hex('#ddd0ab'), sand: hex('#eadfbf'), low: hex('#e6dab6'), forest: hex('#d6c8a0'), hill: hex('#d9cba5'), peak: hex('#efe6cc'),
+      coast: hex('#3b3226'), grey: hex('#c4b896'), mine: hex('#2f5f9e'), fog: [226, 216, 190], ring: hex('#3b3226'), hatch: true },
+  };
+
+  // ---------- draw the ground (internal 640x360, shown at 1280x720) ----------
+  function drawGround(cv, pal, cur) {
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'), im = g.createImageData(W, H), d = im.data;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x, h = hgt[i]; let c;
+      if (!land[i]) {
+        c = mix(pal.deep, pal.shallow, Math.max(0, Math.min(1, (h - 0.45) / 0.17)));
+        if (pal.hatch && y % 4 === 0 && fbm(x / 9, y / 3, 2) > 0.45) c = mix(c, pal.coast, 0.18);   // ink sea lines
+      } else {
+        const t = h - 0.62;
+        // biomes from their own noise (height alone made the middle one flat plateau)
+        const b = fbm(x / 34 + 40, y / 34, 4), pk = fbm(x / 20 + 80, y / 20 + 5, 4);
+        const hilly = pk > 0.62;
+        c = t < 0.015 ? pal.sand : pk > 0.7 ? pal.peak : hilly ? pal.hill : b > 0.55 ? pal.forest : pal.low;
+        if (pal.hatch && hilly && (x + y) % 5 === 0) c = mix(c, pal.coast, 0.25);   // hatched hills
+        const freed = stg[i] <= cur;
+        if (!freed) c = mix(c, pal.grey, 0.55);   // land still under the fog: washed out
+        else c = mix(c, pal.mine, pal.hatch ? 0.18 : 0.08);
+      }
+      // coastline and the edge of your land
+      const r = i + 1 < N ? i + 1 : i, dn = i + W < N ? i + W : i;
+      if (land[i] !== land[r] || land[i] !== land[dn]) c = pal.coast;
+      else if (land[i] && cur > 0) {
+        const a = stg[i] <= cur, br = stg[r] <= cur, bd = stg[dn] <= cur;
+        if (a !== br || a !== bd) c = pal.mine;                                    // your border
+        else if (stg[i] !== stg[r] || stg[i] !== stg[dn]) {
+          const s = Math.min(stg[i], stg[r], stg[dn]);
+          if (s < cur) c = mix(c, pal.ring, 0.35);                                  // old stage rings, faint
+          else if (s === cur + 1 && (x + y) % 6 < 3) c = mix(c, pal.ring, 0.7);    // next ring, dashed
+        }
+      }
+      d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255;
+    }
+    g.putImageData(im, 0, 0);
+  }
+
+  // fog: thick over the sea and the frame edge, thinner over unfreed land (outline still readable), none on your land
+  function drawFog(cv, pal, cur) {
+    const w = 320, h = 180; cv.width = w; cv.height = h;
+    const g = cv.getContext('2d'), im = g.createImageData(w, h), d = im.data;
+    const edge = cur > 0 ? radii[cur] : 6;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * 2) * W + x * 2, n = fbm(x / 22, y / 22, 4), u = x / w, v = y / h;
+      const rim = Math.max(0, 1 - Math.min(u, v, 1 - u, 1 - v) * 7);          // frame edges
+      let a;
+      if (!land[i]) a = 0.35 + 0.5 * n + rim * 0.5;
+      else {
+        const over = dist[i] - edge;                                             // pixels past your border
+        a = over <= 0 ? 0 : Math.min(1, over / 14) * (0.3 + 0.45 * n);
+      }
+      a = Math.max(0, Math.min(0.95, a));
+      d[(y * w + x) * 4] = pal.fog[0]; d[(y * w + x) * 4 + 1] = pal.fog[1]; d[(y * w + x) * 4 + 2] = pal.fog[2]; d[(y * w + x) * 4 + 3] = a * 255;
+    }
+    g.putImageData(im, 0, 0);
+  }
+
+  // obelisks at display resolution: lit gold with a barrier ring (freed), dark with a fog glow (next stage)
+  function drawObelisks(cv, pal, cur) {
+    cv.width = 1280; cv.height = 720;
+    const g = cv.getContext('2d');
+    for (const o of obelisks) {
+      const lit = o.k <= cur, next = o.k === cur + 1;
+      if (!lit && !next) continue;
+      const x = o.x * 2, y = o.y * 2, s = o.boss ? 1.5 : 1;
+      if (lit) {
+        const gr = g.createRadialGradient(x, y - 8 * s, 0, x, y - 8 * s, 26 * s);
+        gr.addColorStop(0, 'rgba(255,215,106,.75)'); gr.addColorStop(1, 'rgba(255,215,106,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y - 8 * s, 26 * s, 0, 7); g.fill();
+        g.strokeStyle = pal.hatch ? 'rgba(47,95,158,.45)' : 'rgba(170,205,255,.55)'; g.lineWidth = 1.2;
+        g.beginPath(); g.ellipse(x, y, 20 * s, 9 * s, 0, 0, 7); g.stroke();                       // barrier
+      } else {
+        const gr = g.createRadialGradient(x, y - 8 * s, 0, x, y - 8 * s, 22 * s);
+        gr.addColorStop(0, 'rgba(70,60,90,.55)'); gr.addColorStop(1, 'rgba(70,60,90,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y - 8 * s, 22 * s, 0, 7); g.fill();
+      }
+      // the stone: tapered shaft + pyramid tip
+      g.fillStyle = lit ? (pal.hatch ? '#f3ecd6' : '#ece6d2') : '#3a3f45';
+      g.strokeStyle = pal.hatch ? '#3b3226' : '#1e2426'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x - 3.5 * s, y); g.lineTo(x - 2.4 * s, y - 15 * s); g.lineTo(x, y - 19 * s); g.lineTo(x + 2.4 * s, y - 15 * s); g.lineTo(x + 3.5 * s, y); g.closePath(); g.fill(); g.stroke();
+      if (lit) { g.fillStyle = '#ffd76a'; g.beginPath(); g.moveTo(x - 2.4 * s, y - 15 * s); g.lineTo(x, y - 19 * s); g.lineTo(x + 2.4 * s, y - 15 * s); g.fill(); }
+    }
+  }
+
+  // ---------- sample campaign data ----------
+  const icon = {
+    creep: '<svg viewBox="0 0 24 24"><path d="M3 15c3-4 6 2 9-2s6 2 9-2"/><path d="M3 20c3-4 6 2 9-2s6 2 9-2"/></svg>',
+    rival: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6M15 14c3 0 6 2 6 5"/></svg>',
+    str: '<svg viewBox="0 0 24 24"><path d="M12 3l7 4v5c0 5-3 8-7 9-4-1-7-4-7-9V7z"/><path d="M9 12l2 2 4-4"/></svg>',
+    mist: '<svg viewBox="0 0 24 24"><path d="M4 10h11a3 3 0 1 0-3-3M3 14h15a3 3 0 1 1-3 3M6 18h5"/></svg>',
+  };
+  const mods = [
+    { i: 'str', t: 'Fogbound +18% strength', tip: 'Tide III: Fogbound attack, defence and growth are 18% higher than in Tide I.' },
+    { i: 'creep', t: 'Fog creep', tip: 'Tide II modifier: every 40 s one of your tiles on the fog edge turns Fogbound unless it holds 10+ foglets.' },
+    { i: 'rival', t: 'Early rival', tip: 'Tide III modifier: the second Fogbound chief joins from stage 8 instead of 11.' },
+    { i: 'mist', t: 'Mist +45%', tip: 'Reward for the higher tide: obelisks and bosses drop 45% more Mist (first clear only).', up: true },
+  ];
+  const modsHtml = () => mods.map((m) => `<div class="mod${m.up ? ' up' : ''}">${icon[m.i]}<span>${m.t}</span><div class="tip">${m.tip}</div></div>`).join('');
+
+  let state = 'mid';
+  const S = () => state === 'new'
+    ? { cur: 0, lore: '112 years have passed since the last obelisk was lit. Its light faded, and the Fog came back stronger. Your village is the last free place on the continent.', go: 'Defend the village', label: 'Your village', freed: 0, obel: 0 }
+    : { cur: 12, lore: 'Twelve obelisks shine again. The Fogbound pull back into the mist, but the heart of the continent is still dark.', go: 'March to stage 13', label: 'Stage 13', freed: 12, obel: obelisks.filter((o) => o.k <= 12).length };
+
+  // ---------- options ----------
+  function mapHtml() { return '<div class="map" id="map"><canvas class="g"></canvas><canvas class="fogc"></canvas><canvas class="o"></canvas><div class="dot" id="dot"><i></i><span></span></div></div><div class="toast" id="toast"></div>'; }
+  const views = {
+    a: () => { const s = S(); return { pal: 'game', shift: 150, html: mapHtml() + `
+      <div class="a-col">
+        <div><div class="year">Year 1147</div><div class="tide" style="margin-top:8px">Fog tide III</div></div>
+        <div class="lore">${s.lore}</div>
+        <div class="stats"><div><b>${s.freed} / 30</b>Stages freed</div><div><b>${s.obel}</b>Obelisks lit</div><div><b>34</b>Mist</div></div>
+        <div><div class="k">The Fog this tide</div>${modsHtml()}</div>
+        <div class="go"><button class="ink" data-go>${s.go}</button></div>
+      </div>` }; },
+    b: () => { const s = S(); const lad = Array.from({ length: 30 }, (_, i) => { const k = i + 1; return `<i class="${k <= s.cur ? 'done' : k === s.cur + 1 ? 'next' : ''}${k % 10 === 0 ? ' boss' : ''}">${k % 10 === 0 || k === s.cur + 1 ? `<b>${k}</b>` : ''}</i>`; }).join('');
+      return { pal: 'game', shift: 0, html: mapHtml() + `
+      <div class="b-ban fb"><div class="year">Year 1147 · <span style="font-weight:600">Tide III</span></div><div class="lore">${s.lore}</div></div>
+      <div class="b-res fb"><span>Mist <b>34</b></span><span>Obelisks <b>${s.obel}</b></span></div>
+      <div class="b-mods fb"><div class="k">The Fog this tide</div>${modsHtml()}</div>
+      <div class="b-ladder">${lad}</div>
+      <div class="b-go"><button class="ink" data-go>${s.go}</button></div>` }; },
+    c: () => { const s = S(); return { pal: 'ink', shift: -170, html: mapHtml() + `
+      <div class="c-page">
+        <div><div class="year">Year 1147</div><div class="tide" style="margin-top:8px">The third tide</div></div>
+        <div class="lore">${s.lore}</div>
+        <div><div class="k">The Fog this tide</div>${modsHtml()}</div>
+        <div class="hist"><div class="k">Chronicle</div>Year 1014 · First tide · 30 obelisks lit<br>Year 1035 · Second tide · 30 obelisks lit<br>Year 1147 · Third tide · ${s.freed} stages freed</div>
+        <div class="go"><button class="ink" data-go>${s.go}</button></div>
+      </div>` }; },
+  };
+
+  let view = 'a';
+  function show() {
+    document.querySelectorAll('.top button[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === view));
+    document.querySelectorAll('.top button[data-s]').forEach((b) => b.classList.toggle('on', b.dataset.s === state));
+    const v = views[view](), s = S(), pal = PAL[v.pal];
+    const lay = document.getElementById('lay'); lay.innerHTML = v.html;
+    frame.style.background = v.pal === 'ink' ? '#d8cba6' : '#a8b4bc';
+    const map = document.getElementById('map'); map.style.left = v.shift + 'px'; map.style.right = -v.shift + 'px';
+    drawGround(map.querySelector('.g'), pal, s.cur);
+    drawFog(map.querySelector('.fogc'), pal, s.cur);
+    drawObelisks(map.querySelector('.o'), pal, s.cur);
+    const p = nextPoint(s.cur), dot = document.getElementById('dot');
+    dot.style.left = p[0] * 2 + 'px'; dot.style.top = p[1] * 2 + 'px'; dot.querySelector('span').textContent = s.label;
+    // click the dot or the march button: zoom into the stage (the real game would start the battle here)
+    const go = () => {
+      map.style.transformOrigin = `${p[0] * 2}px ${p[1] * 2}px`; map.style.transform = 'scale(9)';
+      const t = document.getElementById('toast'); t.textContent = s.cur ? `Stage ${s.cur + 1}` : 'Stage 1'; t.classList.add('on');
+      setTimeout(() => { map.style.transform = ''; t.classList.remove('on'); }, 2600);
+    };
+    dot.onclick = go; lay.querySelector('[data-go]').onclick = go;
+    fit();
+  }
+  bar.addEventListener('click', (e) => {
+    if (e.target.dataset.v) { view = e.target.dataset.v; show(); }
+    if (e.target.dataset.s) { state = e.target.dataset.s; show(); }
+  });
+  const q = new URLSearchParams(location.search);   // ?v=b&s=new opens a view directly (for screenshots)
+  view = q.get('v') || 'a'; state = q.get('s') || 'mid';
+  show();
+</script>
+</body>
+</html>
