@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=145';
-import { perks, combineMods } from './expedition.js?v=145';
-import { hops } from './mapgen.js?v=145';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=145';
-import { think } from './ai.js?v=145';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=146';
+import { perks, combineMods } from './expedition.js?v=146';
+import { hops } from './mapgen.js?v=146';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=146';
+import { think } from './ai.js?v=146';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -12,7 +12,9 @@ export class Battle {
   // map: from generateMap. opts: { seed, factions: [...], neutral: [min, max] share of each tile's cap }
   // faction: { ai, personality, think, mods?, capital? }
   //   mods    = perk modifiers (expedition): speed, atk, farm, hospital, lab, growth, cost, fort,
-  //             neutralDef, capitalDef, reserve, loot (see expedition.js)
+  //             neutralDef, capitalDef, reserve, loot (see expedition.js); idle only:
+  //             losses (x own army losses in fights), thorns (x attacker losses at own tiles),
+  //             lowGrowth (x growth on own tiles under half full)
   //   capital = { troops, bonus }: the faction starts in a capital (no building allowed there) that
   //             holds up to max(capMax, capitalMargin x strongest neutral) troops; the rest is a reserve that flows in over time.
   //             bonus = { growth, hosp, lab, def, atk } carried over from the previous stage
@@ -308,9 +310,11 @@ export class Battle {
     if (a.clash.stepped === this.time) return;   // the pair is resolved once per step
     a.clash.stepped = b.clash.stepped = this.time;
     const d = Math.min(a.clash.k * dt, a.n * a.atk, b.n * b.atk);
-    a.n -= d / a.atk;
-    b.n -= d / b.atk;
-    for (const [me, foe] of [[a, b], [b, a]]) if (me.owner === 0) { this.stats.deaths += d / me.atk; this.stats.killed += d / foe.atk; }
+    // veterans: an army with a losses mod < 1 loses fewer foglets for the same blow
+    const la = (d / a.atk) * (this.mods(a.owner).losses ?? 1), lb = (d / b.atk) * (this.mods(b.owner).losses ?? 1);
+    a.n -= la;
+    b.n -= lb;
+    for (const [me, mine, theirs] of [[a, la, lb], [b, lb, la]]) if (me.owner === 0) { this.stats.deaths += mine; this.stats.killed += theirs; }
     for (const [me, foe] of [[a, b], [b, a]]) {
       if (me.n <= 1e-6) { me.done = true; foe.clash = null; }
     }
@@ -325,10 +329,13 @@ export class Battle {
     // the rate set on arrival can be tiny (tile had just emptied itself) and lose to the tile's
     // growth or incoming routes; at least a.k0 / fightMax, so every fight ends within fightMax
     const d = Math.min(Math.max(a.fight.k, a.fight.k0 / rules.fightMax) * dt, a.n * a.atk, t.troops * dm);
-    a.n -= d / a.atk;
+    // attacker losses: x its own losses mod (veterans), x the defender's thorns (stoneskin)
+    const thorns = t.owner >= 0 ? (this.mods(t.owner).thorns ?? 1) : 1;
+    const la = Math.min(a.n, (d / a.atk) * (this.mods(a.owner).losses ?? 1) * thorns);
+    a.n -= la;
     t.troops -= d / dm;
-    if (a.owner === 0) { this.stats.deaths += d / a.atk; this.stats.killed += d / dm; }
-    else if (t.owner === 0) { this.stats.deaths += d / dm; this.stats.killed += d / a.atk; }
+    if (a.owner === 0) { this.stats.deaths += la; this.stats.killed += d / dm; }
+    else if (t.owner === 0) { this.stats.deaths += d / dm; this.stats.killed += la; }
     if (t.troops <= 1e-6) {
       // defenders gone: capture with what's left of the army
       const prev = t.owner;
@@ -387,7 +394,9 @@ export class Battle {
         continue;
       }
       if (s.troops < s.cap) {
-        const add = this.landLeft(s, Math.min(s.cap - s.troops, s.growth * dt));
+        // spring rains: tiles under half full grow faster (refill after a fight)
+        const low = s.troops < s.cap / 2 ? (this.mods(s.owner).lowGrowth ?? 1) : 1;
+        const add = this.landLeft(s, Math.min(s.cap - s.troops, s.growth * low * dt));
         s.troops += add;
         if (s.owner === 0) this.stats.made += add;
       }

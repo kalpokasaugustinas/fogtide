@@ -1,20 +1,20 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=145';
-import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=145';
-import { initAnalytics, track } from './analytics.js?v=145';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=145';
-import { Battle } from './battle.js?v=145';
-import { personalities } from './ai.js?v=145';
-import { Campaign } from './campaign.js?v=145';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=145';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=145';
-import { drawGeneral } from './generals.js?v=145';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=145';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=145';
-import { previewBuildings, capitalObelisk } from './structures.js?v=145';
-import { initTune, tuneChanges } from './tune.js?v=145';
-import { initFogNoise } from './fogui.js?v=145';
-import { outlineLoops } from './outline.js?v=145';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=146';
+import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=146';
+import { initAnalytics, track } from './analytics.js?v=146';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=146';
+import { Battle } from './battle.js?v=146';
+import { personalities } from './ai.js?v=146';
+import { Campaign } from './campaign.js?v=146';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=146';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=146';
+import { drawGeneral } from './generals.js?v=146';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=146';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=146';
+import { previewBuildings, capitalObelisk } from './structures.js?v=146';
+import { initTune, tuneChanges } from './tune.js?v=146';
+import { initFogNoise } from './fogui.js?v=146';
+import { outlineLoops } from './outline.js?v=146';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -166,12 +166,7 @@ function saveProfile() { try { localStorage.setItem(profileKey, JSON.stringify(p
 // it), bots get a random troop / building style, different from each other where possible
 function dress(factions, seed, withPlayer = true) {
   const r = rng(seed ^ 0x5eed);
-  if (withPlayer && factions[0] && !factions[0].ai) {
-    const mine = factions[0].color, other = factions.find((f, i) => i > 0 && f.color === profile.color);
-    if (other) other.color = mine;
-    factions[0].color = profile.color;
-    factions[0].skin = { troops: profile.troops, buildings: profile.buildings };
-  }
+  if (withPlayer) wearProfile(factions);
   const shuffle = (a) => a.map((v) => [r(), v]).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
   const pick = (all, taken) => { const free = shuffle(all.filter((v) => !taken.includes(v))); return free.length ? free : shuffle(all); };
   const tPool = pick(Object.keys(troopStyles), withPlayer ? [profile.troops] : []), bPool = pick(Object.keys(buildingStyles), withPlayer ? [profile.buildings] : []);
@@ -180,6 +175,25 @@ function dress(factions, seed, withPlayer = true) {
     f.skin = { troops: tPool[i % tPool.length], buildings: bPool[(i + 1) % bPool.length] };
   });
   return factions;
+}
+
+// the player's side (faction 0, not a bot) takes the commander profile's colour and styles; a bot
+// that had that colour gets the player's old one. also used on a resumed battle, whose save still
+// has the look from before a change in the commander panel
+function wearProfile(factions) {
+  const me = factions[0];
+  if (!me || me.ai) return;
+  const other = factions.find((f, i) => i > 0 && f.color === profile.color);
+  if (other) other.color = me.color;
+  me.color = profile.color;
+  // a bot already wearing the new troop / building style takes the player's old one instead
+  const old = me.skin;
+  if (old) for (const f of factions.slice(1)) {
+    if (!f.skin) continue;
+    if (f.skin.troops === profile.troops) f.skin = { ...f.skin, troops: old.troops };
+    if (f.skin.buildings === profile.buildings) f.skin = { ...f.skin, buildings: old.buildings };
+  }
+  me.skin = { troops: profile.troops, buildings: profile.buildings };
 }
 
 // next conquest map, built in a worker while the perk card is up; startBattle takes it when it
@@ -936,9 +950,11 @@ function updateWheel() {
   if (pos !== wheelPos) { wheelPos = pos; $('wheel').style.transform = `translate(${pos})`; }
 }
 
-// capital: nothing can be built; its carried-over bonuses
+// capital: nothing can be built; its carried-over bonuses ('' when there are none: the idle
+// campaign carries no buildings over, so its capital would only list +0%)
 function capitalInfo(s) {
   const b = s.bonus, pc = (v) => `+${Math.round(v * 100)}%`;
+  if (!b || !(b.growth || b.hosp || b.lab || b.def || b.atk)) return '';
   return `Bonuses: ${pc(b.growth)} growth here · ${pc(b.hosp)} in neighbours · ${pc(b.lab)} everywhere · defense ${pc(b.def)} · attack ${pc(b.atk)}`;
 }
 
@@ -972,7 +988,7 @@ function updatePanel() {
       s.building && !s.capital && `<span>${buildings[s.building].icon} ${buildings[s.building].name}: ${buildingEffect(s)}</span>`,
       relic && `<span class="gold">✨ ${relic.name}: ${relic.desc}</span>`,
       s.obelisk && `<span class="gold">💠 Mist obelisk: win the boss stage and it pours out Mist</span>`,
-      s.capital && s.owner === 0 && `<span class="gold">${capitalInfo(s)}</span>`,
+      s.capital && s.owner === 0 && capitalInfo(s) && `<span class="gold">${capitalInfo(s)}</span>`,
       battle.deplete && s.owner >= 0 && `<span>🌾 Land: ${battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'}</span>`,
     ].filter(Boolean).join('');
     // panel: title (kind) + owner, foglets / cap with a fill bar, growth, then one row per fact
@@ -983,7 +999,7 @@ function updatePanel() {
       s.building && !s.capital && ['Building', `${buildings[s.building].name}: ${buildingEffect(s)}`],
       relic && ['Relic', `${relic.name}: ${relic.desc}`, 'gold'],
       s.obelisk && ['Obelisk', 'win the boss stage and it pours out Mist', 'gold'],
-      s.capital && s.owner === 0 && ['Capital', capitalInfo(s).replace('Bonuses: ', ''), 'gold'],
+      s.capital && s.owner === 0 && capitalInfo(s) && ['Capital', capitalInfo(s).replace('Bonuses: ', ''), 'gold'],
       battle.deplete && s.owner >= 0 && ['Land', battle.landShare(s) > 0 ? `${Math.round(battle.landShare(s) * 100)}% left (raises ${num(battle.landLimit(s))} in all)` : 'dry, no more growth'],
     ].filter(Boolean).map(([k, v, c]) => `<div class="row${c ? ' ' + c : ''}"><span class="muted">${k}</span><span>${v}</span></div>`).join('');
     $('seg-info').innerHTML = `<h3><span>${kind}</span><span class="who"><i style="background:${col}"></i>${who}</span></h3>
@@ -1603,6 +1619,7 @@ function resumeIdleBattle() {
     const b = new Battle(map, setup);
     if (!b.restore(sv.snap)) return null;
     b.factions[0].mods = idle.mods(); b.updateGrowth();   // upgrades bought since
+    wearProfile(b.factions); wearProfile(setup.factions);   // the commander look may have changed since
     return { setup, made: b };
   } catch (e) { console.warn('battle save not restored', e); return null; }
 }

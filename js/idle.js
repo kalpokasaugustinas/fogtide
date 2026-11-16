@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=145';
-import { rng, hops } from './mapgen.js?v=145';
-import { effects, rules } from './config.js?v=145';
+import { personalities, pickBuilding } from './ai.js?v=146';
+import { rng, hops } from './mapgen.js?v=146';
+import { effects, rules } from './config.js?v=146';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -48,6 +48,9 @@ export const idleCfg = {
   firstYear: 1,       // the game starts in year 1; the year count never stops (the next campaign
                       // starts the year the last one ended), so it reads as total time played
   legacyGrow: 1.3,    // Legacy (Mist) prices x1.3 per level (x1.4 left campaigns 2+ barely ahead of campaign 1)
+  vetStep: 0.015,     // veterans: your armies lose 1.5% fewer foglets in fights per level (sim 2026-11-16: 3% made campaigns 2-4 run ~5 stages long)
+  thornStep: 0.015,   // stoneskin: attackers lose 1.5% more foglets at your tiles per level
+  rainStep: 0.03,     // spring rains: tiles under half full grow 3% faster per level
   obeliskMist: 3,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
 };
 
@@ -84,6 +87,7 @@ export const bossMist = (n) => Math.max(1, Math.round((n / 10) ** idleCfg.mistEx
 // forever, no prerequisites; most have no cap (doubling price), so Mist always has a use
 const pctUp = (v) => `+${Math.round((v - 1) * 100)}%`;
 const pctDown = (v) => `-${Math.round((1 - v) * 100)}%`;
+const pct1 = (x) => `${+(x * 100).toFixed(1)}%`;   // 1.5%, 3%, 4.5% ...
 export const branches = [
   { id: 'offense', icon: '⚔️', name: 'Offense', ang: -90, color: '#e2483d' },
   { id: 'defense', icon: '🛡️', name: 'Defense', ang: -18, color: '#2f74d6' },
@@ -96,7 +100,7 @@ export const upgrades = [
   // (veterans -> volley: the Marksman's arrows); both lead to mist blades
   { id: 'atk', branch: 'offense', ring: 0, off: 0, icon: '🗡️', name: 'Sharper blades', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `attack ${pctUp(v)}` },
   { id: 'march', branch: 'offense', ring: 1, off: -20, needs: [['atk', 2]], icon: '🥾', name: 'Forced march', base: 120, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `armies move ${pctUp(v)}` },
-  { id: 'veterans', branch: 'offense', ring: 1, off: 20, needs: [['atk', 2]], icon: '🎖️', name: 'Veterans', base: 480, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `attack ${pctUp(v)} more` },
+  { id: 'veterans', branch: 'offense', ring: 1, off: 20, needs: [['atk', 2]], icon: '🎖️', name: 'Veterans', base: 480, grow: 2, max: 10, value: (l) => (1 - idleCfg.vetStep) ** l, text: (v) => `your armies lose ${pct1(1 - v)} fewer foglets in fights` },
   { id: 'conscription', branch: 'offense', ring: 2, off: -22, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
   { id: 'plunder', branch: 'offense', ring: 3, off: -22, needs: [['conscription', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
   { id: 'volley', branch: 'offense', ring: 2, off: 22, needs: [['veterans', 4]], icon: '🎯', name: 'Volley', base: 8000, grow: 2.6, max: 4, value: (l) => 1 + 0.15 * l, text: (v) => `the Marksman's arrows ${pctUp(v)}` },
@@ -108,13 +112,13 @@ export const upgrades = [
   { id: 'masons', branch: 'defense', ring: 1, off: 20, needs: [['def', 2]], icon: '🏰', name: 'Stonemasons', base: 480, grow: 2.2, max: 5, value: (l) => effects.fortDefense + 0.05 * l, text: (v) => `forts defend x${v.toFixed(2)}` },
   { id: 'start', branch: 'defense', ring: 2, off: -22, needs: [['walls', 2]], icon: '🏕️', name: 'Bigger camp', base: 400, grow: 2.2, value: (l) => idleCfg.startTroops + 8 * l, text: (v, sc) => `start with ${fmtBig(v * sc)} foglets` },
   { id: 'medics', branch: 'defense', ring: 2, off: 22, needs: [['masons', 1]], icon: '⛑️', name: 'Field medics', base: 1350, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `hospitals ${pctUp(v)}` },
-  { id: 'stoneskin', branch: 'defense', ring: 3, off: 0, or: true, needs: [['start', 1], ['medics', 1]], icon: '⛰️', name: 'Stoneskin', base: 7200, grow: 2.2, max: 10, value: (l) => 1.01 ** l, text: (v) => `defense ${pctUp(v)} more` },
+  { id: 'stoneskin', branch: 'defense', ring: 3, off: 0, or: true, needs: [['start', 1], ['medics', 1]], icon: '⛰️', name: 'Stoneskin', base: 7200, grow: 2.2, max: 10, value: (l) => 1 + idleCfg.thornStep * l, text: (v) => `attackers lose ${pct1(v - 1)} more foglets at your tiles` },
   { id: 'mistveil', branch: 'legacy', slot: 1, cur: 'mist', icon: '🌁', name: 'Mist veil', base: 1, grow: 2, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
   // growth: fertile fog, then the builders path (master builders -> engineers -> deep roots) and the
   // fields path (spring rains -> scholars -> harvest moon); both lead to evergreen
   { id: 'growth', branch: 'growth', ring: 0, off: 0, icon: '🌱', name: 'Fertile fog', base: 50, grow: 2, value: (l) => 1.04 ** l, text: (v) => `growth ${pctUp(v)}` },
   { id: 'granary', branch: 'growth', ring: 1, off: -20, needs: [['growth', 2]], icon: '🌾', name: 'Master builders', base: 160, grow: 2.2, max: 5, value: (l) => 1 + 0.06 * l, text: (v) => `farms, hospitals, labs ${pctUp(v)}` },
-  { id: 'rains', branch: 'growth', ring: 1, off: 20, needs: [['growth', 2]], icon: '🌧️', name: 'Spring rains', base: 540, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `growth ${pctUp(v)} more` },
+  { id: 'rains', branch: 'growth', ring: 1, off: 20, needs: [['growth', 2]], icon: '🌧️', name: 'Spring rains', base: 540, grow: 2, max: 10, value: (l) => 1 + idleCfg.rainStep * l, text: (v) => `tiles under half full grow +${pct1(v - 1)}` },
   { id: 'engineers', branch: 'growth', ring: 2, off: -22, needs: [['granary', 2]], icon: '🛠️', name: 'Engineers', base: 450, grow: 2.2, max: 5, value: (l) => 0.96 ** l, text: (v) => `buildings cost ${pctDown(v)}` },
   { id: 'scholars', branch: 'growth', ring: 2, off: 22, needs: [['rains', 2]], icon: '🔬', name: 'Scholars', base: 1500, grow: 2.2, max: 4, value: (l) => 1 + 0.06 * l, text: (v) => `labs ${pctUp(v)}` },
   { id: 'roots', branch: 'legacy', slot: 3, cur: 'mist', icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
@@ -342,9 +346,10 @@ export class Idle {
     const g = this.val('granary'), war = this.val('warlord'), sanc = this.val('sanctuary');
     const drum = this.drumOn ? 1.15 + 0.05 * this.on('drummer') : 1;   // war drummer's roll (runtime only)
     const m = {
-      atk: this.val('atk') * this.val('veterans') * this.val('mistblades') * war,
-      def: this.val('def') * this.val('stoneskin') * this.val('mistveil') * war * sanc,
-      growth: this.val('growth') * this.val('rains') * this.val('evergreen') * sanc * drum,
+      atk: this.val('atk') * this.val('mistblades') * war,
+      def: this.val('def') * this.val('mistveil') * war * sanc,
+      growth: this.val('growth') * this.val('evergreen') * sanc * drum,
+      losses: this.val('veterans'), thorns: this.val('stoneskin'), lowGrowth: this.val('rains'),   // own mechanics, not copies of blades / shields / fertile fog
       speed: this.val('march') * drum,
       cost: this.val('engineers'), neutralDef: this.val('conscription'), loot: this.val('plunder'),
       farm: g * this.val('harvest'), hospital: g * this.val('medics'), lab: g * this.val('scholars'),
