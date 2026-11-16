@@ -1,20 +1,20 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=150';
-import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=150';
-import { initAnalytics, track } from './analytics.js?v=150';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=150';
-import { Battle } from './battle.js?v=150';
-import { personalities } from './ai.js?v=150';
-import { Campaign } from './campaign.js?v=150';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=150';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=150';
-import { drawGeneral } from './generals.js?v=150';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=150';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=150';
-import { previewBuildings, capitalObelisk } from './structures.js?v=150';
-import { initTune, tuneChanges } from './tune.js?v=150';
-import { initFogNoise } from './fogui.js?v=150';
-import { outlineLoops } from './outline.js?v=150';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=151';
+import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=151';
+import { initAnalytics, track } from './analytics.js?v=151';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=151';
+import { Battle } from './battle.js?v=151';
+import { personalities } from './ai.js?v=151';
+import { Campaign } from './campaign.js?v=151';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=151';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=151';
+import { drawGeneral } from './generals.js?v=151';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=151';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=151';
+import { previewBuildings, capitalObelisk } from './structures.js?v=151';
+import { initTune, tuneChanges } from './tune.js?v=151';
+import { initFogNoise } from './fogui.js?v=151';
+import { outlineLoops } from './outline.js?v=151';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -2448,6 +2448,21 @@ $('btn-idle').onclick = () => {
   withLoading(first || !tutorSeen() ? () => startTutorial(startIdle) : startIdle);
 };
 $('btn-help').onclick = $('m-help').onclick = () => $('help').classList.remove('hidden');
+
+// intro cutscene (js/intro.js, loaded only when it plays): on first launch and from the menu.
+// the web version asks for a click first (sound needs a user gesture); the exe autoplays.
+// automated tests (navigator.webdriver) and ?nointro skip the first-launch intro, ?intro forces it
+const introKey = 'fogtide.introSeen';
+function playIntro() {
+  track('intro');
+  return import('./intro.js?v=151').then((m) => m.playIntro({ click: !desktop })).then(() => { try { localStorage.setItem(introKey, '1'); } catch { /* storage blocked */ } });
+}
+$('m-intro').onclick = playIntro;
+{
+  const q = new URLSearchParams(location.search);
+  let seen = false; try { seen = !!localStorage.getItem(introKey); } catch { /* storage blocked */ }
+  if (q.has('intro') || (!seen && !navigator.webdriver && !q.has('nointro'))) playIntro();
+}
 
 // commander panel: colour swatches, troop and building style cards with live previews
 function renderProfile() {

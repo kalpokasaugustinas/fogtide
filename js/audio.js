@@ -20,7 +20,8 @@ function savePrefs() { try { localStorage.setItem(pref_key, JSON.stringify(prefs
 export const audioPrefs = prefs;
 // bus levels from the switches and sliders
 const sfxLevel = () => (prefs.sfx ? sfx_vol * prefs.sfxVol : 0);
-const musicLevel = () => (prefs.music ? music_vol * prefs.musicVol : 0);
+let ducked = false;   // intro cutscene playing: game music silent (it has its own score)
+const musicLevel = () => (prefs.music && !ducked ? music_vol * prefs.musicVol : 0);
 
 // create the audio graph on the first user gesture
 export function initAudio() {
@@ -61,6 +62,9 @@ export function setMusic(on) {
   // pause the streams while music is off (saves data), pick up where they were when it's back
   if (on) resumeDecks(); else setTimeout(() => { if (!prefs.music) for (const d of decks) d.el.pause(); }, 1200);
 }
+
+// intro cutscene (js/intro.js): silence the game music while it plays, bring it back after
+export function duckMusic(on) { ducked = on; if (ctx) musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, on ? 0.05 : 0.6); }
 
 // settings sliders: volume 0..1 for effects / music (applies at once, remembered)
 export function setVolume(kind, v) {

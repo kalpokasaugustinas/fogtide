@@ -10,6 +10,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - `js/campaign.js`, `js/expedition.js`: conquest/campaign modes. `js/idle.js`: idle mode (own save key, upgrade tree, `idleCfg`). `js/generals.js`: War Council portraits (rules live in `idle.js`: `generals`, `council`, `autoTick`).
 - `js/fogui.js` + `pc.css` (after `style.css`): fog & ink PC UI. `js/config.js`: balance numbers. `js/tune.js`: `?tune=1` panel.
 - `desktop/`: Electron shell (app:// scheme); `tools/build_desktop.py` builds it, `tools/desktop_check.py` checks the exe.
+- `js/intro.js`: intro cutscene. `SHOTS` (duration, renderer, story-time range = slow motion, camera, caption, flash/shake, music mood) drives the pictures and the synthesized score (`buildScore`). Overlay with Skip + Esc; `window.__intro` test hook (t, seek, skip).
 
 ## Decisions (don't "fix" back)
 - PC first (Steam target): UI designed at 1280x720, zoomed by `--ui`; phones are second. Web version stays on Pages for testers.
@@ -37,6 +38,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Build 145 (2026-11-16): campaigns last 33 years (`idleCfg.years`); the year count starts at year 1 and never stops (next campaign starts in the year the last ended, `gapYears` gone; saves with year0 >= 1000 reset to year 1), so it reads as total play time. `idle.lose()` and `pushBack` removed. Zoom-out: the fog layers no longer scale / drift with the island (their first-frame jump read as a stutter before the stage change). Menu buttons blur after a click (no leftover focus dash). `tools/idle_sim.py`: 3 careers by default, years from idleCfg, avg / median table per campaign.
 - Build 146 (2026-11-16): Veterans / Stoneskin / Spring rains got their own mechanics (battle mods `losses`, `thorns`, `lowGrowth`; steps `idleCfg.vetStep` 1.5%, `thornStep` 1.5%, `rainStep` 3%; at 3% / 3% / 5% campaigns 2-4 ran ~5 stages long). Sim median top stage 6/7/11/18/20/22. Capital card hides the carried-bonus line when all bonuses are 0 (always in the campaign). Commander: a resumed campaign battle now wears the current profile (`wearProfile`; a rival with the same style takes your old one). New `tools/council_probe.py`: replays each stage with only the council playing. Finding: council alone loses almost every stage (tiles average 30-45% full, never at the warlord's 80%); with player growth x2 it wins stages 1-10. Lower caps alone don't help (growth = 1% of cap); refill speed is the lever. Fixed in build 147 (smarter council, no growth change).
 - Build 147 (2026-11-16): smarter war council. Warlord rally (`idle.rally`, `council.rallyAt` 0.3): when the best enemy target is too strong for our border tiles (or none is ready), back tiles not facing a rival pass all but 10% one step toward that border, through our land; `attack()` returns that target. Pathfinder has no readiness wait any more (a fresh capital took ~20 s to expand while bots grabbed the neutrals); its spend limit alone guards. council_probe (council only, no human): wins every stage the bot wins in a 4-campaign career (1-7, 9, 11, 12), loses 8/10/13 like the bot; before: lost almost everything. Balance sim unchanged (its bot plays with the council off).
+- Intro (build 151): plays once on first launch (`fogtide.introSeen`) and from the menu (Watch intro). Web shows a Begin card first (sound needs a click), the exe autoplays (`autoplayPolicy` in desktop/main.js). Skipped when `navigator.webdriver` (tests) or `?nointro`; `?intro` forces it. Game music is ducked while it plays (`duckMusic`), intro volume follows the music / effects settings. Loaded with `import()` so startup cost is unchanged.
 - localStorage keys stay `frontlines.*` and the GoatCounter code stays `fogfront` (renames would wipe saves/stats).
 
 ## Tried and failed
@@ -46,6 +48,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Number badges redrawn each frame: main cause of idle stage-change lag (now sprite-cached).
 
 ## Known issues
+- Intro is a first draft the user wants improved: drawn at 1280x720 and scaled (soft on 1080p+), synthesized placeholder music / laugh, simple first-person art. `mockups/intro-trailer.html` holds an older copy of the same code (it does not import js/intro.js).
 - `idle_test.py` sometimes fails with one `ERR_CONNECTION_REFUSED` console error (the local server starts after a fixed 1 s sleep); a re-run passes.
 - `tools/idle_economy_test.py`: boss Mist check fails and the Mist veil click times out (stale since the right-side panel, build 130); later checks don't run.
 - Skirmish bot sim seed 104 stalemated (>1200 game s) in the smoke test; check the quiet-end rule for skirmish.
@@ -56,6 +59,7 @@ Read before changing code. Update in the same commit as the change. Full code ma
 - Tutorial: pressing Next on the zoom-in step without zooming auto-finishes the zoom-out step (camera is already at 1x).
 
 ## How to verify
+- `python tools/intro_test.py`: intro overlay, begin card, every shot renders without errors, esc / skip, remembered, menu replay, tests skip it.
 - `python tools/smoke_test.py`: page/console errors, portrait + landscape, bot battles end, frame times.
 - `python tools/idle_test.py`: idle UI flow, purchase, stage change, save across reload.
 - `python tools/balance.py` / `tools/idle_sim.py`: balance (see `/balance-check`).

@@ -122,6 +122,7 @@ Vanilla JS modules plus canvas 2D. No build step, no dependencies.
 | `js/expedition.js` | conquest stages, perks, carry-over maths, bot scaling, best run |
 | `js/idle.js` | idle mode: stage scaling, fogs, upgrades, war council (generals' rules), sample profiles, save (no dom) |
 | `js/generals.js` | war council portraits: the foglet drawn big with general gear and a standard |
+| `js/intro.js` | intro cutscene (first launch, menu "Watch intro"): shot list, side-view / first-person / map renderers, synthesized score; loaded with `import()` only when it plays. Map: `img/intro-map.*` from `tools/capture_trailer_map.py` |
 | `js/audio.js` | sound effects (decoded clips + a few synthesized cues) and the crossfading music playlists |
 | `audio/` | music + sfx mp3 files, `CREDITS.md` with authors and licences |
 | `tools/build_audio.py` | turns the downloaded tracks/clips into the files in `audio/` |
@@ -168,6 +169,7 @@ Balance pass (build 64): bots used to put a barracks on every front tile and los
 
 Idle mode:
 ```
+python tools/intro_test.py [screenshot_dir]    # intro: begin card, every shot renders, esc / skip, remembered, menu replay, tests skip it
 python tools/idle_test.py [screenshot_dir]     # ui: menu, hud, tree (veiled nodes open, buys apply live), war council (Mist unlock, seats, orders, hounds / surgeon / drum), generals attack, archers, old-save refund, win -> stage 2, save/resume, run over
 python tools/idle_economy_test.py [dir]        # land runs dry, fog closes in, boss Mist, Mist upgrades, menu hub (no horn, old horn refunded)
 python tools/idle_sim.py [--careers 2] [--runs 8] [--target 30] [--set enemyAtk=1.1 display=1.5]

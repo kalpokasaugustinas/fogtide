@@ -66,6 +66,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,             // the game is plain web code, it never needs node
       sandbox: true,
+      autoplayPolicy: 'no-user-gesture-required',   // the intro cutscene starts with sound on first launch
       backgroundThrottling: false,        // idle mode keeps ticking while the window is in the background
       preload: path.join(__dirname, 'preload.js'),   // window.fogtideDesktop (settings: fullscreen, quit)
     },

@@ -1,8 +1,8 @@
-# captures a high-res still of a real battle map + every tile's outline, for the intro trailer's
-# "the Fog takes every land" shot (mockups/intro-trailer.html). the mockup greys tiles out and fills
+# captures a high-res still of a real battle map + every tile's outline, for the intro cutscene's
+# map shots (js/intro.js, also mockups/intro-trailer.html). the mockup greys tiles out and fills
 # them with fog one by one, so the map itself stays the game's own art.
 # usage: python tools/capture_trailer_map.py [seed] [cells]
-# output: mockups/img/trailer-map.jpg (2x css px, cropped to the island) + mockups/img/trailer-map.json (tile loops in 1280x720 css px)
+# output: img/intro-map.jpg (2x css px, cropped to the island) + img/intro-map.json (tile loops in 1280x720 css px)
 import json
 import socket
 import subprocess
@@ -16,9 +16,9 @@ from playwright.sync_api import sync_playwright
 root = Path(__file__).resolve().parent.parent
 seed = int(sys.argv[1]) if len(sys.argv) > 1 else 777
 cells = int(sys.argv[2]) if len(sys.argv) > 2 else 30
-out_img = root / "mockups" / "img" / "trailer-map.jpg"
-tmp_png = root / "mockups" / "img" / "_trailer-map.png"
-out_json = root / "mockups" / "img" / "trailer-map.json"
+out_img = root / "img" / "intro-map.jpg"
+tmp_png = root / "img" / "_intro-map.png"
+out_json = root / "img" / "intro-map.json"
 
 # free port + local static server (same approach as smoke_test.py)
 with socket.socket() as s:

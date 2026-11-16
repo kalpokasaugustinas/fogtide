@@ -1,0 +1,987 @@
+// intro cutscene (first launch + menu "Watch intro"): ~67 s "living painting" trailer of the story:
+// an isolated village, the Fogbound night attack, the village holds, the last Fogbound's warning (the Fog
+// took every land, 33 years left), the player lights the old obelisk to unite the lands.
+// a list of shots (SHOTS) drives everything: side-view scenes (drawWorld, story time st), first-person
+// shots (fpd defend, fpf Fogbound charge, fpa archer, fpr looking down, fpx dying Fogbound, fpo obelisk),
+// the map (real capture img/intro-map.*, tools/capture_trailer_map.py) and cards. drawn live with the
+// game's own drawFoglet / previewBuildings / drawObelisk; placeholder score + sound effects are synthesized
+// with web audio from the same shot list. loaded with import() only when it plays (main.js playIntro).
+// first version from mockups/intro-trailer.html: meant to be improved (art, real music, voice).
+import { drawFoglet } from './render.js?v=151';
+import { previewBuildings, drawObelisk } from './structures.js?v=151';
+import { audioPrefs, duckMusic } from './audio.js?v=151';
+
+const W = 1280, H = 720;
+const BLUE = '#2f74d6', GREY = 'rgb(126,128,140)';
+let ctx = null;   // the intro's visible canvas (set by playIntro)
+
+// ---------- helpers ----------
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = (k) => k * k * (3 - 2 * k);
+const span = (t, a, b) => clamp((t - a) / (b - a));
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const mixc = (a, b, k) => a.map((v, i) => lerp(v, b[i], k));
+
+// =====================================================================================
+// THE EDIT (A Night siege). a shot = d (seconds), k (renderer), s [from, to] (story time shown: small
+// range over a long d = slow motion), cam [[x,y,zoom] start, end], cap (subtitle; " = the Fogbound),
+// card (big text on black), flash (impact frame), shake (px), seed (variation), m (music mood)
+// =====================================================================================
+const W0 = [[1000, 420, 0.62], [1120, 440, 0.82]];
+const SHOTS = [
+  { d: 4.2, k: 'world', m: 'calm', s: [0, 4], cam: W0, cap: 'Our village kept to itself.' },
+  { d: 3.2, k: 'world', m: 'calm', s: [4, 7], cam: [[1180, 525, 1.6], [1225, 520, 1.75]], cap: 'Beyond the hills there was only fog. We never asked what lived in it.' },
+  { d: 3.2, k: 'world', m: 'tense', s: [7.5, 10.5], cam: [[360, 560, 1.7], [400, 565, 1.95]], cap: '' },
+  { d: 1.4, k: 'card', m: 'card', card: 'Then, one night' },
+  { d: 2.0, k: 'fpf', m: 'battle', flash: 1, seed: 1 },
+  { d: 0.9, k: 'world', m: 'battle', s: [11.5, 12.6], cam: [[430, 585, 2.0], [540, 585, 2.25]], flash: 1, shake: 5 },
+  { d: 0.8, k: 'world', m: 'battle', s: [12.6, 13.4], cam: [[1080, 580, 2.2], [1040, 580, 2.3]], flash: 1 },
+  { d: 2.3, k: 'fpd', m: 'battle', flash: 1, seed: 1 },
+  { d: 0.9, k: 'world', m: 'battle', s: [16, 17], cam: [[965, 590, 2.6], [955, 590, 2.8]], flash: 1, shake: 8 },
+  { d: 2.0, k: 'fpa', m: 'battle', flash: 1, seed: 1 },
+  { d: 0.8, k: 'world', m: 'battle', s: [17, 18], cam: [[1085, 545, 2.4], [1070, 545, 2.4]], flash: 1 },
+  { d: 2.8, k: 'world', m: 'slow', s: [18.2, 18.9], cam: [[960, 575, 1.6], [975, 575, 1.85]], cap: 'We held.' },
+  { d: 1.6, k: 'fpd', m: 'battle', flash: 1, seed: 2 },
+  { d: 0.9, k: 'world', m: 'battle', s: [19.5, 20.6], cam: [[1000, 590, 2.4], [990, 585, 2.6]], flash: 1, shake: 6 },
+  { d: 2.8, k: 'world', m: 'after', s: [23, 25], cam: [[960, 585, 1.4], [950, 595, 1.8]], cap: 'By dawn the Fogbound were gone.' },
+  { d: 2.6, k: 'world', m: 'after', s: [25, 27], cam: [[935, 600, 4.6], [935, 598, 5.2]], cap: 'All but one.' },
+  { d: 2.8, k: 'fpr', m: 'talk', s: [27, 28], cap: '"Heh... heh... heh..."' },
+  { d: 3.2, k: 'fpx', m: 'talk', s: [27.6, 29.8], cap: '"You think you won, little foglet?"' },
+  { d: 3.0, k: 'world', m: 'talk', s: [29.8, 31], cam: [[935, 600, 5.4], [938, 598, 6]], cap: '"The Fog has taken every land. There is no way out."' },
+  { d: 4.2, k: 'mapfog', m: 'dread', cap: '"In 33 years it swallows the rest of you..."' },
+  { d: 2.6, k: 'fpx', m: 'talk', s: [31, 33.2], cap: '"...until there is only Fog."' },
+  { d: 2.2, k: 'world', m: 'void', s: [33.2, 34.6], cam: [[955, 585, 3.2], [960, 580, 2.6]], cap: '' },
+  { d: 3.0, k: 'world', m: 'resolve', s: [34.6, 37], cam: [[1110, 545, 1.9], [1190, 525, 2.05]], cap: 'Then I will stop it.' },
+  { d: 3.2, k: 'fpo', m: 'resolve', cap: 'I will light the old obelisk...' },
+  { d: 2.8, k: 'world', m: 'hero', s: [37.4, 39.6], cam: [[1200, 485, 1.5], [1200, 465, 1.0]], flash: 1, cap: '...and unite every land I can.' },
+  { d: 3.6, k: 'map', m: 'hero', cap: 'Before the Fog Tide takes everything.' },
+  { d: 4.0, k: 'title', m: 'title', s: [39.6, 41], cam: [[1200, 465, 1.0], [1200, 460, 0.95]] },
+];
+{ let a = 0; for (const s of SHOTS) { s.a = a; a += s.d; s.b = a; } }
+const END = SHOTS[SHOTS.length - 1].b;
+
+// =====================================================================================
+// WORLD (side view): the story as a function of story time st
+// =====================================================================================
+const GROUND = 470, OBX = 1200, OBY = 540;
+const depth = (y) => 0.78 + (y - GROUND) / 230 * 0.5;           // lower on screen = closer = bigger
+const houses = [
+  { x: 960, y: 505, pal: 'classic' }, { x: 1085, y: 560, pal: 'tudor' }, { x: 1345, y: 512, pal: 'nordic' },
+  { x: 1450, y: 590, pal: 'classic' }, { x: 1010, y: 650, pal: 'nordic' }, { x: 1530, y: 520, pal: 'tudor' },
+];
+const burning = { 0: 17, 4: 18.5 };                              // house index -> story time it catches fire
+const night = (st) => ease(span(st, 6, 10)) - ease(span(st, 22, 26)) * 0.45 - ease(span(st, 37, 40)) * 0.3;
+const fogFront = (st) => lerp(-150, 640, ease(span(st, 7, 12))) - lerp(0, 450, ease(span(st, 21, 26))) - lerp(0, 500, ease(span(st, 37, 40)));
+// Fogbound: march out of the fog, fight at the village edge, fall one by one and dissolve into fog.
+// id 0 is the last one: falls at 22.3, lies there talking, dissolves at 33.2-34.6
+const fogbound = Array.from({ length: 17 }, (_, i) => i === 0
+  ? { id: 0, x0: 420, y: 612, stop: 930, kit: 'barbarian', die: 22.3, last: true }
+  : { id: i, x0: 160 + hash(i + 40) * 380, y: 505 + hash(i + 70) * 170, stop: 890 + hash(i + 90) * 70, kit: i % 3 ? 'barbarian' : 'soldier', die: 16.6 + hash(i + 7) * 5.4 });
+const knights = Array.from({ length: 5 }, (_, i) => ({ id: 30 + i, x0: 1150 + i * 25, y: 540 + i * 30, x1: 985 + (i % 2) * 22 }));
+const archers = Array.from({ length: 3 }, (_, i) => ({ id: 40 + i, x: 1075 + i * 14, y: 520 + i * 18 }));
+const villagers = Array.from({ length: 8 }, (_, i) => ({ id: 50 + i, x: 1000 + hash(i) * 520, y: 520 + hash(i + 9) * 150, kit: ['soldier', 'viking', 'soldier', 'archer'][i % 4], ph: hash(i + 3) * 6,
+  hx: 1440 + hash(i + 20) * 160, gx: 1110 + Math.cos(i / 8 * 6.28) * 120, gy: 600 + Math.sin(i / 8 * 6.28) * 50 }));
+// hero (blue knight with a cape): to the front at 11.5-14, over the last Fogbound at 23-24, to the obelisk at 34.6-37
+function heroPos(st) {
+  if (st < 11.5) return { x: 1150, y: 600, mv: 0 };
+  if (st < 23) { const k = ease(span(st, 11.5, 14)); return { x: lerp(1150, 1000, k), y: 600, mv: k > 0 && k < 1 }; }
+  if (st < 34.6) { const k = ease(span(st, 23, 24.2)); return { x: lerp(1000, 968, k), y: lerp(600, 606, k), mv: k > 0 && k < 1 }; }
+  const k = ease(span(st, 34.6, 37)); return { x: lerp(968, 1225, k), y: lerp(606, 575, k), mv: k > 0 && k < 1, dir: 1 };
+}
+
+// ---------- sprite cache ----------
+const cache = new Map();
+function foglet(kit, col, eyes, S = 12, cape = false, sil = false) {
+  const key = [kit, col, eyes, S, cape, sil].join('|');
+  if (!cache.has(key)) {
+    const c = mk(16 * S, 16 * S), x = c.getContext('2d'), fx = 8 * S, fy = 13 * S;
+    if (cape) {                                                 // hero cape behind the body (like the war council generals)
+      x.fillStyle = '#1d3f78'; x.beginPath();
+      [[-1.55, -4.3], [1.55, -4.3], [2.3, 0.05], [0.8, -0.2], [0, 0.1], [-0.8, -0.2], [-2.3, 0.05]].forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, fx + px * S, fy + py * S));
+      x.closePath(); x.fill();
+    }
+    drawFoglet(x, fx, fy, S, col, kit, { noFace: !!eyes });
+    if (sil) { x.globalCompositeOperation = 'source-in'; x.fillStyle = '#1b1c26'; x.fillRect(0, 0, c.width, c.height); }
+    if (eyes && !sil) eyeGlow(x, fx, fy, S, 1);
+    cache.set(key, c);
+  }
+  return cache.get(key);
+}
+// violet glowing Fogbound eyes on the head (head centre ~ 0, -5 figure units)
+function eyeGlow(x, fx, fy, S, a) {
+  for (const s of [-0.55, 0.55]) {
+    const ex = fx + s * S, ey = fy - 5.1 * S, g = x.createRadialGradient(ex, ey, 0, ex, ey, 1.3 * S);
+    g.addColorStop(0, `rgba(245,235,255,${a})`); g.addColorStop(0.35, `rgba(170,120,255,${0.9 * a})`); g.addColorStop(1, 'rgba(150,100,255,0)');
+    x.fillStyle = g; x.fillRect(ex - 1.3 * S, ey - 1.3 * S, 2.6 * S, 2.6 * S);
+  }
+}
+function building(pal, dark = 0) {
+  const key = `b|${pal}|${dark}`;
+  if (!cache.has(key)) {
+    const c = mk(330, 300), x = c.getContext('2d');
+    previewBuildings(x, c.width, c.height, pal, BLUE);
+    if (dark) { x.globalCompositeOperation = 'source-atop'; x.fillStyle = `rgba(20,22,34,${dark})`; x.fillRect(0, 0, c.width, c.height); }
+    cache.set(key, c);
+  }
+  return cache.get(key);
+}
+function obelisk(look) {
+  const key = `o|${look}`;
+  if (!cache.has(key)) { const u = 40, c = mk(12 * u, 12 * u); drawObelisk(c.getContext('2d'), 6 * u, 10 * u, u, look); cache.set(key, c); }
+  return cache.get(key);
+}
+const puff = (() => { const c = mk(256, 256), x = c.getContext('2d'); const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(226,228,236,0.9)'); g.addColorStop(0.5, 'rgba(214,216,228,0.45)'); g.addColorStop(1, 'rgba(210,212,226,0)'); x.fillStyle = g; x.fillRect(0, 0, 256, 256); return c; })();
+
+// one figure in the world: cached sprite, bob when moving, lean/fall angle, alpha, facing
+function fig(x, sp, px, py, o = {}) {
+  const s = depth(py) * 5 * (o.big || 1) / (o.S || 12), t = o.t || 0;
+  const bob = o.mv ? Math.abs(Math.sin(t * 12 + (o.ph || 0))) * 2.5 * depth(py) : 0;
+  x.save(); x.globalAlpha = o.a ?? 1;
+  x.translate(px, py - bob); x.scale((o.dir || -1) * s, s); x.rotate((o.ang || 0) + (o.mv ? Math.sin(t * 12 + (o.ph || 0)) * 0.05 : 0));
+  x.drawImage(sp, -8 * (o.S || 12), -13 * (o.S || 12));
+  x.restore();
+}
+function fire(x, fx, fy, s, k, t) {
+  if (k <= 0) return;
+  for (let i = 0; i < 5; i++) {
+    const ph = (t * 0.25 + i / 5) % 1, r = (14 + ph * 40) * s * k;
+    x.globalAlpha = 0.45 * (1 - ph) * k; x.fillStyle = '#3a3a40';
+    x.beginPath(); x.arc(fx + Math.sin(ph * 4 + i) * 10, fy - 20 - ph * 150 * s, r, 0, 6.283); x.fill();
+  }
+  x.globalAlpha = 1;
+  for (let i = 0; i < 4; i++) {
+    const fl = (18 + 10 * Math.sin(t * 9 + i * 2)) * s * k, ox = (i - 1.5) * 8 * s;
+    x.fillStyle = i % 2 ? '#e8742c' : '#f4b33c';
+    x.beginPath(); x.moveTo(fx + ox - 7 * s, fy); x.quadraticCurveTo(fx + ox - 6 * s, fy - fl * 0.6, fx + ox + Math.sin(t * 7 + i) * 3, fy - fl);
+    x.quadraticCurveTo(fx + ox + 6 * s, fy - fl * 0.6, fx + ox + 7 * s, fy); x.closePath(); x.fill();
+  }
+}
+function star(x, sx, sy, r) {
+  x.fillStyle = '#fff8e0'; x.beginPath();
+  for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283, rr = i % 2 ? r * 0.35 : r; x.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); }
+  x.closePath(); x.fill();
+}
+function glow(x, gx, gy, r, col, a) {
+  const g = x.createRadialGradient(gx, gy, 0, gx, gy, r);
+  g.addColorStop(0, css(col, a)); g.addColorStop(1, css(col, 0)); x.fillStyle = g; x.fillRect(gx - r, gy - r, r * 2, r * 2);
+}
+
+// draw the side view at story time st with camera cam {x, y, z}; t = real clock (flames, wind)
+function drawWorld(x, st, cam, t) {
+  const d = clamp(night(st)), ff = fogFront(st), lit = ease(span(st, 37, 38.2));
+  x.save();
+  const sky = x.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, css(mixc(mixc([206, 196, 170], [34, 38, 58], d), [224, 196, 140], lit * 0.35)));
+  sky.addColorStop(1, css(mixc(mixc([236, 222, 190], [72, 76, 98], d), [240, 214, 160], lit * 0.35)));
+  x.fillStyle = sky; x.fillRect(-60, -60, W + 120, H + 120);
+  x.translate(W / 2, H / 2); x.scale(cam.z, cam.z); x.translate(-cam.x, -cam.y);
+
+  // far hills, parallax
+  for (const [p, col, hgt, seed] of [[0.35, [150, 156, 160], 120, 1], [0.6, [120, 132, 128], 80, 2]]) {
+    x.save(); x.translate(cam.x * p, 0); x.fillStyle = css(mixc(col, [52, 56, 74], d));
+    x.beginPath(); x.moveTo(-1400, GROUND + 4);
+    for (let i = 0; i <= 44; i++) x.lineTo(-1400 + i * 110, GROUND - hgt * (0.4 + 0.6 * hash(i * seed + 3)));
+    x.lineTo(3600, GROUND + 4); x.closePath(); x.fill(); x.restore();
+  }
+  // the isolating fog walls: grey banks on the horizon on both sides, always there
+  for (let i = 0; i < 26; i++) {
+    const side = i % 2, px = side ? 1800 + hash(i + 500) * 800 : -800 + hash(i + 500) * 800, py = GROUND - 60 + hash(i + 501) * 70, r = 160 + hash(i + 502) * 140;
+    x.globalAlpha = 0.55 + 0.2 * d - lit * 0.25; x.drawImage(puff, px - r + Math.sin(t * 0.2 + i) * 20, py - r, r * 2, r * 2);
+  }
+  x.globalAlpha = 1;
+  // sea + ground
+  x.fillStyle = css(mixc([130, 160, 168], [44, 56, 74], d)); x.fillRect(1500, GROUND - 8, 2400, 40);
+  x.fillStyle = css(mixc([150, 168, 110], [50, 62, 62], d));
+  x.beginPath(); x.moveTo(-1600, GROUND + 6);
+  for (let i = 0; i <= 34; i++) x.lineTo(-1600 + i * 160, GROUND + 2 - 10 * hash(i + 21));
+  x.lineTo(3800, 1500); x.lineTo(-1600, 1500); x.closePath(); x.fill();
+  x.strokeStyle = css(mixc([126, 146, 92], [44, 56, 58], d), 0.6); x.lineWidth = 2;
+  for (let i = 0; i < 50; i++) { const px = 820 + hash(i + 60) * 800, py = 500 + hash(i + 61) * 210; x.beginPath(); x.moveTo(px, py); x.lineTo(px + 26, py - 2); x.stroke(); }
+  // forest on the left
+  const trees = Array.from({ length: 34 }, (_, i) => ({ x: -300 + hash(i + 100) * 1000, y: GROUND + 4 + hash(i + 130) * 40, r: 16 + hash(i + 160) * 14 })).sort((a, b) => a.y - b.y);
+  for (const tr of trees) {
+    x.fillStyle = css(mixc([92, 74, 50], [36, 34, 40], d)); x.fillRect(tr.x - 2, tr.y - tr.r * 0.4, 4, tr.r * 0.5);
+    x.fillStyle = css(mixc([84, 116, 72], [36, 48, 50], d)); x.beginPath(); x.arc(tr.x, tr.y - tr.r, tr.r, 0, 6.283); x.fill();
+    x.fillStyle = css(mixc([110, 142, 92], [46, 58, 60], d), 0.8); x.beginPath(); x.arc(tr.x - tr.r * 0.3, tr.y - tr.r * 1.3, tr.r * 0.45, 0, 6.283); x.fill();
+  }
+  // attack fog: thick wall behind the figures (a thin veil follows after them)
+  const fogPass = (mul) => {
+    for (let i = 0; i < 70; i++) {
+      const px = -500 + hash(i + 400) * (ff + 500) + Math.sin(t * 0.3 + i) * 30, py = GROUND - 80 + hash(i + 401) * 300, r = 120 + hash(i + 402) * 160;
+      x.globalAlpha = mul * (0.32 + 0.3 * d) * clamp((ff - px) / 200 + 0.3);
+      x.drawImage(puff, px - r, py - r, r * 2, r * 2);
+    }
+    x.globalAlpha = 1;
+  };
+  fogPass(1);
+
+  const items = [];
+  houses.forEach((h, i) => items.push({ y: h.y, draw: () => {
+    const s = depth(h.y) * 1.25, w = 110 * s, hh = 100 * s;
+    x.drawImage(building(h.pal), h.x - w / 2, h.y - hh * 0.9, w, hh);
+    if (d > 0.3 && !burning[i]) glow(x, h.x - w * 0.15, h.y - hh * 0.3, 16 * s, [255, 190, 90], 0.5 * d);   // lit windows at night
+    if (burning[i] != null) fire(x, h.x - w * 0.12, h.y - hh * 0.45, s * 1.5, span(st, burning[i], burning[i] + 1.5) * (1 - span(st, 23, 26) * 0.85), t);
+  } }));
+  // obelisk: old and grey until the hero lights it (37), then lit with a beam and a wave of light
+  items.push({ y: OBY, draw: () => {
+    const a = obelisk('fog'), b = obelisk('lit'), w = a.width / 2, hh = a.height / 2;
+    x.globalAlpha = 1 - lit; x.drawImage(a, OBX - w / 2, OBY - hh * 10 / 12, w, hh);
+    x.globalAlpha = lit; x.drawImage(b, OBX - w / 2, OBY - hh * 10 / 12, w, hh); x.globalAlpha = 1;
+    if (lit > 0) {
+      const bw = 26 * (1 + 0.1 * Math.sin(t * 6)), g = x.createLinearGradient(OBX - bw, 0, OBX + bw, 0);
+      g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(0.5, `rgba(255,236,170,${0.75 * lit})`); g.addColorStop(1, 'rgba(255,220,120,0)');
+      x.fillStyle = g; x.fillRect(OBX - bw, -1400, bw * 2, OBY - 106 + 1400);
+      glow(x, OBX, OBY - 106, 260 * lit, [255, 214, 110], 0.55 * lit);
+    }
+  } });
+  // villagers: wander, hide behind the houses (10-12), come back (25-27), gather at the obelisk (37+)
+  for (const v of villagers) {
+    const hide = ease(span(st, 9.5 + hash(v.id) * 1.5, 12)), back = ease(span(st, 25, 27.5)), gat = ease(span(st, 37.5, 39.5));
+    let px = lerp(v.x + Math.sin(st * 1.4 + v.ph) * 12, v.hx, hide), py = v.y;
+    px = lerp(px, 900 + hash(v.id + 2) * 160 + 140, back * (1 - gat)); py = lerp(py, 640 + hash(v.id + 4) * 60, back * (1 - gat));
+    if (gat > 0) { px = lerp(px, v.gx + 90, gat); py = lerp(py, v.gy, gat); }
+    const mv = (hide > 0 && hide < 1) || (back > 0 && back < 1) || (gat > 0 && gat < 1);
+    items.push({ y: py, draw: () => fig(x, foglet(v.kit, BLUE), px, py, { mv, t, ph: v.ph, dir: hide > 0 && hide < 1 ? 1 : -1 }) });
+  }
+  // knights to the front, then fight until the last Fogbound falls
+  for (const k of knights) {
+    const m = ease(span(st, 11.5, 14)), fight = st > 15.3 && st < 22.5, px = lerp(k.x0, k.x1, m) + (fight ? Math.sin(t * 10 + k.id) * 5 : 0);
+    items.push({ y: k.y, draw: () => fig(x, foglet('knight', BLUE), px, k.y, { mv: m > 0 && m < 1, t, ph: k.id }) });
+  }
+  // archers with arrows in flight
+  for (const ar of archers) items.push({ y: ar.y, draw: () => fig(x, foglet('archer', BLUE), ar.x, ar.y, { t }) });
+  // Fogbound
+  for (const f of fogbound) {
+    if (st < 8) continue;
+    const m = span(st, 10.6 + hash(f.id) * 1.2, 15.3 + hash(f.id + 1) * 0.6), fall = ease(span(st, f.die, f.die + 0.45));
+    const gone = f.last ? span(st, 33.2, 34.6) : span(st, f.die + 0.7, f.die + 1.9);
+    if (gone >= 1) continue;
+    const fight = st > 15.3 && st < f.die, px = lerp(f.x0, f.stop, ease(m)) + (fight ? Math.sin(t * 10 + f.id * 2) * 6 : 0);
+    const body = clamp((st - 10.6 - hash(f.id) * 1.2) * 1.5);       // body comes out of the fog after the eyes
+    items.push({ y: f.y, draw: () => {
+      if (body > 0) fig(x, foglet(f.kit, GREY, true), px, f.y, { mv: m > 0 && m < 1, t, ph: f.id, dir: 1, ang: -fall * 1.45, a: body * (1 - gone) });
+      if (body < 1) {                                            // just the eyes in the fog
+        const s = depth(f.y) * 5; for (const e of [-0.55, 0.55]) glow(x, px + e * s, f.y - 5.1 * s, 3.6 * s, [180, 130, 255], 0.9 * (1 - body) * span(st, 8 + hash(f.id) * 2, 9.5 + hash(f.id) * 2));
+      }
+      if (fall > 0.5 && (gone > 0 || f.last && st > 33)) {      // dissolving into fog
+        x.globalAlpha = 0.6 * Math.sin(gone * 3.14); x.drawImage(puff, px - 40, f.y - 50 - gone * 30, 80, 60); x.globalAlpha = 1;
+      }
+      if (f.last && fall >= 1 && gone < 1) {                    // the last one: eyes flicker while it talks
+        const s = depth(f.y) * 5, fl = 0.55 + 0.45 * Math.sin(t * 7) * Math.sin(t * 2.3);
+        glow(x, px - 5.1 * s * 0.99, f.y - 0.5 * s, 1.8 * s, [180, 130, 255], fl * (1 - gone));
+      }
+    } });
+  }
+  // hero
+  const hp = heroPos(st);
+  items.push({ y: hp.y + 0.1, draw: () => fig(x, foglet('knight', BLUE, false, 12, true), hp.x + (st > 15.3 && st < 22.5 ? Math.sin(t * 10) * 4 : 0), hp.y, { mv: hp.mv, t, dir: hp.dir || -1 }) });
+  items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
+
+  // arrows: each archer fires every 0.9 s between 13 and 21, 0.8 s flight in an arc
+  for (const ar of archers) for (let n = 0; n < 9; n++) {
+    const tf = 13 + (ar.id - 40) * 0.3 + n * 0.9, p = (st - tf) / 0.8;
+    if (p < 0 || p > 1) continue;
+    const tx = 880 + hash(ar.id * 9 + n) * 70, ty = 540 + hash(ar.id * 9 + n + 1) * 120, sx = ar.x - 6, sy = ar.y - 26;
+    const px = lerp(sx, tx, p), py = lerp(sy, ty, p) - 130 * 4 * p * (1 - p), dx = tx - sx, dy = ty - sy - 130 * 4 * (1 - 2 * p);
+    const a = Math.atan2(dy, dx); x.save(); x.translate(px, py); x.rotate(a);
+    x.strokeStyle = '#d8c8a0'; x.lineWidth = 1.6; x.beginPath(); x.moveTo(-12, 0); x.lineTo(4, 0); x.stroke();
+    x.fillStyle = '#c4ccd4'; x.beginPath(); x.moveTo(7, 0); x.lineTo(3, -2.2); x.lineTo(3, 2.2); x.fill(); x.restore();
+  }
+  // clash sparks at the front line
+  if (st > 15.3 && st < 22.3) for (let i = 0; i < 6; i++) {
+    const ph = (t * 3 + i * 0.37) % 1; if (ph < 0.25) star(x, 945 + hash(i + 300) * 45, 528 + hash(i + 301) * 120, 10 * (1 - ph * 4));
+  }
+  // light wave over the land when the obelisk is lit
+  if (st > 37 && st < 40) {
+    const r = (st - 37) * 700; x.strokeStyle = `rgba(255,224,140,${0.6 * (1 - span(st, 37, 40))})`; x.lineWidth = 16;
+    x.beginPath(); x.ellipse(OBX, OBY, r, r * 0.28, 0, 0, 6.283); x.stroke();
+  }
+  fogPass(0.25);
+  // warm fire light at night
+  x.globalCompositeOperation = 'lighter';
+  for (const i of Object.keys(burning)) { const h = houses[i], k = span(st, burning[i], burning[i] + 1.5) * (1 - span(st, 23, 26)); if (k > 0) glow(x, h.x, h.y - 40, 220, [180, 80, 20], 0.35 * k * (0.9 + 0.1 * Math.sin(t * 13))); }
+  x.globalCompositeOperation = 'source-over';
+  x.restore();
+  x.fillStyle = `rgba(14,18,40,${d * 0.3})`; x.fillRect(0, 0, W, H);   // cold night grade
+}
+
+
+// =====================================================================================
+// FIRST-PERSON GROUND: a painted grass texture drawn in perspective row by row (mode-7 style),
+// with mip levels so far rows don't shimmer, plus grass tufts / stones standing on it
+// =====================================================================================
+const TEX = 512, TPU = 128, REP = 18, ZMAX = 30;   // texture px, texture px per world unit, repeats, far limit
+const grassBase = (() => {
+  const c = mk(TEX, TEX), x = c.getContext('2d');
+  x.fillStyle = '#6a8a4a'; x.fillRect(0, 0, TEX, TEX);
+  const wrap = (fn) => { for (const ox of [-TEX, 0, TEX]) for (const oy of [-TEX, 0, TEX]) { x.save(); x.translate(ox, oy); fn(); x.restore(); } };
+  for (let i = 0; i < 70; i++) {                                   // soft light / dark patches (tile seamlessly)
+    const px = hash(i + 1000) * TEX, py = hash(i + 1001) * TEX, r = 30 + hash(i + 1002) * 80, dark = hash(i + 1003) < 0.55;
+    wrap(() => { const g = x.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, dark ? 'rgba(58,82,42,0.5)' : 'rgba(150,168,96,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(px - r, py - r, 2 * r, 2 * r); });
+  }
+  const cols = ['#56763c', '#7a9a52', '#8bab60', '#4a6834', '#9ab868', '#62823f'];
+  for (let i = 0; i < 11000; i++) {                                // grass blades
+    const px = hash(i * 2 + 5) * TEX, py = hash(i * 2 + 6) * TEX, l = 3 + hash(i + 7) * 7, a = hash(i + 8) * 6.283;
+    x.strokeStyle = cols[i % 6]; x.lineWidth = 1 + hash(i + 9) * 1.3; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke();
+  }
+  for (let i = 0; i < 160; i++) { x.fillStyle = i % 3 ? 'rgba(240,236,210,0.9)' : 'rgba(240,200,90,0.9)'; x.beginPath(); x.arc(hash(i + 3000) * TEX, hash(i + 3001) * TEX, 1.5, 0, 6.283); x.fill(); }
+  for (let i = 0; i < 70; i++) { x.fillStyle = 'rgba(150,140,120,0.85)'; x.beginPath(); x.ellipse(hash(i + 3100) * TEX, hash(i + 3101) * TEX, 2 + hash(i) * 3, 1.5 + hash(i + 1) * 2, 0, 0, 6.283); x.fill(); }
+  return c;
+})();
+const grassMips = (() => {                                         // each level half size, repeated REP times across
+  const out = []; let src = grassBase;
+  for (let L = 0; L < 6; L++) {
+    const s = TEX >> L, lvl = mk(s, s); lvl.getContext('2d').drawImage(src, 0, 0, s, s);
+    const wide = mk(s * REP, s), wx = wide.getContext('2d'); for (let i = 0; i < REP; i++) wx.drawImage(lvl, i * s, 0);
+    out.push({ c: wide, s }); src = lvl;
+  }
+  return out;
+})();
+// o = { hz: horizon y, hc: eye height (world units), camX, camZ (world position), f: focal px }
+function drawGround(x, o) {
+  const f = o.f || 700;
+  for (let y = Math.max(-40, Math.ceil(o.hz + o.hc * f / ZMAX)); y < H + 40; y++) {
+    const dy = y - o.hz; if (dy <= 0) continue;
+    const z = o.hc * f / dy, spanW = (W + 160) * z / f * TPU;
+    const L = clamp(Math.ceil(Math.log2(Math.max(1, spanW / (W + 160)))), 0, 5), m = grassMips[L], k = 1 / (1 << L);
+    const u0 = (o.camX - (W / 2 + 80) * z / f) * TPU * k, v = (o.camZ + z) * TPU * k;
+    const sx = ((u0 % m.s) + m.s) % m.s, sy = ((v % m.s) + m.s) % m.s, sw = Math.min(spanW * k, m.s * REP - sx);
+    x.drawImage(m.c, sx, sy, sw, 1, -80, y, W + 160, 1.6);
+  }
+}
+// dirt path running away from the camera (gently winding), with two wheel ruts
+function drawPath(x, o, w = 0.8) {
+  const f = o.f || 700, row = (z, k) => { const s = f / z, cu = Math.sin((z + o.camZ) * 0.22) * 0.5 - o.camX; return [W / 2 + (cu - w * k / 2) * s, W / 2 + (cu + w * k / 2) * s, o.hz + o.hc * s, cu, s]; };
+  for (const [k, col] of [[1.3, 'rgba(110,92,62,0.3)'], [1, 'rgba(122,100,68,0.6)'], [0.55, 'rgba(140,116,80,0.45)']]) {
+    const L = [], R = []; for (let z = 0.3; z < ZMAX; z *= 1.12) { const r = row(z, k); L.push([r[0], r[2]]); R.push([r[1], r[2]]); }
+    x.fillStyle = col; x.beginPath(); L.forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, px, py)); R.reverse().forEach(([px, py]) => x.lineTo(px, py)); x.closePath(); x.fill();
+  }
+  x.strokeStyle = 'rgba(70,56,36,0.45)';
+  for (const side of [-0.22, 0.22]) { x.beginPath(); for (let z = 0.3; z < ZMAX; z *= 1.12) { const r = row(z, 1); x.lineWidth = Math.max(0.5, 0.05 * r[4]); x.lineTo(W / 2 + (r[3] + side * w) * r[4], r[2]); } x.stroke(); }
+}
+const tuft = (() => { const c = mk(120, 80), x = c.getContext('2d'); x.lineCap = 'round';
+  for (let i = 0; i < 24; i++) { const bx = 60 + (hash(i + 5000) - 0.5) * 70, h = 28 + hash(i + 5001) * 48, lean = (hash(i + 5002) - 0.5) * 34;
+    x.strokeStyle = ['#4f6e38', '#6a8a4a', '#7fa058', '#3f5c2c'][i % 4]; x.lineWidth = 3 + hash(i) * 2; x.beginPath(); x.moveTo(bx, 80); x.quadraticCurveTo(bx + lean * 0.3, 80 - h * 0.6, bx + lean, 80 - h); x.stroke(); }
+  return c; })();
+const rock = (() => { const c = mk(100, 60), x = c.getContext('2d');
+  x.fillStyle = 'rgba(0,0,0,0.25)'; x.beginPath(); x.ellipse(52, 54, 46, 6, 0, 0, 6.283); x.fill();
+  x.fillStyle = '#7d7a72'; x.beginPath(); x.ellipse(50, 38, 44, 20, 0, 0, 6.283); x.fill();
+  x.fillStyle = '#9a968c'; x.beginPath(); x.ellipse(42, 32, 28, 11, -0.2, 0, 6.283); x.fill(); return c; })();
+// grass tufts and stones scattered on the ground (repeat every 30 units as the camera moves)
+function scenery(o, n = 90, seed = 1) {
+  const out = [], f = o.f || 700;
+  for (let i = 0; i < n; i++) {
+    const u = (hash(i * 3 + seed * 101) - 0.5) * 18, v0 = hash(i * 3 + 1 + seed * 101) * ZMAX, z = ((v0 - o.camZ) % ZMAX + ZMAX) % ZMAX;
+    if (z < 0.3 || Math.abs(u - o.camX) * f / z > W) continue;
+    const sp = hash(i * 3 + 2) < 0.8 ? tuft : rock, ws = sp === tuft ? 0.24 : 0.16;
+    out.push({ z, draw: (x) => { const s = f / z, px = W / 2 + (u - o.camX) * s, py = o.hz + o.hc * s, w = ws * s, h = w * sp.height / sp.width; x.globalAlpha = clamp((ZMAX - z) / 8); x.drawImage(sp, px - w / 2, py - h * 0.95, w, h); x.globalAlpha = 1; } });
+  }
+  return out;
+}
+const P = (o, u, z) => { const s = (o.f || 700) / z; return { x: W / 2 + (u - o.camX) * s, y: o.hz + o.hc * s, s }; };   // world -> screen
+const FU = 0.06;                                                     // one foglet figure unit in world units
+function fpSky(x, top, bot, hz) { const g = x.createLinearGradient(0, -80, 0, hz + 20); g.addColorStop(0, top); g.addColorStop(1, bot); x.fillStyle = g; x.fillRect(-100, -100, W + 200, hz + 140); }
+function hills(x, hz, col, seed) {
+  x.fillStyle = col; x.beginPath(); x.moveTo(-100, hz + 2);
+  for (let i = 0; i <= 20; i++) x.lineTo(-100 + i * 75, hz - 18 - 34 * hash(i * seed + 9));
+  x.lineTo(W + 100, hz + 2); x.closePath(); x.fill();
+}
+function fogBand(x, hz, col, h = 110) { const g = x.createLinearGradient(0, hz - 30, 0, hz + h); g.addColorStop(0, css(col, 0.95)); g.addColorStop(0.35, css(col, 0.55)); g.addColorStop(1, css(col, 0)); x.fillStyle = g; x.fillRect(-100, hz - 30, W + 200, h + 30); }
+function fogPuffs(x, hz, t, a = 0.6, seed = 0) { for (let i = 0; i < 18; i++) { const px = hash(i + 700 + seed) * (W + 200) - 100 + Math.sin(t * 0.4 + i) * 25, r = 90 + hash(i + 701) * 110; x.globalAlpha = a; x.drawImage(puff, px - r, hz - r * 0.75, r * 2, r * 1.2); } x.globalAlpha = 1; }
+// a figure standing on the ground in a first-person shot (cached sprite, scaled by distance)
+function fpFig(x, o, sp, S, u, z, opt = {}) {
+  const p = P(o, u, z), sc = p.s * FU, bob = opt.run ? Math.abs(Math.sin(opt.tau * 13 + (opt.ph || 0))) * sc * 0.6 : 0;
+  x.save(); x.globalAlpha = opt.a ?? 1; x.translate(p.x, p.y - bob); x.scale((opt.dir || -1) * sc / S, sc / S);
+  x.rotate((opt.ang || 0) + (opt.run ? Math.sin(opt.tau * 13 + (opt.ph || 0)) * 0.06 : 0)); x.drawImage(sp, -8 * S, -13 * S); x.restore();
+  return p;
+}
+
+// =====================================================================================
+// FP 1 (fpd): the player defending at the village edge: shield + spear, Fogbound charging out of the fog
+// =====================================================================================
+function fpdFoes(seed) {
+  return Array.from({ length: 6 }, (_, i) => { const z0 = 2.8 + i * 2.6 + hash(seed * 9 + i) * 0.6, sp = 6;
+    return { i, wx: (hash(seed * 13 + i) - 0.5) * 2.2, z0, sp, hitT: (z0 - 1.5) / sp, kit: i % 2 ? 'barbarian' : 'soldier' }; });
+}
+function drawFPD(x, tau, dur, seed, t) {
+  const foes = fpdFoes(seed), o = { hz: 300, hc: 0.62, camX: Math.sin(tau * 1.3) * 0.04, camZ: 0 };
+  let shake = 0, thrust = 0, flash = 0;
+  for (const f of foes) { const dt = tau - f.hitT; if (dt > 0 && dt < 0.6) { shake += 16 * Math.exp(-dt * 7); flash = Math.max(flash, 1 - dt / 0.12); } if (dt > -0.12 && dt < 0.3) thrust = Math.max(thrust, Math.sin(clamp((dt + 0.12) / 0.42) * Math.PI)); }
+  x.save(); x.translate((hash(Math.floor(t * 30)) - 0.5) * shake, (hash(Math.floor(t * 30) + 1) - 0.5) * shake);
+  fpSky(x, '#1a1e34', '#4a4260', o.hz);
+  hills(x, o.hz, '#2a2c3e', 3);
+  for (const [u, pal] of [[-3.4, 'classic'], [3.6, 'nordic']]) {   // burning houses on the horizon
+    const p = P(o, u, 12), w = 2.6 * p.s, h = w * 0.9; x.drawImage(building(pal, 0.5), p.x - w / 2, p.y - h * 0.9, w, h); fire(x, p.x - w * 0.1, p.y - h * 0.45, p.s / 40, 1, t);
+  }
+  fogPuffs(x, o.hz, t, 0.55, seed);
+  drawGround(x, o); drawPath(x, o, 0.9);
+  fogBand(x, o.hz, [120, 116, 140]);
+  const items = scenery(o, 90, seed);
+  for (const f of foes) {
+    const dt = tau - f.hitT, z = dt < 0 ? f.z0 - f.sp * tau : 1.5 + dt * 2.2;
+    const a = dt > 0 ? clamp(1 - (dt - 0.25) * 2.5) : clamp((f.z0 - z) * 1.5 + 0.3);
+    if (z < 0.6 || a <= 0) continue;
+    items.push({ z, draw: (x) => {
+      const p = fpFig(x, o, foglet(f.kit, GREY, true, 30), 30, f.wx, z, { run: dt < 0, tau, ph: f.i, a, ang: dt > 0 ? -Math.min(1.5, dt * 5) : 0 });
+      x.globalAlpha = 0.5 * a; x.drawImage(puff, p.x - p.s * 0.2, p.y - p.s * 0.25, p.s * 0.4, p.s * 0.25); x.globalAlpha = 1;
+      if (dt > 0 && dt < 0.15) star(x, p.x, p.y - p.s * 0.25, 60 * (1 - dt / 0.15));
+    } });
+  }
+  items.sort((a, b) => b.z - a.z).forEach((it) => it.draw(x));
+  x.globalCompositeOperation = 'multiply'; x.fillStyle = '#7c84a2'; x.fillRect(-60, -60, W + 120, H + 120);   // night
+  x.globalCompositeOperation = 'lighter';
+  for (const u of [-3.4, 3.6]) { const p = P(o, u, 12); glow(x, p.x, p.y - 40, 300, [190, 90, 30], 0.32 * (0.9 + 0.1 * Math.sin(t * 13 + u))); }
+  x.globalCompositeOperation = 'source-over';
+  // spear (right) thrusts toward the centre on each hit
+  const bob = Math.sin(tau * 6) * 6;
+  x.save(); x.translate(1060 - thrust * 230, 820 - thrust * 300 + bob); x.rotate(-2.2);
+  x.fillStyle = '#6e4a2a'; x.fillRect(0, -9, 620, 18); x.fillStyle = '#4e321c'; x.fillRect(0, 3, 620, 6);
+  x.fillStyle = '#c4ccd4'; x.beginPath(); x.moveTo(620, -16); x.lineTo(720, 0); x.lineTo(620, 16); x.fill();
+  x.fillStyle = '#8e98a2'; x.beginPath(); x.moveTo(620, 0); x.lineTo(720, 0); x.lineTo(620, 16); x.fill(); x.restore();
+  shield(x, 250 + shake * 0.6, 640 + bob + shake * 0.4, -0.12 - shake * 0.004, 0.82);
+  x.restore();
+  if (flash > 0) { x.fillStyle = `rgba(255,250,235,${0.28 * flash})`; x.fillRect(0, 0, W, H); }
+}
+// the knight's shield in the foreground: team blue, steel rim, white cross, rivets; light = brightness
+function shield(x, cx, cy, rot, light = 1) {
+  x.save(); x.translate(cx, cy); x.rotate(rot);
+  x.fillStyle = css([142 * light, 152 * light, 162 * light]); x.fillRect(-210, -230, 420, 520);
+  x.fillStyle = css([47 * light, 116 * light, 214 * light]); x.fillRect(-190, -210, 380, 480);
+  x.fillStyle = css([33 * light, 81 * light, 150 * light]); x.fillRect(40, -210, 150, 480);
+  x.fillStyle = css([240 * light, 240 * light, 234 * light]); x.fillRect(-22, -170, 44, 360); x.fillRect(-130, -60, 260, 44);
+  x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 2; for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(-150 + i * 70, -200 + i * 30); x.lineTo(-110 + i * 60, -160 + i * 40); x.stroke(); }   // scratches
+  for (const [rx, ry] of [[-175, -195], [175, -195], [-175, 250], [175, 250]]) { x.fillStyle = css([196 * light, 204 * light, 212 * light]); x.beginPath(); x.arc(rx, ry, 9, 0, 6.283); x.fill(); }
+  x.restore();
+}
+
+// =====================================================================================
+// FP 2 (fpf): a Fogbound running at the village through the fog (violet vision, studded club)
+// =====================================================================================
+function drawFPF(x, tau, dur, seed, t) {
+  const sway = Math.sin(tau * 4.5) * 0.12, bob = Math.abs(Math.sin(tau * 9)) * 14;
+  const o = { hz: 300, hc: 0.45, camX: sway, camZ: tau * 3.2 };
+  x.save(); x.translate(0, bob); x.translate(W / 2, H / 2); x.rotate(Math.sin(tau * 4.5) * 0.025); x.translate(-W / 2, -H / 2);
+  fpSky(x, '#1c1e32', '#3e3856', o.hz);
+  hills(x, o.hz, '#262838', 5);
+  drawGround(x, o); drawPath(x, o, 0.8);
+  fogBand(x, o.hz, [96, 90, 120], 90);
+  const items = scenery(o, 90, seed + 3), VZ = 15;
+  // the village ahead: houses with warm windows, the old obelisk, torches
+  for (const [u, pal, dv] of [[-3.2, 'classic', 0.6], [-1.7, 'tudor', 0], [1.6, 'nordic', 0.3], [3.1, 'classic', 0.9]]) {
+    const z = VZ + dv - o.camZ; items.push({ z, draw: (x) => { const p = P(o, u, z), w = 1.5 * p.s, h = w * 0.9; x.drawImage(building(pal, 0.62), p.x - w / 2, p.y - h * 0.9, w, h); x.globalCompositeOperation = 'lighter'; glow(x, p.x - w * 0.15, p.y - h * 0.32, w * 0.16, [255, 180, 80], 0.9); x.globalCompositeOperation = 'source-over'; } });
+  }
+  items.push({ z: VZ + 1.2 - o.camZ, draw: (x) => { const p = P(o, 0, VZ + 1.2 - o.camZ), ob = obelisk('fog'), w = 2.2 * p.s, h = w * ob.height / ob.width; x.drawImage(ob, p.x - w / 2, p.y - h * 10 / 12, w, h); } });
+  for (const u of [-2.4, -0.8, 0.9, 2.3]) items.push({ z: VZ - 0.5 - o.camZ, draw: (x) => { const p = P(o, u, VZ - 0.5 - o.camZ); x.fillStyle = '#3a2a1a'; x.fillRect(p.x - 1.5, p.y - p.s * 0.3, 3, p.s * 0.3); x.globalCompositeOperation = 'lighter'; glow(x, p.x, p.y - p.s * 0.32, p.s * 0.12 + Math.sin(t * 11 + u) * 2, [255, 160, 60], 0.9); x.globalCompositeOperation = 'source-over'; } });
+  // other Fogbound running ahead (dark shapes, pulling away a little)
+  for (let i = 0; i < 7; i++) { const z = 1.1 + i * 0.75 + tau * 0.35 + hash(seed + i) * 0.4, u = (hash(seed * 3 + i) - 0.5) * 3 + o.camX;
+    items.push({ z, draw: (x) => fpFig(x, o, foglet(i % 2 ? 'barbarian' : 'soldier', GREY, true, 30, false, true), 30, u, z, { run: true, tau, ph: i, dir: 1 }) }); }
+  items.sort((a, b) => b.z - a.z).forEach((it) => it.draw(x));
+  x.globalCompositeOperation = 'multiply'; x.fillStyle = '#8a7cae'; x.fillRect(-60, -60, W + 120, H + 120); x.globalCompositeOperation = 'source-over';
+  x.restore();
+  for (let i = 0; i < 30; i++) {                                     // fog rushing past
+    const p = (tau * 0.9 + hash(i + seed * 7)) % 1, a = hash(i + 33) * 6.283, r = 60 + p * p * 900, sz = 80 + p * 420;
+    x.globalAlpha = Math.sin(p * 3.14) * 0.32; x.drawImage(puff, W / 2 + Math.cos(a) * r * 1.4 - sz / 2, H / 2 + Math.sin(a) * r * 0.8 - sz / 2, sz, sz);
+  }
+  x.globalAlpha = 1;
+  // studded club in the right foreground, grey fist
+  x.save(); x.translate(1110, 760 + bob * 0.6); x.rotate(-0.5 + Math.sin(tau * 9) * 0.18);
+  x.fillStyle = '#4a3020'; x.fillRect(-18, -360, 36, 360); x.fillStyle = '#6a4628'; x.fillRect(-18, -360, 14, 360);
+  x.fillStyle = '#4a3020'; x.beginPath(); x.moveTo(-18, -330); x.lineTo(-44, -470); x.lineTo(-30, -520); x.lineTo(30, -520); x.lineTo(44, -470); x.lineTo(18, -330); x.closePath(); x.fill();
+  x.fillStyle = '#6a4628'; x.fillRect(-30, -510, 20, 170);
+  x.fillStyle = '#8e98a2'; for (const [nx, ny] of [[-30, -480], [26, -460], [-6, -500], [-34, -420], [30, -410], [0, -440]]) { x.beginPath(); x.moveTo(nx, ny - 9); x.lineTo(nx + (nx < 0 ? -16 : 16), ny); x.lineTo(nx, ny + 9); x.fill(); }
+  x.fillStyle = 'rgb(112,114,126)'; x.fillRect(-46, -60, 92, 90); x.fillStyle = 'rgb(86,88,100)'; x.fillRect(14, -60, 32, 90);
+  x.restore();
+  const hb = 0.5 + 0.5 * Math.pow(Math.abs(Math.sin(tau * 3.2)), 6);
+  const v = x.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, W * 0.62);
+  v.addColorStop(0, 'rgba(90,50,140,0)'); v.addColorStop(1, `rgba(70,30,120,${0.5 + 0.25 * hb})`); x.fillStyle = v; x.fillRect(0, 0, W, H);
+}
+
+// =====================================================================================
+// FP 3 (fpa): an archer on the palisade shooting into the charging Fogbound
+// =====================================================================================
+const FPA_SHOTS = [{ t: 0.45, fly: 0.3, target: 1 }, { t: 1.3, fly: 0.32, target: 4 }];
+function drawFPA(x, tau, dur, seed, t) {
+  const o = { hz: 236, hc: 1.6, camX: 0, camZ: 0 };
+  const foes = Array.from({ length: 9 }, (_, i) => ({ i, u: (hash(seed * 31 + i) - 0.5) * 6, z0: 3.6 + i * 1.1 + hash(seed * 7 + i) * 0.8, kit: i % 2 ? 'barbarian' : 'soldier' }));
+  const zOf = (f, tt) => f.z0 - 1.6 * tt;
+  let rec = 0; for (const r of FPA_SHOTS) { const dt = tau - r.t; if (dt > 0 && dt < 0.3) rec = Math.max(rec, Math.exp(-dt * 12)); }
+  x.save(); x.translate(0, rec * 10);
+  fpSky(x, '#1a1e34', '#4a4260', o.hz);
+  hills(x, o.hz, '#2a2c3e', 7);
+  fogPuffs(x, o.hz, t, 0.6, 40);
+  drawGround(x, o); drawPath(x, o, 1.0);
+  fogBand(x, o.hz, [120, 116, 140], 130);
+  const items = scenery(o, 110, seed + 9);
+  for (const f of foes) {
+    const shot = FPA_SHOTS.find((r) => r.target === f.i), hit = shot ? tau - shot.t - shot.fly : -1;
+    const z = zOf(f, hit > 0 ? shot.t + shot.fly : tau);
+    const a = hit > 0 ? clamp(1 - (hit - 0.4) * 2) : 1; if (a <= 0 || z < 1.2) continue;
+    items.push({ z, draw: (x) => { const p = fpFig(x, o, foglet(f.kit, GREY, true, 30), 30, f.u, z, { run: hit <= 0, tau, ph: f.i, a, dir: 1, ang: hit > 0 ? -Math.min(1.5, hit * 6) : 0 });
+      if (hit > 0 && hit < 0.15) star(x, p.x, p.y - p.s * 0.28, 40 * (1 - hit / 0.15)); } });
+  }
+  items.sort((a, b) => b.z - a.z).forEach((it) => it.draw(x));
+  // other archers' arrows flying out over the field
+  for (let k = 0; k < 8; k++) { const t0 = k * 0.26 + hash(k + seed) * 0.1, p = (tau - t0) / 0.6; if (p < 0 || p > 1) continue;
+    const sx = 300 + hash(k * 5) * 700, ex = 200 + hash(k * 5 + 1) * 900, ey = o.hz + 40 + hash(k * 5 + 2) * 120, px = lerp(sx, ex, p), py = lerp(760, ey, p) - 160 * 4 * p * (1 - p), l = lerp(70, 8, p);
+    const ang = Math.atan2(ey - 760 - 160 * 4 * (1 - 2 * p), ex - sx); x.strokeStyle = '#d8c8a0'; x.lineWidth = lerp(3, 1, p); x.beginPath(); x.moveTo(px - Math.cos(ang) * l, py - Math.sin(ang) * l); x.lineTo(px, py); x.stroke(); }
+  // our arrow in flight to its target
+  for (const r of FPA_SHOTS) { const p = (tau - r.t) / r.fly; if (p < 0 || p > 1) continue;
+    const f = foes[r.target], tp = P(o, f.u, zOf(f, r.t + r.fly)), tx = tp.x, ty = tp.y - tp.s * 0.28;
+    const px = lerp(640, tx, p), py = lerp(430, ty, p), l = lerp(150, 14, p), ang = Math.atan2(ty - 430, tx - 640);
+    x.strokeStyle = '#e0d0a8'; x.lineWidth = lerp(5, 1.2, p); x.beginPath(); x.moveTo(px - Math.cos(ang) * l, py - Math.sin(ang) * l); x.lineTo(px, py); x.stroke(); }
+  // burning roof in the left foreground + palisade along the bottom
+  const bw = 520; x.drawImage(building('tudor', 0.35), -260, 330, bw, bw * 0.9); fire(x, -40, 520, 3.2, 1, t);
+  x.globalCompositeOperation = 'multiply'; x.fillStyle = '#7c84a2'; x.fillRect(-60, -60, W + 120, H + 120);
+  x.globalCompositeOperation = 'lighter'; glow(x, 40, 460, 420, [200, 100, 30], 0.4 * (0.9 + 0.1 * Math.sin(t * 13))); x.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 16; i++) { const lx = i * 86 - 20, top = 600 + hash(i + 77) * 30;
+    x.fillStyle = i % 2 ? '#4e3a26' : '#5a4430'; x.fillRect(lx, top, 80, H - top + 40); x.fillStyle = '#3a2a1a'; x.fillRect(lx + 56, top, 24, H - top + 40);
+    x.fillStyle = i % 2 ? '#5e4834' : '#6a523a'; x.beginPath(); x.moveTo(lx, top); x.lineTo(lx + 40, top - 44); x.lineTo(lx + 80, top); x.closePath(); x.fill(); }
+  // bow, string, nocked arrow, hand on the grip
+  const pulled = !FPA_SHOTS.some((r) => tau > r.t && tau < r.t + 0.55), snap = FPA_SHOTS.reduce((m, r) => { const d = tau - r.t; return d > 0 && d < 0.25 ? Math.sin(d * 90) * (1 - d / 0.25) * 10 : m; }, 0);
+  const top = [470, 120], bot = [470, 700], pull = pulled ? [760, 450] : [470 + snap, 410];
+  x.strokeStyle = '#e8e0c8'; x.lineWidth = 2.5; x.beginPath(); x.moveTo(...top); x.lineTo(...pull); x.lineTo(...bot); x.stroke();
+  x.strokeStyle = '#5a3a20'; x.lineWidth = 26; x.lineCap = 'round'; x.beginPath(); x.moveTo(...top); x.quadraticCurveTo(300, 410, ...bot); x.stroke();
+  x.strokeStyle = '#7a5230'; x.lineWidth = 10; x.beginPath(); x.moveTo(top[0] - 4, top[1] + 6); x.quadraticCurveTo(292, 410, bot[0] - 4, bot[1] - 6); x.stroke(); x.lineCap = 'butt';
+  if (pulled) { x.strokeStyle = '#d8c8a0'; x.lineWidth = 6; x.beginPath(); x.moveTo(760, 450); x.lineTo(380, 418); x.stroke();
+    x.fillStyle = '#c4ccd4'; x.beginPath(); x.moveTo(380, 404); x.lineTo(340, 416); x.lineTo(380, 432); x.fill();
+    x.fillStyle = BLUE; x.fillRect(740, 430, 46, 30); }                    // fletching in team blue
+  x.fillStyle = '#25508f'; x.fillRect(150, 380, 230, 86); x.fillStyle = BLUE; x.fillRect(150, 380, 230, 30);   // sleeve
+  x.fillStyle = '#ecceb0'; x.fillRect(340, 372, 86, 96); x.fillStyle = '#d4b496'; x.fillRect(340, 440, 86, 28);  // blocky foglet hand
+  x.restore();
+}
+
+// =====================================================================================
+// FP 4 (fpr): the hero looking down at the last Fogbound, lying in the trampled grass, laughing
+// =====================================================================================
+function drawFPR(x, tau, dur, t) {
+  const z = 1 + tau / dur * 0.14;
+  x.save(); x.translate(W / 2, H / 2); x.scale(z, z); x.rotate(0.06); x.translate(-W / 2, -H / 2);
+  const pat = x.createPattern(grassBase, 'repeat'); pat.setTransform(new DOMMatrix().scale(2.1)); x.fillStyle = pat; x.fillRect(-300, -300, W + 600, H + 600);
+  for (let i = 0; i < 9; i++) { const px = 300 + hash(i + 60) * 700, py = 150 + hash(i + 61) * 450, r = 90 + hash(i + 62) * 140;   // trampled mud
+    const g = x.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, 'rgba(84,66,44,0.55)'); g.addColorStop(1, 'rgba(84,66,44,0)'); x.fillStyle = g; x.fillRect(px - r, py - r, r * 2, r * 2); }
+  for (let i = 0; i < 6; i++) { const px = 120 + hash(i + 80) * 1040, py = 80 + hash(i + 81) * 560, a = hash(i + 82) * 6.28;   // broken arrows
+    x.save(); x.translate(px, py); x.rotate(a); x.fillStyle = '#c8b890'; x.fillRect(0, -2.5, 90, 5); x.fillStyle = '#2f74d6'; x.fillRect(70, -7, 20, 14); x.restore(); }
+  // the Fogbound on its back, head to the left; shakes when it laughs, eyes flare with each "heh"
+  const laugh = [0.3, 0.64, 0.98, 1.32].reduce((m, l) => Math.max(m, Math.exp(-Math.abs(tau - l) * 9)), 0);
+  x.save(); x.translate(900, 390 + Math.sin(tau * 40) * laugh * 3); x.rotate(-Math.PI / 2);
+  drawFoglet(x, 0, 0, 52, GREY, 'barbarian', { noFace: true }); eyeGlow(x, 0, 0, 52, 0.55 + 0.45 * laugh); x.restore();
+  for (let i = 0; i < 8; i++) { const p = (tau * 0.35 + i / 8) % 1, px = 620 + hash(i + 90) * 220 + p * 60, py = 400 - p * 260;   // fog leaking out
+    x.globalAlpha = 0.45 * Math.sin(p * 3.14); x.drawImage(puff, px - 80, py - 60, 160, 120); }
+  x.globalAlpha = 1;
+  // the hero's shadow over it, the spear tip resting at its chest
+  x.fillStyle = 'rgba(12,16,10,0.32)'; x.beginPath(); x.ellipse(560, 820, 300, 200, 0, 0, 6.283); x.fill(); x.beginPath(); x.ellipse(560, 600, 110, 120, 0, 0, 6.283); x.fill();
+  x.save(); x.translate(1180, 860); x.rotate(-2.55); x.fillStyle = '#6e4a2a'; x.fillRect(0, -10, 560, 20); x.fillStyle = '#4e321c'; x.fillRect(0, 4, 560, 6);
+  x.fillStyle = '#c4ccd4'; x.beginPath(); x.moveTo(560, -18); x.lineTo(670, 0); x.lineTo(560, 18); x.fill(); x.fillStyle = '#8e98a2'; x.beginPath(); x.moveTo(560, 0); x.lineTo(670, 0); x.lineTo(560, 18); x.fill(); x.restore();
+  x.restore();
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, 'rgba(255,220,170,0.18)'); g.addColorStop(1, 'rgba(40,40,70,0.3)'); x.fillStyle = g; x.fillRect(0, 0, W, H);   // grey dawn light
+}
+
+// =====================================================================================
+// FP 5 (fpx): the dying Fogbound looking up at the hero, vision fading
+// =====================================================================================
+function drawFPX(x, st, t) {
+  const dying = span(st, 27, 33.2), dawn = 1 - clamp(night(st));
+  x.save(); x.translate(W / 2, H / 2); x.rotate(-0.17 + Math.sin(t * 0.7) * 0.01); x.translate(-W / 2, -H / 2);
+  const sky = x.createLinearGradient(0, -100, 0, H); sky.addColorStop(0, css(mixc([60, 62, 80], [150, 146, 150], dawn))); sky.addColorStop(1, css(mixc([90, 90, 110], [206, 190, 170], dawn)));
+  x.fillStyle = sky; x.fillRect(-200, -200, W + 400, H + 400);
+  for (let i = 0; i < 4; i++) { const sx = 120 + i * 330; for (let k = 0; k < 6; k++) { const ph = (t * 0.08 + k / 6) % 1; x.globalAlpha = 0.25 * (1 - ph); x.fillStyle = '#3a3a44'; x.beginPath(); x.arc(sx + Math.sin(ph * 5 + i) * 40, H - ph * 900, 40 + ph * 120, 0, 6.283); x.fill(); } }
+  x.globalAlpha = 1;
+  for (const [vx, vy, sc, kit] of [[180, 880, 34, 'soldier'], [1090, 900, 38, 'viking'], [330, 960, 44, 'archer'], [960, 980, 46, 'soldier']]) drawFoglet(x, vx, vy, sc, BLUE, kit);
+  const hx = 650, hy = 880, S = 108;
+  x.fillStyle = '#1d3f78'; x.beginPath();
+  [[-1.55, -4.3], [1.55, -4.3], [2.3, 0.05], [0.8, -0.2], [0, 0.1], [-0.8, -0.2], [-2.3, 0.05]].forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, hx + px * S, hy + py * S)); x.closePath(); x.fill();
+  drawFoglet(x, hx, hy, S, BLUE, 'knight');
+  x.restore();
+  x.fillStyle = `rgba(110,80,160,${0.12 + 0.05 * Math.sin(t * 7)})`; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 26; i++) { const a = i / 26 * 6.283 + t * 0.05, r = lerp(760, 380, dying) + Math.sin(t + i) * 30, sz = 360 + hash(i) * 200;
+    x.globalAlpha = 0.35 + 0.4 * dying; x.drawImage(puff, W / 2 + Math.cos(a) * r * 1.3 - sz / 2, H / 2 + Math.sin(a) * r * 0.75 - sz / 2, sz, sz); }
+  x.globalAlpha = 1;
+  let lid = 0;
+  for (const [b0, b1] of [[28.6, 29.0], [30.6, 31.1], [32.3, 32.7]]) lid = Math.max(lid, Math.sin(span(st, b0, b1) * Math.PI) * 0.8);
+  lid = Math.max(lid, ease(span(st, 32.8, 33.2)));
+  if (lid > 0) {
+    x.fillStyle = '#07070c';
+    x.beginPath(); x.ellipse(W / 2, -H * 0.2 + lid * H * 0.72, W * 0.9, H * 0.6, 0, Math.PI, 0, true); x.lineTo(W * 1.4, -H); x.lineTo(-W * 0.4, -H); x.fill();
+    x.beginPath(); x.ellipse(W / 2, H * 1.2 - lid * H * 0.72, W * 0.9, H * 0.6, 0, Math.PI, 0); x.lineTo(-W * 0.4, H * 2); x.lineTo(W * 1.4, H * 2); x.fill();
+    x.fillRect(-10, -10, W + 20, Math.max(0, -H * 0.2 + lid * H * 0.72 - H * 0.6 + 10));
+  }
+}
+
+// =====================================================================================
+// FP 6 (fpo): the hero's hand on the old obelisk; the runes light from the base up, then the beam
+// =====================================================================================
+const OBU = 92;
+const bigOb = (look) => { const k = 'big|' + look; if (!cache.has(k)) { const c = mk(12 * OBU, 12 * OBU); drawObelisk(c.getContext('2d'), 6 * OBU, 10 * OBU, OBU, look); cache.set(k, c); } return cache.get(k); };
+function drawFPO(x, tau, dur, t) {
+  const lt = tau / dur, rev = ease(span(lt, 0.34, 0.78)), beam = ease(span(lt, 0.74, 0.92)), camY = lerp(-60, 90, ease(lt));
+  x.save(); x.translate(0, camY);
+  const sky = x.createLinearGradient(0, -300, 0, H); sky.addColorStop(0, css(mixc([120, 120, 132], [236, 206, 150], rev))); sky.addColorStop(1, css(mixc([170, 160, 156], [250, 226, 176], rev)));
+  x.fillStyle = sky; x.fillRect(-100, -400, W + 200, H + 600);
+  for (let i = 0; i < 40; i++) { const ph = (t * 0.05 + hash(i + 600)) % 1; glow(x, hash(i + 601) * W, H + 100 - ph * (H + 400), 3 + hash(i) * 4, rev > 0.1 ? [255, 220, 140] : [220, 220, 230], 0.6 * Math.sin(ph * 3.14)); }   // drifting motes / ash
+  const cx = 640, cy = 700, fog = bigOb('fog'), lit = bigOb('lit'), ox0 = cx - 6 * OBU, oy0 = cy - 10 * OBU;
+  x.drawImage(fog, ox0, oy0);
+  const ry = lerp(cy, cy - 7.4 * OBU, rev);                          // lit part rises from the base
+  if (rev > 0) { x.save(); x.beginPath(); x.rect(-100, ry, W + 200, 2000); x.clip(); x.drawImage(lit, ox0, oy0); x.restore();
+    if (rev < 1) { x.globalCompositeOperation = 'lighter'; const g = x.createRadialGradient(cx, ry, 0, cx, ry, 220); g.addColorStop(0, 'rgba(255,220,120,0.9)'); g.addColorStop(1, 'rgba(255,220,120,0)'); x.fillStyle = g; x.fillRect(cx - 220, ry - 60, 440, 120); x.globalCompositeOperation = 'source-over'; } }
+  if (beam > 0) {                                                    // the beam from the gem into the sky
+    const gy = cy - 5.3 * OBU, bw = 70 * (1 + 0.08 * Math.sin(t * 7)), g = x.createLinearGradient(cx - bw, 0, cx + bw, 0);
+    g.addColorStop(0, 'rgba(255,224,140,0)'); g.addColorStop(0.5, `rgba(255,244,200,${0.9 * beam})`); g.addColorStop(1, 'rgba(255,224,140,0)');
+    x.fillStyle = g; x.fillRect(cx - bw, -600, bw * 2, gy + 600); glow(x, cx, gy, 520 * beam, [255, 220, 120], 0.6 * beam);
+  }
+  // the hero's hand reaching in from the lower right and touching the stone
+  const reach = ease(span(lt, 0, 0.3)), hxp = lerp(1100, 720, reach), hyp = lerp(860, 600, reach);
+  x.save(); x.translate(hxp, hyp); x.rotate(-0.55);
+  x.fillStyle = '#25508f'; x.fillRect(40, -60, 420, 120); x.fillStyle = BLUE; x.fillRect(40, -60, 420, 40); x.fillStyle = '#c4ccd4'; x.fillRect(40, -66, 30, 132);   // sleeve + steel cuff
+  x.fillStyle = '#ecceb0'; x.fillRect(-70, -52, 110, 104); x.fillStyle = '#d4b496'; x.fillRect(-70, 22, 110, 30); x.restore();
+  const tp = span(lt, 0.28, 0.55); if (tp > 0 && tp < 1) { x.strokeStyle = `rgba(255,226,150,${1 - tp})`; x.lineWidth = 8; x.beginPath(); x.ellipse(660, 580, 40 + tp * 420, 18 + tp * 160, 0, 0, 6.283); x.stroke(); }
+  x.restore();
+  if (lt > 0.74 && lt < 0.8) { x.fillStyle = `rgba(255,248,226,${0.9 * (1 - (lt - 0.74) / 0.06)})`; x.fillRect(0, 0, W, H); }
+}
+
+// =====================================================================================
+// MAP: a real high-res game map (tools/capture_trailer_map.py) with every tile's outline.
+// mapfog = the Fog takes the lands tile by tile until only your home is left.
+// map = the light spreads from your obelisk and frees the tiles one by one
+// =====================================================================================
+const mapImg = new Image(); mapImg.src = new URL('../img/intro-map.jpg', import.meta.url).href;
+const MAP = await (await fetch(new URL('../img/intro-map.json', import.meta.url))).json();
+const tiles = MAP.tiles.map((tl) => {
+  const path = new Path2D(); let sx = 0, sy = 0, n = 0;
+  for (const l of tl.loops) { for (let i = 0; i < l.length; i += 2) { (i ? path.lineTo : path.moveTo).call(path, l[i], l[i + 1]); sx += l[i]; sy += l[i + 1]; n++; } path.closePath(); }
+  return { id: tl.id, owner: tl.owner, path, cx: sx / n, cy: sy / n };
+});
+const home = tiles.find((t) => t.owner === 0) || tiles[0];
+const start = tiles.reduce((a, b) => (Math.hypot(b.cx - home.cx, b.cy - home.cy) > Math.hypot(a.cx - home.cx, a.cy - home.cy) ? b : a));
+const fogOrder = tiles.filter((t) => t !== home).map((t) => ({ t, k: Math.hypot(t.cx - start.cx, t.cy - start.cy) + hash(t.id + 7) * 90 })).sort((a, b) => a.k - b.k).map((e) => e.t);
+const lightOrder = tiles.filter((t) => t !== home).map((t) => ({ t, k: Math.hypot(t.cx - home.cx, t.cy - home.cy) + hash(t.id + 3) * 60 })).sort((a, b) => a.k - b.k).map((e) => e.t);
+let mapMasked = null;
+function maskedMap() {
+  // the capture with feathered edges, so its own sea colour melts into the fog around it
+  if (mapMasked || !mapImg.complete) return mapMasked;
+  const c = mk(mapImg.width, mapImg.height), x = c.getContext('2d'), k = mapImg.width / MAP.w;
+  const h = 0.5, m = mk(c.width * h, c.height * h), mx = m.getContext('2d');
+  mx.fillStyle = '#fff'; mx.strokeStyle = '#fff'; mx.lineWidth = 22; mx.lineJoin = 'round';
+  for (let dy = 0; dy <= 34; dy += 6) { mx.setTransform(k * h, 0, 0, k * h, 0, dy * k * h); for (const tl of tiles) { mx.fill(tl.path); mx.stroke(tl.path); } }
+  const mb = mk(c.width, c.height), bx = mb.getContext('2d'); bx.filter = 'blur(6px)'; bx.drawImage(m, 0, 0, c.width, c.height);
+  x.drawImage(mapImg, 0, 0); x.globalCompositeOperation = 'destination-in'; x.drawImage(mb, 0, 0);
+  return (mapMasked = c);
+}
+function drawMap(x, lt, t, mode) {
+  const bg = x.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, W * 0.7); bg.addColorStop(0, mode === 'map' ? '#6a6e7a' : '#4a4658'); bg.addColorStop(1, '#16161e');
+  x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  const fit = Math.min(W / MAP.w, 572 / MAP.h) * 0.98;
+  const zoom = mode === 'map' ? lerp(1.35, 1.0, ease(lt)) : lerp(1.0, 1.3, ease(lt));
+  const fx = mode === 'map' ? lerp(home.cx, MAP.w / 2, ease(lt)) : lerp(MAP.w / 2, home.cx, ease(lt) * 0.7), fy = mode === 'map' ? lerp(home.cy, MAP.h / 2, ease(lt)) : lerp(MAP.h / 2, home.cy, ease(lt) * 0.7);
+  x.save(); x.translate(W / 2, 350); x.scale(fit * zoom, fit * zoom); x.translate(-fx, -fy);
+  const mm = maskedMap(); if (mm) x.drawImage(mm, 0, 0, MAP.w, MAP.h);
+  const px1 = 1 / (fit * zoom);
+  // fog amount per tile (0 = clear, 1 = taken by the Fog)
+  const amt = (tl) => {
+    if (mode === 'mapfog') { if (tl === home) return 0; const i = fogOrder.indexOf(tl), tk = 0.06 + i / fogOrder.length * 0.74; return ease(span(lt, tk, tk + 0.1)); }
+    if (tl === home) return 1 - ease(span(lt, 0.02, 0.1)); const i = lightOrder.indexOf(tl), tk = 0.12 + i / lightOrder.length * 0.66; return 1 - ease(span(lt, tk, tk + 0.08));
+  };
+  for (const tl of tiles) {
+    const p = amt(tl); if (p <= 0) continue;
+    x.save(); x.clip(tl.path);
+    x.globalCompositeOperation = 'saturation'; x.fillStyle = `rgba(128,128,128,${p})`; x.fillRect(0, 0, MAP.w, MAP.h);
+    x.globalCompositeOperation = 'source-over'; x.fillStyle = `rgba(52,48,72,${0.5 * p})`; x.fillRect(0, 0, MAP.w, MAP.h);
+    for (let k = 0; k < 4; k++) { const r = 70 + hash(tl.id * 5 + k) * 60; x.globalAlpha = 0.75 * p; x.drawImage(puff, tl.cx - r + Math.sin(t * 0.6 + tl.id + k) * 18 + (hash(tl.id + k * 3) - 0.5) * 80, tl.cy - r * 0.7 + (hash(tl.id + k * 5) - 0.5) * 50, r * 2, r * 1.4); }
+    x.globalAlpha = 1; x.restore();
+    if (p > 0.02 && p < 0.98) { x.strokeStyle = mode === 'map' ? `rgba(255,214,110,${Math.sin(p * Math.PI)})` : `rgba(176,130,255,${Math.sin(p * Math.PI)})`; x.lineWidth = 4 * px1; x.stroke(tl.path);
+      if (mode === 'map') star(x, tl.cx, tl.cy - 20, 26 * Math.sin(p * Math.PI)); }
+    if (mode === 'mapfog' && tl.owner > 0 && p > 0.5) for (const e of [-7, 7]) glow(x, tl.cx + e, tl.cy - 24, 16, [180, 130, 255], 0.9 * (p - 0.5) * 2 * (0.8 + 0.2 * Math.sin(t * 4 + tl.id)));   // Fogbound chief's eyes
+  }
+  // your home: last warm light in the Fog (mapfog) / the beacon the light spreads from (map)
+  x.globalCompositeOperation = 'lighter'; glow(x, home.cx, home.cy - 10, 120, [255, 200, 100], mode === 'map' ? 0.5 : 0.25 + 0.35 * span(lt, 0.6, 1)); x.globalCompositeOperation = 'source-over';
+  x.strokeStyle = `rgba(255,240,200,${mode === 'map' ? 0.6 : 0.3 + 0.5 * span(lt, 0.7, 1) * (0.6 + 0.4 * Math.sin(t * 5))})`; x.lineWidth = 3 * px1; x.stroke(home.path);
+  if (mode === 'map') { const r = lerp(30, 1400, ease(span(lt, 0.05, 0.85))); x.strokeStyle = `rgba(255,220,130,${0.6 * (1 - lt)})`; x.lineWidth = 10 * px1; x.beginPath(); x.arc(home.cx, home.cy, r, 0, 6.283); x.stroke(); }
+  x.restore();
+  // sea fog drifting over the edges of the frame
+  for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283, r = 520 + Math.sin(t * 0.3 + i) * 40, sz = 380; x.globalAlpha = mode === 'map' ? 0.25 : 0.4; x.drawImage(puff, W / 2 + Math.cos(a) * r * 1.25 - sz / 2, 350 + Math.sin(a) * r * 0.6 - sz / 2, sz, sz); }
+  x.globalAlpha = 1;
+}
+
+// ---------- cards: big text on black with a faint drift of fog ----------
+function drawCard(x, text, lt, t) {
+  x.fillStyle = '#050608'; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 8; i++) { const r = 200 + hash(i) * 160; x.globalAlpha = 0.07; x.drawImage(puff, hash(i + 1) * W - r + t * 12, hash(i + 2) * H - r, r * 2, r * 2); }
+  x.globalAlpha = clamp(Math.min(lt * 5, (1 - lt) * 6));
+  x.fillStyle = '#e8e2d2'; x.font = '600 56px "Josefin Sans"'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  if ('letterSpacing' in x) x.letterSpacing = '14px';
+  x.fillText(text.toUpperCase(), W / 2 + 7, H / 2);
+  if ('letterSpacing' in x) x.letterSpacing = '0px';
+  x.globalAlpha = 1;
+}
+const brushC = (() => { const c = mk(W, H), x = c.getContext('2d'); x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 5000; i++) { const px = hash(i * 3) * W, py = hash(i * 3 + 1) * H, a = (hash(i * 3 + 2) - 0.5) * 0.8 + (py > H * 0.6 ? 0 : 0.3), l = 10 + hash(i + 11) * 28;
+    x.strokeStyle = hash(i + 13) < 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'; x.lineWidth = 2 + hash(i + 17) * 4; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke(); }
+  return c; })();
+
+// =====================================================================================
+// AUDIO: placeholder score + sound effects, synthesized with web audio and scheduled from SHOTS.
+// the same builder renders live (AudioContext) or to a wav (OfflineAudioContext)
+// =====================================================================================
+function audioGraph(ac, dest) {
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+  const lim = ac.createDynamicsCompressor(); lim.threshold.value = -4; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.12;   // limiter: impacts never clip
+  const out = ac.createGain(); out.gain.value = 0.62; out.connect(comp); comp.connect(lim); lim.connect(dest);
+  const conv = ac.createConvolver(), len = Math.floor(ac.sampleRate * 2.8), ir = ac.createBuffer(2, len, ac.sampleRate);   // generated hall reverb
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  conv.buffer = ir; const wg = ac.createGain(); wg.gain.value = 0.3; conv.connect(wg); wg.connect(out);
+  const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  return { ac, out, wet: conv, noise: nb, srcs: [] };
+}
+function env(G, T, a, peak, dur) { const g = G.ac.createGain(); g.gain.setValueAtTime(0.0001, T); g.gain.linearRampToValueAtTime(peak, T + a); g.gain.exponentialRampToValueAtTime(0.0001, T + dur); return g; }
+function route(G, node, wet = 0.2) { node.connect(G.out); if (wet) { const s = G.ac.createGain(); s.gain.value = wet; node.connect(s); s.connect(G.wet); } }
+function osc(G, type, f, T, dur) { const o = G.ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, T); o.start(T); o.stop(T + dur + 0.05); G.srcs.push(o); return o; }
+function noiseSrc(G, T, dur) { const s = G.ac.createBufferSource(); s.buffer = G.noise; s.loop = true; s.start(T, Math.random()); s.stop(T + dur + 0.05); G.srcs.push(s); return s; }
+function filt(G, type, f, q = 0.7) { const b = G.ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; }
+const I = {
+  drum(G, T, f0, f1, dec, vol, wet = 0.15) { const o = osc(G, 'sine', f0, T, dec); o.frequency.exponentialRampToValueAtTime(f1, T + dec * 0.6); const g = env(G, T, 0.004, vol, dec); o.connect(g); route(G, g, wet); },
+  hiss(G, T, type, f, q, dec, vol, wet = 0.1) { const n = noiseSrc(G, T, dec); const b = filt(G, type, f, q); const g = env(G, T, 0.003, vol, dec); n.connect(b); b.connect(g); route(G, g, wet); },
+  taiko(G, T, v = 1) { I.drum(G, T, 120, 46, 0.9, 0.85 * v, 0.25); I.hiss(G, T, 'lowpass', 700, 0.7, 0.18, 0.35 * v); },
+  tom(G, T, v = 1) { I.drum(G, T, 190, 118, 0.32, 0.45 * v, 0.2); I.hiss(G, T, 'bandpass', 1500, 1, 0.05, 0.12 * v); },
+  rim(G, T, v = 1) { I.hiss(G, T, 'bandpass', 3200, 3, 0.06, 0.2 * v, 0.2); },
+  boom(G, T, v = 1) { I.drum(G, T, 75, 28, 2.6, 0.95 * v, 0.5); I.hiss(G, T, 'lowpass', 180, 0.7, 1.6, 0.5 * v, 0.4); },
+  impact(G, T, v = 1) { I.boom(G, T, 0.75 * v); I.taiko(G, T, 0.8 * v); I.hiss(G, T, 'highpass', 2500, 0.7, 0.22, 0.32 * v, 0.3); },
+  whoosh(G, T, dur, v = 1) { const n = noiseSrc(G, T, dur); const b = filt(G, 'bandpass', 400, 1.3); b.frequency.setValueAtTime(400, T); b.frequency.exponentialRampToValueAtTime(4500, T + dur);
+    const g = G.ac.createGain(); g.gain.setValueAtTime(0.0001, T); g.gain.exponentialRampToValueAtTime(0.5 * v, T + dur * 0.9); g.gain.linearRampToValueAtTime(0.0001, T + dur + 0.02); n.connect(b); b.connect(g); route(G, g, 0.2); },
+  clang(G, T, v = 1) { [[523, 0.7, 0.3], [1307, 0.45, 0.2], [2210, 0.3, 0.14], [3390, 0.18, 0.1]].forEach(([f, d, a]) => { const o = osc(G, 'sine', f * (0.97 + Math.random() * 0.06), T, d); const g = env(G, T, 0.002, a * v, d); o.connect(g); route(G, g, 0.35); });
+    I.hiss(G, T, 'highpass', 3000, 0.7, 0.04, 0.3 * v); I.drum(G, T, 140, 60, 0.25, 0.5 * v); },
+  twang(G, T, v = 1) { const o = osc(G, 'triangle', 240, T, 0.35); o.frequency.exponentialRampToValueAtTime(170, T + 0.3); const g = env(G, T, 0.002, 0.35 * v, 0.35); o.connect(g); route(G, g, 0.2); I.hiss(G, T, 'bandpass', 900, 2, 0.08, 0.2 * v); },
+  whizz(G, T, dur, v = 1) { const n = noiseSrc(G, T, dur); const b = filt(G, 'bandpass', 3000, 6); b.frequency.setValueAtTime(3000, T); b.frequency.exponentialRampToValueAtTime(1100, T + dur);
+    const g = G.ac.createGain(); g.gain.setValueAtTime(0.3 * v, T); g.gain.exponentialRampToValueAtTime(0.0001, T + dur); n.connect(b); b.connect(g); route(G, g, 0.15); },
+  pad(G, T, dur, freqs, v = 0.1, cut = 1200) { const lp = filt(G, 'lowpass', cut, 0.6), g = G.ac.createGain(), at = Math.min(1.5, dur / 3);
+    g.gain.setValueAtTime(0.0001, T); g.gain.linearRampToValueAtTime(v, T + at); g.gain.setValueAtTime(v, T + dur); g.gain.linearRampToValueAtTime(0.0001, T + dur + 1.4); lp.connect(g); route(G, g, 0.55);
+    for (const f of freqs) for (const dt of [-7, 7]) { const o = osc(G, 'sawtooth', f, T, dur + 1.5); o.detune.value = dt; o.connect(lp); } },
+  drone(G, T, dur, f, v = 0.15) { I.pad(G, T, dur, [f, f / 2], v, 260); },
+  pluck(G, T, f, v = 0.1) { const o = osc(G, 'triangle', f, T, 1.3); const g = env(G, T, 0.004, v, 1.3); o.connect(g); route(G, g, 0.5); },
+  bell(G, T, f, v = 0.1) { [[1, 3, 1], [2.76, 1.8, 0.4], [5.4, 1, 0.2]].forEach(([m, d, a]) => { const o = osc(G, 'sine', f * m, T, d); const g = env(G, T, 0.003, v * a, d); o.connect(g); route(G, g, 0.6); }); },
+  heart(G, T, v = 1) { I.drum(G, T, 70, 48, 0.25, 0.7 * v, 0.1); I.drum(G, T + 0.22, 64, 45, 0.3, 0.55 * v, 0.1); },
+  riser(G, T, dur, v = 0.3) { const n = noiseSrc(G, T, dur), b = filt(G, 'highpass', 200, 0.7); b.frequency.setValueAtTime(200, T); b.frequency.exponentialRampToValueAtTime(5000, T + dur);
+    const g = G.ac.createGain(); g.gain.setValueAtTime(0.0001, T); g.gain.exponentialRampToValueAtTime(v, T + dur); g.gain.linearRampToValueAtTime(0.0001, T + dur + 0.03); n.connect(b); b.connect(g); route(G, g, 0.3);
+    const o = osc(G, 'sawtooth', 70, T, dur); o.frequency.exponentialRampToValueAtTime(320, T + dur); const lp = filt(G, 'lowpass', 900), g2 = G.ac.createGain();
+    g2.gain.setValueAtTime(0.0001, T); g2.gain.exponentialRampToValueAtTime(v * 0.25, T + dur); g2.gain.linearRampToValueAtTime(0.0001, T + dur + 0.03); o.connect(lp); lp.connect(g2); route(G, g2, 0.3); },
+  wind(G, T, dur, v = 0.08) { const n = noiseSrc(G, T, dur + 1), b = filt(G, 'lowpass', 500, 0.7), g = G.ac.createGain();
+    g.gain.setValueAtTime(0.0001, T); g.gain.linearRampToValueAtTime(v, T + Math.min(1.5, dur / 2)); for (let k = 1; k < dur; k += 0.8) g.gain.linearRampToValueAtTime(v * (0.5 + hash(k * 13 + T) * 0.7), T + k);
+    g.gain.linearRampToValueAtTime(0.0001, T + dur + 0.8); n.connect(b); b.connect(g); route(G, g, 0.2); },
+  crackle(G, T, dur, v = 0.1) { for (let k = 0; k < dur * 9; k++) I.hiss(G, T + hash(k + 1) * dur, 'bandpass', 1500 + hash(k + 2) * 3000, 2, 0.02 + hash(k + 3) * 0.03, v * hash(k + 4)); },
+  laugh(G, T, v = 1) { for (let i = 0; i < 4; i++) { const t = T + i * 0.34, f = 125 - i * 7, o = osc(G, 'sawtooth', f, t, 0.2); o.frequency.linearRampToValueAtTime(f * 0.85, t + 0.18);
+    const bp = filt(G, 'bandpass', 800, 3), g = env(G, t, 0.02, 0.4 * v, 0.2); o.connect(bp); bp.connect(g); route(G, g, 0.45); I.hiss(G, t, 'bandpass', 1300, 4, 0.18, 0.16 * v, 0.4); } },
+  stab(G, T, freqs, v = 0.1) { const lp = filt(G, 'lowpass', 400, 2); lp.frequency.setValueAtTime(400, T); lp.frequency.exponentialRampToValueAtTime(2600, T + 0.04); lp.frequency.exponentialRampToValueAtTime(500, T + 0.5);
+    const g = env(G, T, 0.01, v, 0.7); lp.connect(g); route(G, g, 0.4); for (const f of freqs) for (const dt of [-9, 9]) { const o = osc(G, 'sawtooth', f, T, 0.8); o.detune.value = dt; o.connect(lp); } },
+  bass(G, T, f, v = 0.14) { const o = osc(G, 'sawtooth', f, T, 0.22), lp = filt(G, 'lowpass', 420, 4); lp.frequency.setValueAtTime(900, T); lp.frequency.exponentialRampToValueAtTime(200, T + 0.2);
+    const g = env(G, T, 0.005, v, 0.22); o.connect(lp); lp.connect(g); route(G, g, 0.1); },
+};
+// notes (Hz)
+const N = { D1: 36.71, D2: 73.42, Eb2: 77.78, F2: 87.31, G2: 98, A2: 110, Bb2: 116.54, C3: 130.81, Eb3: 155.56, D3: 146.83, F3: 174.61, Fs3: 185, G3: 196, A3: 220, Bb3: 233.08, C4: 261.63, D4: 293.66, F4: 349.23, Fs4: 369.99, A4: 440, C5: 523.25, D5: 587.33, E5: 659.25, Fs5: 739.99, A5: 880, B5: 987.77, D6: 1174.66, Fs6: 1479.98 };
+// base = audio time of trailer second 0; from = second playback starts at (earlier events are skipped,
+// sustained sounds that are still running start shortened)
+function buildScore(G, base, from) {
+  const ev = (t, fn) => { if (t >= from - 0.01) fn(base + t); };
+  const sus = (t0, t1, fn) => { if (t1 > from + 0.05) { const s = Math.max(t0, from); fn(base + s, t1 - s); } };
+  const beat = 60 / 128 / 2;                                          // an 8th note at 128 bpm
+  const segs = []; for (const s of SHOTS) { const l = segs[segs.length - 1]; if (l && l.m === s.m) l.b = s.b; else segs.push({ m: s.m, a: s.a, b: s.b }); }
+  for (const g of segs) {
+    const { a, b } = g;
+    if (g.m === 'calm') {                                             // quiet pad, harp-like arpeggio, wind
+      sus(a, b, (T, d) => { I.pad(G, T, d / 2, [N.D3, N.F3, N.A3], 0.06, 900); I.pad(G, T + d / 2, d / 2, [N.Bb2, N.D3, N.F3], 0.06, 900); I.wind(G, T, d, 0.05); });
+      const A1 = [N.D4, N.F4, N.A4, N.C5, N.A4, N.F4], A2 = [N.Bb3, N.D4, N.F4, N.A4, N.F4, N.D4];
+      for (let n = 0, t = a + 0.5; t < b - 0.3; n++, t = a + 0.5 + n * 0.5) ev(t, (T) => I.pluck(G, T, (t > (a + b) / 2 ? A2 : A1)[n % 6], 0.07));
+    }
+    if (g.m === 'tense') {                                            // low drone, heartbeat speeding up, riser into the card
+      sus(a, b, (T, d) => { I.drone(G, T, d, N.D2, 0.16); I.wind(G, T, d, 0.07); });
+      for (let t = a + 0.3, k = 1.0; t < b - 0.2; t += k, k *= 0.85) ev(t, (T) => I.heart(G, T, 0.8));
+      ev(b - 1.4, (T) => I.riser(G, T, 1.4, 0.35));
+    }
+    if (g.m === 'card') { ev(a, (T) => I.boom(G, T, 1.1)); }
+    if (g.m === 'battle') {                                           // taiko groove + bass ostinato + brass stabs on one grid (cuts don't restart it)
+      const tk = [0, 3, 6, 8, 11, 14], tm = [2, 5, 9, 10, 12, 13, 15], rm = [1, 4, 7];
+      for (let n = 0, t = a; t < b - 0.01; n++, t = a + n * beat) {
+        const p = n % 16;
+        if (tk.includes(p)) ev(t, (T) => I.taiko(G, T, p === 0 ? 1 : 0.72));
+        if (tm.includes(p)) ev(t, (T) => I.tom(G, T, 0.8));
+        if (rm.includes(p)) ev(t, (T) => I.rim(G, T, 0.7));
+        ev(t, (T) => I.bass(G, T, [N.D2, N.D2, N.D2, N.F2][Math.floor(n / 4) % 4] * (p % 4 === 2 ? 2 : 1), 0.12));
+        if (p === 0) ev(t, (T) => I.stab(G, T, n % 32 === 0 ? [N.D3, N.F3, N.A3] : [N.C3, N.Eb3, N.G3], 0.08));
+      }
+      sus(a, b, (T, d) => I.pad(G, T, d, [N.D2, N.A2], 0.05, 500));
+    }
+    if (g.m === 'slow') {                                             // drop: boom, choir-ish pad, heartbeat, far muffled drums
+      ev(a, (T) => I.boom(G, T, 1));
+      sus(a, b, (T, d) => I.pad(G, T, d, [N.D3, N.F3, N.A3, N.D4], 0.08, 650));
+      for (let t = a + 0.4; t < b; t += 0.9) ev(t, (T) => I.heart(G, T, 0.7));
+      for (let t = a + 0.7; t < b; t += 1.3) ev(t, (T) => I.drum(G, T, 90, 40, 1.2, 0.3, 0.6));
+    }
+    if (g.m === 'after') {                                            // morning after: sad pad, wind, fire crackle, low cello note
+      sus(a, b, (T, d) => { I.pad(G, T, d * 0.55, [N.D3, N.F3, N.A3], 0.055, 700); I.pad(G, T + d * 0.55, d * 0.45, [N.G2, N.D3, N.Bb3], 0.055, 700); I.wind(G, T, d, 0.06); I.crackle(G, T, d, 0.06); });
+      ev(a + 2.8, (T) => I.pad(G, T, 2.4, [N.D2], 0.09, 400));
+    }
+    if (g.m === 'talk') sus(a, b, (T, d) => { I.drone(G, T, d, N.D2, 0.1); I.pad(G, T, d, [N.Eb2, N.Bb2], 0.03, 380); I.hiss(G, T, 'bandpass', 2600, 3, d, 0.025, 0.4); });
+    if (g.m === 'dread') { sus(a, b, (T, d) => { I.pad(G, T, d, [N.D2, N.Eb2, N.A2, N.Bb2], 0.075, 520); I.drone(G, T, d, N.D1 * 2, 0.18); }); ev(b - 1.6, (T) => I.riser(G, T, 1.6, 0.22)); }
+    if (g.m === 'void') ev(a, (T) => I.boom(G, T, 0.6));
+    if (g.m === 'resolve') sus(a, b, (T, d) => { I.pad(G, T, d, [N.D3, N.A3, N.D4, N.Fs4], 0.075, 1100); I.wind(G, T, d, 0.04); });
+    if (g.m === 'hero') {                                             // D major, drums back
+      sus(a, b, (T, d) => I.pad(G, T, d, [N.D3, N.A3, N.D4, N.Fs4, N.A4], 0.09, 1800));
+      for (let n = 0, t = a; t < b - 0.01; n++, t = a + n * beat) { const p = n % 8;
+        if (p === 0 || p === 3 || p === 6) ev(t, (T) => I.taiko(G, T, p === 0 ? 1 : 0.7));
+        if (p === 4) ev(t, (T) => I.tom(G, T, 0.9));
+        ev(t, (T) => I.bass(G, T, [N.D2, N.D2, N.A2, N.G2][Math.floor(n / 8) % 4], 0.11)); }
+    }
+    if (g.m === 'title') { ev(a, (T) => { I.impact(G, T, 1.1); I.bell(G, T, N.D5, 0.1); }); sus(a, b, (T, d) => I.pad(G, T, d + 1, [N.D2, N.D3, N.A3, N.D4, N.Fs4], 0.09, 1500)); }
+  }
+  // sound effects per shot: whoosh + impact on every flash cut, a soft swish on quiet cuts, plus each scene's own sounds
+  for (const s of SHOTS) {
+    if (s.flash) { ev(s.a - 0.32, (T) => I.whoosh(G, T, 0.32, 0.8)); ev(s.a, (T) => I.impact(G, T, 0.7)); }
+    else if (s.a > 0 && s.m !== 'card' && s.k !== 'title') ev(s.a - 0.25, (T) => I.whoosh(G, T, 0.25, 0.22));
+    if (s.k === 'card') ev(s.b - 0.35, (T) => I.whoosh(G, T, 0.35, 1));
+    if (s.k === 'fpd') for (const f of fpdFoes(s.seed || 1)) if (f.hitT < s.d) ev(s.a + f.hitT, (T) => I.clang(G, T, 0.9));
+    if (s.k === 'fpa') for (const r of FPA_SHOTS) { ev(s.a + r.t, (T) => { I.twang(G, T); I.whizz(G, T, r.fly, 0.8); }); ev(s.a + r.t + r.fly, (T) => I.drum(G, T, 150, 60, 0.2, 0.5)); }
+    if (s.k === 'fpf') for (let t = s.a + 0.05; t < s.b; t += 0.22) ev(t, (T) => I.drum(G, T, 80, 50, 0.12, 0.25, 0));   // running steps
+    if (s.k === 'fpr') ev(s.a + 0.3, (T) => I.laugh(G, T, 1));
+    if (s.k === 'fpo') { ev(s.a + s.d * 0.3, (T) => [N.D5, N.Fs5, N.A5, N.D6, N.Fs6].forEach((f, i) => I.bell(G, T + i * 0.12, f, 0.08))); ev(s.a + s.d * 0.4, (T) => I.riser(G, T, s.d * 0.6, 0.3)); }
+    if (s.k === 'mapfog') for (let i = 0; i < 10; i++) ev(s.a + s.d * (0.1 + i * 0.07), (T) => I.drum(G, T, 60, 35, 0.8, 0.28, 0.4));
+    if (s.k === 'map') for (let i = 0; i < 12; i++) ev(s.a + s.d * (0.12 + i * 0.055), (T) => I.bell(G, T, [N.D5, N.E5, N.Fs5, N.A5, N.B5][i % 5] * (i > 5 ? 2 : 1), 0.055));
+  }
+}
+// live playback
+let AC = null, G = null;
+function startAudio(from) {
+  stopAudio();
+  const lvl = Math.max(audioPrefs.music ? audioPrefs.musicVol : 0, audioPrefs.sfx ? audioPrefs.sfxVol : 0);
+  if (lvl <= 0) return;
+  if (!AC) AC = new AudioContext();
+  AC.resume();
+  G = audioGraph(AC, AC.destination); G.out.gain.value *= lvl;
+  buildScore(G, AC.currentTime + 0.06 - from, from);
+}
+function stopAudio() {
+  if (!G) return; const g = G; G = null;
+  g.out.gain.setTargetAtTime(0, g.ac.currentTime, 0.03);
+  setTimeout(() => { for (const s of g.srcs) { try { s.stop(); } catch (e) { /* already stopped */ } } g.out.disconnect(); }, 250);
+}
+// offline render of the whole score (wav download, and a level check for tests)
+export async function renderScore() {
+  const sr = 44100, oac = new OfflineAudioContext(2, Math.ceil(sr * (END + 2)), sr);
+  buildScore(audioGraph(oac, oac.destination), 0, 0);
+  return oac.startRendering();
+}
+export function toWav(buf) {
+  const n = buf.length, ch = buf.numberOfChannels, dv = new DataView(new ArrayBuffer(44 + n * ch * 2));
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * 2, true); ws(8, 'WAVE'); ws(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true);
+  dv.setUint32(24, buf.sampleRate, true); dv.setUint32(28, buf.sampleRate * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true); ws(36, 'data'); dv.setUint32(40, n * ch * 2, true);
+  const data = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+  for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) dv.setInt16(o, Math.max(-1, Math.min(1, data[c][i])) * 32767, true);
+  return new Blob([dv], { type: 'audio/wav' });
+}
+export const scoreLevels = async () => {                                       // per-second peak / rms (for headless checks)
+  const b = await renderScore(), d = b.getChannelData(0), sr = b.sampleRate, out = [];
+  for (let s = 0; s < Math.floor(d.length / sr); s++) { let pk = 0, sq = 0; for (let i = s * sr; i < (s + 1) * sr; i++) { const v = Math.abs(d[i]); if (v > pk) pk = v; sq += v * v; } out.push([+pk.toFixed(3), +Math.sqrt(sq / sr).toFixed(3)]); }
+  return out;
+};
+
+
+// =====================================================================================
+// PLAYER: full-window overlay (1280x720 frame scaled to fit), Skip button + Esc, optional
+// "Begin" click first (browsers only allow sound after a click; the desktop exe autoplays)
+// =====================================================================================
+const off = mk(W, H), ox = off.getContext('2d');
+const style = `
+  .intro { position: fixed; inset: 0; z-index: 9999; background: #000; overflow: hidden; transition: opacity .6s; font-family: 'Josefin Sans', system-ui, sans-serif; }
+  .intro.out { opacity: 0; }
+  .intro-frame { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 0 0; }
+  .intro-frame canvas { position: absolute; inset: 0; width: 1280px; height: 720px; }
+  .intro-cap { position: absolute; left: 0; right: 0; bottom: 22px; height: 44px; display: flex; align-items: center; justify-content: center; text-align: center; color: #f0ece0; font-size: 24px; letter-spacing: .5px; padding: 0 120px; pointer-events: none; }
+  .intro-cap.q { font-style: italic; color: #cfc6e4; font-family: Georgia, serif; font-size: 25px; }
+  .intro-title { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; transition: opacity 1.2s; opacity: 0; color: #f0ece0; text-shadow: 0 4px 30px rgba(0,0,0,.85); }
+  .intro-title h1 { margin: 0; font-size: 104px; letter-spacing: 22px; font-weight: 600; padding-left: 22px; }
+  .intro-title p { margin: 10px 0 0; font-size: 20px; letter-spacing: 4px; text-transform: uppercase; }
+  .intro-bar { position: absolute; left: 26px; top: 30px; width: 220px; height: 2px; background: rgba(128,128,128,.35); }
+  .intro-bar i { display: block; height: 100%; width: 0; background: #d8d4c8; }
+  .intro-skip { position: absolute; z-index: 2; right: 26px; top: 20px; font: inherit; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; background: none; border: 0; color: #d8d4c8; opacity: .75; cursor: pointer; padding: 6px 4px; }
+  .intro-skip:hover { opacity: 1; }
+  .intro-start { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; background: rgba(5,6,8,.75); cursor: pointer; color: #f0ece0; }
+  .intro-start span { font-size: 22px; letter-spacing: 4px; text-transform: uppercase; padding: 18px 34px; border: 1px solid rgba(240,236,224,.5); }
+  .intro-start:hover span { background: rgba(240,236,224,.08); }
+  .intro-start small { color: #9aa0a6; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }`;
+
+function render(t, el) {
+  let i = SHOTS.findIndex((s) => t < s.b); if (i < 0) i = SHOTS.length - 1;
+  const s = SHOTS[i], lt = clamp((t - s.a) / s.d), tau = t - s.a, st = s.s ? lerp(s.s[0], s.s[1], lt) : 0;
+  ox.setTransform(1, 0, 0, 1, 0, 0); ox.globalAlpha = 1; ox.globalCompositeOperation = 'source-over';
+  if (s.k === 'world' || s.k === 'title') {
+    const c0 = s.cam[0], c1 = s.cam[1], k = ease(lt), punch = s.flash ? 1 + 0.07 * Math.exp(-tau * 9) : 1;
+    drawWorld(ox, st, { x: lerp(c0[0], c1[0], k), y: lerp(c0[1], c1[1], k), z: lerp(c0[2], c1[2], k) * punch }, t);
+  } else if (s.k === 'fpd') drawFPD(ox, tau, s.d, s.seed || 1, t);
+  else if (s.k === 'fpf') drawFPF(ox, tau, s.d, s.seed || 1, t);
+  else if (s.k === 'fpa') drawFPA(ox, tau, s.d, s.seed || 1, t);
+  else if (s.k === 'fpr') drawFPR(ox, tau, s.d, t);
+  else if (s.k === 'fpx') drawFPX(ox, st, t);
+  else if (s.k === 'fpo') drawFPO(ox, tau, s.d, t);
+  else if (s.k === 'map' || s.k === 'mapfog') drawMap(ox, lt, t, s.k);
+  else drawCard(ox, s.card || '', lt, t);
+  // shake, painterly texture, vignette, impact flash, letterbox
+  const sh = (s.shake || 0) * (0.35 + 0.65 * Math.exp(-tau * 4)), fq = Math.floor(t * 30);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); if (sh) { ctx.translate(W / 2 + (hash(fq) - 0.5) * sh * 2, H / 2 + (hash(fq + 7) - 0.5) * sh * 2); ctx.scale(1.03, 1.03); ctx.translate(-W / 2, -H / 2); }
+  ctx.drawImage(off, 0, 0); ctx.restore();
+  if (s.k !== 'card') {
+    ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.45; ctx.drawImage(brushC, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.65); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.5)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  if (s.flash && tau < 0.14) { ctx.fillStyle = `rgba(255,252,240,${0.85 * (1 - tau / 0.14)})`; ctx.fillRect(0, 0, W, H); }
+  if (s.k === 'title') { ctx.fillStyle = `rgba(0,0,0,${0.55 * ease(span(tau, 0, 1.2))})`; ctx.fillRect(0, 0, W, H); }
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, 64); ctx.fillRect(0, H - 84, W, 84);
+  // subtitles (cap undefined = keep the previous one), title card, progress
+  if (s.cap !== undefined && s.cap !== el.lastCap) { el.lastCap = s.cap; el.cap.textContent = s.cap; el.cap.classList.toggle('q', s.cap.startsWith('"')); }
+  el.title.style.opacity = s.k === 'title' && tau > 0.6 ? 1 : 0;
+  el.prog.style.width = (t / END * 100) + '%';
+  return i;
+}
+
+// plays the intro; resolves when it ends or is skipped. click: show a "Begin" click first (web)
+export function playIntro({ click = true } = {}) {
+  return new Promise((resolve) => {
+    if (!document.getElementById('intro-style')) { const st = document.createElement('style'); st.id = 'intro-style'; st.textContent = style; document.head.appendChild(st); }
+    const root = document.createElement('div');
+    root.className = 'intro';
+    root.innerHTML = `<div class="intro-frame"><canvas width="${W}" height="${H}"></canvas><div class="intro-cap"></div><div class="intro-title"><h1>FOGTIDE</h1><p>33 years until the Fog Tide</p></div><div class="intro-bar"><i></i></div></div>`
+      + `<button class="intro-skip">Skip ›</button>${click ? '<div class="intro-start"><span>▶ Begin</span><small>Esc skips the intro</small></div>' : ''}`;
+    document.body.appendChild(root);
+    const frame = root.querySelector('.intro-frame'), el = { cap: root.querySelector('.intro-cap'), title: root.querySelector('.intro-title'), prog: root.querySelector('.intro-bar i'), lastCap: null };
+    ctx = root.querySelector('canvas').getContext('2d');
+    const fit = () => { const s = Math.min(innerWidth / W, innerHeight / H); frame.style.transform = `scale(${s}) translate(-50%, -50%)`; };
+    fit(); addEventListener('resize', fit);
+    duckMusic(true);                                                 // game music stays silent while the intro plays
+    let t0 = 0, playing = false, done = false, raf = 0;
+    const now = () => (playing ? Math.min(END, (performance.now() - t0) / 1000) : 0);
+    const begin = () => { if (playing) return; root.querySelector('.intro-start')?.remove(); playing = true; t0 = performance.now(); startAudio(0); };
+    const finish = () => {
+      if (done) return; done = true;
+      stopAudio(); duckMusic(false); cancelAnimationFrame(raf);
+      removeEventListener('keydown', onKey, true); removeEventListener('resize', fit);
+      root.classList.add('out'); setTimeout(() => root.remove(), 650);
+      window.__intro = null;
+      resolve();
+    };
+    // esc skips (captured first, so the menu doesn't open settings); enter / space starts from the begin card
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); finish(); }
+      else if (!playing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopImmediatePropagation(); begin(); }
+    };
+    addEventListener('keydown', onKey, true);
+    root.querySelector('.intro-skip').onclick = finish;
+    root.querySelector('.intro-start')?.addEventListener('click', begin);
+    const loop = () => { if (done) return; const t = now(); render(t, el); if (playing && t >= END) { finish(); return; } raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    if (!click) begin();
+    // test hook: current second, shot, jump (seek) and skip
+    window.__intro = { get t() { return now(); }, end: END, shots: SHOTS.length, seek: (s) => { playing = true; t0 = performance.now() - s * 1000; root.querySelector('.intro-start')?.remove(); }, skip: finish, begin };
+  });
+}
