@@ -47,9 +47,9 @@ try:
             page.screenshot(path=str(out / f"idle-{name}-menu.png"))
             page.click("#btn-idle")
             page.wait_for_timeout(2500)
-            # campaign screen first: year, 60 years, the map waits; the button starts the stage
+            # campaign screen first: year 1, 33 years, the map waits; the button starts the stage
             cm = page.evaluate("({ open: !!__fl.cmap, year: document.querySelector('#cm-year').textContent, years: document.querySelector('#cm-years').textContent, t: __fl.battle.time })")
-            check(cm == {"open": True, "year": "Year 1147", "years": "60", "t": 0}, f"{name}: campaign screen before stage 1 ({cm})")
+            check(cm == {"open": True, "year": "Year 1", "years": "33", "t": 0}, f"{name}: campaign screen before stage 1 ({cm})")
             page.screenshot(path=str(out / f"idle-{name}-cmap.png"))
             page.click("#cm-go")
             page.wait_for_timeout(500)
@@ -195,13 +195,17 @@ try:
             check(page.evaluate("!!__fl.cmap") and page.evaluate("__fl.idle.stage") == 1, f"{name}: the new campaign opens on its campaign screen")
             # campaign end by debug hook: next campaign
             page.evaluate("__fl.finishCampaign()")
-            # the 60-year clock: at 0 years the Fog Tide card ends the campaign mid-stage
+            # the 33-year clock: at 0 years the Fog Tide card ends the campaign mid-stage
             page.evaluate("__fl.startIdle(false)")
             page.wait_for_timeout(1500)
-            page.evaluate("__fl.idle.clock = 3599.5; __fl.skipCountdown()")
+            y0 = page.evaluate("__fl.idle.year0")
+            page.evaluate("__fl.idle.clock = 33 * 60 - 0.5; __fl.skipCountdown()")
             page.wait_for_timeout(2500)
             tide = page.evaluate("({ title: document.querySelector('#end-title').textContent, c: __fl.idle.campaign, clock: __fl.idle.clock })")
             check(tide["title"] == "The Fog Tide" and tide["c"] == 4 and tide["clock"] == 0, f"{name}: the clock runs out -> Fog Tide, next campaign ({tide})")
+            # the year count never stops: the next campaign starts in the year the last one ended
+            y1 = page.evaluate("__fl.idle.year0")
+            check(y1 == y0 + 33, f"{name}: the next campaign goes on from the year the last ended ({y0} -> {y1})")
             # exact battle save: play a little, withdraw, reload, continue -> same tiles, buildings, time
             page.evaluate("__fl.startIdle(false)")
             page.wait_for_timeout(800)

@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=144">
-  <link rel="stylesheet" href="pc.css?v=144">
+  <link rel="stylesheet" href="style.css?v=145">
+  <link rel="stylesheet" href="pc.css?v=145">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -168,7 +168,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 144 · 2026-11-16 14:38</span>
+    <span id="version">build 145 · 2026-11-16 16:30</span>
   </section>
 
   <!-- campaign world map -->
@@ -233,9 +233,9 @@
     </div>
     <!-- campaign screen: chronicle column over the real stage map (your tile pulses: click it to start) -->
     <div id="cmap" class="hidden">
-      <div><div id="cm-year" class="cm-year">Year 1147</div><div id="cm-tide" class="cm-tide">Before the first Fog Tide</div></div>
+      <div><div id="cm-year" class="cm-year">Year 1</div><div id="cm-tide" class="cm-tide">Before the first Fog Tide</div></div>
       <p id="cm-lore" class="cm-lore"></p>
-      <div><div class="cm-clock"><b id="cm-years">60</b><span>Years before the Fog Tide</span></div><div class="cm-bar"><i id="cm-bar"></i></div></div>
+      <div><div class="cm-clock"><b id="cm-years">33</b><span>Years before the Fog Tide</span></div><div class="cm-bar"><i id="cm-bar"></i></div></div>
       <div id="cm-stats" class="cm-stats"></div>
       <p class="cm-hint">Click your glowing tile to begin</p>
       <div class="cm-btns"><button id="cm-go" class="cm-go">Defend the village</button><button id="cm-abandon" class="cm-abandon hidden">Abandon campaign</button></div>
@@ -398,6 +398,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=144"></script>
+  <script type="module" src="js/main.js?v=145"></script>
 </body>
 </html>

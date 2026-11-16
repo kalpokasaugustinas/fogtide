@@ -1,20 +1,20 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=144';
-import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=144';
-import { initAnalytics, track } from './analytics.js?v=144';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=144';
-import { Battle } from './battle.js?v=144';
-import { personalities } from './ai.js?v=144';
-import { Campaign } from './campaign.js?v=144';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=144';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=144';
-import { drawGeneral } from './generals.js?v=144';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=144';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=144';
-import { previewBuildings, capitalObelisk } from './structures.js?v=144';
-import { initTune, tuneChanges } from './tune.js?v=144';
-import { initFogNoise } from './fogui.js?v=144';
-import { outlineLoops } from './outline.js?v=144';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=145';
+import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=145';
+import { initAnalytics, track } from './analytics.js?v=145';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=145';
+import { Battle } from './battle.js?v=145';
+import { personalities } from './ai.js?v=145';
+import { Campaign } from './campaign.js?v=145';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=145';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=145';
+import { drawGeneral } from './generals.js?v=145';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=145';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=145';
+import { previewBuildings, capitalObelisk } from './structures.js?v=145';
+import { initTune, tuneChanges } from './tune.js?v=145';
+import { initFogNoise } from './fogui.js?v=145';
+import { outlineLoops } from './outline.js?v=145';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -68,6 +68,9 @@ function show(id) {
   requestAnimationFrame(() => { if (id === 'battle' && bv) { bv.resize(); key = ''; } if (id === 'campaign') cv.resize(), paintCampaign(); });
 }
 let screen = 'menu';
+// menu buttons drop their focus once clicked, so coming back from settings / how to play / a mode
+// leaves no focus mark (the hover dash) on the button that opened it
+document.addEventListener('click', (e) => { const b = e.target.closest?.('#menu button'); if (b) setTimeout(() => b.blur(), 0); });
 
 // ---------- campaign screen ----------
 const campaign = new Campaign();
@@ -1407,16 +1410,8 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       const k = ease(phase(t, hold, shrink)), s = s0 * (ratio / s0) ** k;   // s0 (shown size) -> ratio
       const px = from.x + (to.x - from.x) * k, py = from.y + (to.y - from.y) * k;
       snap.style.transform = `translate(${px - so.x - s * oc.x}px, ${py - so.y - s * oc.y}px) scale(${s})`;
-      // the fog behind recedes too, slower than the island (parallax: we pull back through the
-      // clouds), drifting a little, and settles at its normal size as the shrink ends
-      const fs = 720 * (s / ratio) ** 0.35, drift = 40 * Math.sin(Math.PI * Math.min(1, t / total));   // back to 0 at the end
-      // set on the fog layers themselves (compositor only): a css variable on the camera layer made
-      // the browser restyle everything inside it every frame
-      for (const el of wrap.children) {
-        if (!el.classList.contains('fog-twirl') && !el.classList.contains('fog-base')) continue;
-        el.style.scale = String(fs / 720);
-        if (el.classList.contains('fog-base')) el.style.translate = `${drift}px ${drift * 0.6}px`;
-      }
+      // the fog background stays as it is: it turns on its own (css animation on the compositor),
+      // separate from the island, so main-thread work during the stage change can't make it jump
       // 2. glow: a gold pulse around the little island
       const gk = phase(t, hold + shrink, glow), pulse = Math.sin(gk * Math.PI);
       halo.style.opacity = pulse > 0.01 ? String(pulse) : '0';
@@ -1434,7 +1429,6 @@ function zoomOut(next = { save: () => expedition.save(), setup: () => expedition
       snap.remove();
       halo.remove();
       live.style.opacity = live.style.webkitMaskImage = live.style.maskImage = '';
-      for (const el of wrap.children) el.style.scale = el.style.translate = '';
       zooming = false;
       paused = false;
       setSpeed(speed);
@@ -1897,7 +1891,7 @@ function endIdleStage(won) {
   }
   closeShop();
   clearIdleBattle();
-  // a lost stage loses the campaign: the Fog takes the land and a new campaign begins years later.
+  // a lost stage loses the campaign: the Fog takes the land and a new campaign begins at once.
   // like the tide, Wisp and its upgrades fade; Mist, the Legacy tree and your generals stay
   const n = idle.stage, run = idle.endCampaign();
   idle.runTime = 0;
@@ -1908,7 +1902,7 @@ function endIdleStage(won) {
   $('end-title').textContent = 'The Fog wins';
   $('end-stats').innerHTML = `<p class="next-up">Your army falls at stage <b>${n}</b>. The Fog takes the land and the campaign is lost.</p>`
     + `<div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this campaign · <b>${idle.mist}</b> 💠 Mist kept</div></div>`
-    + `<p class="next-up">Wisp and its upgrades fade; Mist, the Legacy tree and your generals stay. ${run.next - run.tide} years after the tide the Fog is beaten back again.</p>`
+    + `<p class="next-up">Wisp and its upgrades fade; Mist, the Legacy tree and your generals stay. In the year ${run.next} the fight against the Fog begins again.</p>`
     + statsHtml(battle);
   $('end-perks').innerHTML = '';
   $('end-retry').textContent = `▶ Begin year ${run.next}`;
@@ -1920,14 +1914,14 @@ function endIdleStage(won) {
   setTrack('defeat');
 }
 
-// the 60 years are up mid-stage: the battle stops where it is and the Fog Tide card shows
+// the 33 years are up mid-stage: the battle stops where it is and the Fog Tide card shows
 function tideComes() {
   clearIdleBattle();
   battle.state = 'tide'; battle.endShown = true;   // not a win or a loss: endBattle never runs
   idle.runTime += battle.time / rules.timeScale;
   endCampaignCard(0);
 }
-// the campaign is over (the 60-year clock ran out): Wisp, the Wisp tree and general promotions
+// the campaign is over (the 33-year clock ran out): Wisp, the Wisp tree and general promotions
 // reset, Mist, the Legacy tree and unlocked generals stay. the obelisk saves your land
 function endCampaignCard(secs) {
   closeShop();
@@ -1940,7 +1934,7 @@ function endCampaignCard(secs) {
   $('end-stats').innerHTML = `<p class="next-up">The ${ordinal(run.campaign)} Fog Tide comes in the year ${run.tide}. Your obelisk holds it back from your land: ${run.cleared} stage${run.cleared === 1 ? '' : 's'} cleared. Everything beyond is lost to the Fog again. For now.</p>`
     + `<div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this campaign`
     + ` · <b>${idle.mist}</b> 💠 Mist kept</div></div>`
-    + `<p class="next-up">Wisp and its upgrades fade with the old campaign; Mist, the Legacy tree and your generals stay. ${run.next - run.tide} years later the Fog is back.</p>`;
+    + `<p class="next-up">Wisp and its upgrades fade with the old campaign; Mist, the Legacy tree and your generals stay. The fight goes on at once.</p>`;
   $('end-perks').innerHTML = '';
   $('end-retry').textContent = `▶ Begin year ${run.next}`;
   $('end-retry').classList.remove('hidden');

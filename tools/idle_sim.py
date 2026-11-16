@@ -1,11 +1,12 @@
 # campaign balance sim: plays careers of campaigns headless (tools/idle_sim.js) and prints per
 # campaign: highest stage cleared, push-backs, Mist earned / banked, Wisp, Legacy levels; with
-# --stages also every stage (game s, result, Wisp). a campaign = the 60-year clock
-# (1 year = 1 game minute). use it to see how far campaign 1, 2, 3... get and where the walls are.
-# usage: python tools/idle_sim.py [--careers 2] [--campaigns 5] [--years 60] [--stages] [--set enemyAtk=1.08]
+# --stages also every stage (game s, result, Wisp). a campaign = the idleCfg.years clock
+# (33 years, 1 year = 1 game minute). the last table = average and median over all careers. use it to see how far campaign 1, 2, 3... get and where the walls are.
+# usage: python tools/idle_sim.py [--careers 3] [--campaigns 5] [--years 33] [--stages] [--set enemyAtk=1.08]
 import argparse
 import asyncio
 import json
+import statistics
 import socket
 import subprocess
 import sys
@@ -18,9 +19,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 root = Path(__file__).resolve().parent.parent
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--careers", type=int, default=2, help="independent careers (parallel pages)")
+ap.add_argument("--careers", type=int, default=3, help="independent careers (parallel pages)")
 ap.add_argument("--campaigns", type=int, default=5, help="campaigns per career")
-ap.add_argument("--years", type=float, default=60, help="campaign clock in years (= game minutes)")
+ap.add_argument("--years", type=float, default=None, help="campaign clock in years (= game minutes), default idleCfg.years")
 ap.add_argument("--stages", action="store_true", help="print every stage, not only the campaign summaries")
 ap.add_argument("--cap", type=int, default=900, help="game seconds before a stage counts as a stalemate")
 ap.add_argument("--set", nargs="*", default=[], help="idleCfg overrides, e.g. display=1.5")
@@ -81,6 +82,16 @@ async def main():
         for k in r["camps"]:
             lv = " ".join(f"{a}{b}" for a, b in k["legacy"].items())
             print(f"{k['campaign']:>3} {k['cleared']:>7} {k['top']:>3} {k['pushes']:>4} {k['mistGot']:>5} {k['mistBank']:>4} {k['gens']:>4} {k['wispLv']:>6} {k['minutes']:>5} {k['startNext']:>4}  {lv}")
+    # average and median per campaign over all careers (careers vary a lot, one career misleads)
+    if len(results) > 1:
+        print(f"\n=== all {len(results)} careers: avg / median ===")
+        print(f"{'cmp':>3} {'cleared':>11} {'top':>11} {'mist+':>11} {'min':>11}")
+        for i in range(len(results[0]["camps"])):
+            ks = [r["camps"][i] for r in results if i < len(r["camps"])]
+            def am(key):
+                v = [k[key] for k in ks]
+                return f"{statistics.mean(v):5.1f}/{statistics.median(v):<5g}"
+            print(f"{i + 1:>3} {am('cleared'):>11} {am('top'):>11} {am('mistGot'):>11} {am('minutes'):>11}")
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=1), encoding="utf-8")
 

@@ -613,19 +613,19 @@ html.compact #idle-shop .end-btns { margin-top: 6px; } html.compact #shop-close 
 #campaign .bar, #campaign .panel { zoom: var(--ui); }
 
 /* fog twirl (js/render.js): two oversized cloud layers behind each map canvas, turning slowly in
-   opposite directions; 150vmax covers the screen diagonal at any rotation. --fog-zoom follows the
-   idle zoom-out parallax. timings come from config.js (fogTwirl) */
+   opposite directions; 150vmax covers the screen diagonal at any rotation. they stay put during
+   the idle zoom-out (separate from the island). timings come from config.js (fogTwirl) */
 .fog-twirl { position: absolute; left: 50%; top: 50%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax;
-  background: center / 720px 720px repeat; pointer-events: none; scale: var(--fog-zoom, 1);
+  background: center / 720px 720px repeat; pointer-events: none;
   animation: twirl var(--twirl-a, 480s) linear infinite; will-change: transform; }
 .fog-twirl.b { background-size: 980px 980px; opacity: var(--twirl-alpha, 0.35);
   animation-duration: var(--twirl-b, 340s); animation-direction: reverse; }
 /* idle zoom-out: gold glow behind the shrunk island (main.js zoomOut sets place, size, opacity) */
 .zoom-halo { position: absolute; transform: translate(-50%, -50%); opacity: 0; pointer-events: none; will-change: opacity, scale;
   background: radial-gradient(closest-side, rgba(255, 214, 100, 0.95), rgba(255, 200, 80, 0.45) 55%, rgba(255, 200, 80, 0) 100%); }
-/* static fog texture under the twirl layers, its own layer: the idle zoom-out scales / drifts it */
+/* static fog texture under the twirl layers, its own compositor layer */
 .fog-base { position: absolute; left: 50%; top: 50%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax;
-  background: center / 720px 720px repeat; pointer-events: none; scale: var(--fog-zoom, 1); translate: var(--fog-drift, 0 0); will-change: transform; }
+  background: center / 720px 720px repeat; pointer-events: none; will-change: transform; }
 .fog-base ~ canvas, .fog-twirl ~ canvas { position: relative; }   /* paint the map above the fog layers */
 @keyframes twirl { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .fog-twirl { animation: none; } }

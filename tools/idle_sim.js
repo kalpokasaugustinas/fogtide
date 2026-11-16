@@ -1,7 +1,7 @@
 // campaign balance sim: a bot plays whole careers of campaigns headless (tools/idle_sim.py drives it).
 // rules as in the game (campaign rework, phase 2): a won stage zooms out (Wisp bonus, obelisk + boss
 // Mist on the first clear), a lost stage loses the campaign, else a campaign
-// ends when its clock runs out (60 years = 60 game minutes, the phase 5 timer; no last stage); then Wisp, the Wisp tree and general promotions reset, Mist and the Legacy tree stay.
+// ends when its clock runs out (idleCfg.years: 33 years = 33 game minutes; no last stage); then Wisp, the Wisp tree and general promotions reset, Mist and the Legacy tree stay.
 // the player side is a fixed bot standing in for an active human (the order-giving generals only
 // save the human's time, so they are off). every 5 game seconds it buys the cheapest affordable Wisp
 // upgrade (applies at once). Mist: first the Marksman (arrows), then the cheapest Legacy node.
@@ -42,7 +42,8 @@ function shop(idle) {
 
 // one career: maxCampaigns campaigns of `years` game minutes each. stageCap = game seconds before a
 // stage counts as a stalemate (lost). returns per-stage rows and per-campaign summaries
-export function career({ maxCampaigns = 5, years = 60, stageCap = 900, seed = 1 } = {}) {
+export function career({ maxCampaigns = 5, years = null, stageCap = 900, seed = 1 } = {}) {
+  years ??= idleCfg.years;   // default: the game's own campaign length
   const idle = new Idle();
   const rows = [], camps = [];
   let s = seed;
