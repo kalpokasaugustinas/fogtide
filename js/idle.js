@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=146';
-import { rng, hops } from './mapgen.js?v=146';
-import { effects, rules } from './config.js?v=146';
+import { personalities, pickBuilding } from './ai.js?v=147';
+import { rng, hops } from './mapgen.js?v=147';
+import { effects, rules } from './config.js?v=147';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -151,6 +151,7 @@ export const council = {
   maxLv: 5,
   promoteBase: 500, promoteGrow: 3,   // promote to level l+1: 500 x 3^(l-1) Fog
   margin: 1.2,          // attacks send 20% over what they need
+  rallyAt: 0.3,         // warlord rally: back tiles at least 30% full send troops toward its next target
   drumEvery: 30, drumFor: 8,   // war drummer: a roll every 30 game s, lasting 8 s
 };
 // game seconds between a general's actions at level l (1 s ... 0.5 s)
@@ -163,7 +164,7 @@ export const generals = [
   { id: 'warlord', name: 'Warlord', role: 'Auto-attack', quote: 'Full is ready. Ready is now.',
     orders: [{ key: 'at', label: 'Attack at', type: 'range', min: 50, max: 95, step: 5, def: 80, unit: '% full' },
       { key: 'prefer', label: 'Go for', type: 'pick', opts: ['Cheapest', 'Buildings', 'Capitals'], def: 0 }],
-    text: (l, o) => `Your tiles attack enemy neighbours on their own once they are ${o.at}% full, or after waiting ${waitAt(l)} s. Never neutral land.`,
+    text: (l, o) => `Your tiles attack enemy neighbours on their own once they are ${o.at}% full, or after waiting ${waitAt(l)} s. A target too strong for them: tiles behind send troops forward first. Never neutral land.`,
     sum: (o) => `attacks at ${o.at}% full` },
   { id: 'warden', name: 'Warden', role: 'Auto-defend', quote: 'No tile falls alone.',
     orders: [{ key: 'keep', label: 'Helpers keep at least', type: 'range', min: 10, max: 60, step: 5, def: 30, unit: '%' },
@@ -177,7 +178,7 @@ export const generals = [
   { id: 'pathfinder', name: 'Pathfinder', role: 'Auto-expand', quote: 'Beyond the fog is just more land.',
     orders: [{ key: 'spend', label: 'Spend at most', type: 'range', min: 10, max: 80, step: 5, def: 40, unit: '% of a tile' },
       { key: 'prefer', label: 'Prefer', type: 'pick', opts: ['Closest', 'Highland', 'Forest', 'Rivers'], def: 0 }],
-    text: (l, o) => `Takes neutral tiles when each helper spends at most ${o.spend}% of its foglets; tiles wait ${waitAt(l)} s at most.`,
+    text: (l, o) => `Takes neutral tiles as soon as each helper spends at most ${o.spend}% of its foglets.`,
     sum: (o) => `spends up to ${o.spend}%` },
   { id: 'quartermaster', name: 'Quartermaster', role: 'Auto-build', quote: 'A farm today, a fort tomorrow.',
     orders: [{ key: 'first', label: 'Build', type: 'pick', opts: ['Best payback', 'Farms', 'Hospitals', 'Labs', 'Forts'], def: 0 }, { key: 'at', label: 'Build when', type: 'range', min: 60, max: 100, step: 5, def: 90, unit: '% full' }],
@@ -425,11 +426,14 @@ export class Idle {
     if (due('warlord')) {
       const o = this.ord('warlord'), wait = waitAt(this.on('warlord'));
       const bonus = (t) => (o.prefer === 1 && t.building ? 1 : 0) + (o.prefer === 2 && t.capital ? 2 : 0);
-      this.attack(b, { sent, help, used, enemies: true, ready: (s) => s.troops >= (o.at / 100) * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait), bonus });
+      const short = this.attack(b, { sent, help, used, enemies: true, ready: (s) => s.troops >= (o.at / 100) * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait), bonus });
+      if (short) this.rally(b, short, used);   // too strong for the border tiles: gather troops behind them
     }
     if (due('pathfinder')) {
-      const o = this.ord('pathfinder'), wait = waitAt(this.on('pathfinder')), trait = [null, 'highland', 'forest', 'river'][o.prefer];
-      this.attack(b, { sent, help, used, enemies: false, maxShare: o.spend / 100, ready: (s) => s.troops >= 0.3 * s.cap || (s.troops >= 2 && b.time - since.get(s.id) >= wait), bonus: (t) => (trait && t.trait === trait ? 1.5 : 0) });
+      const o = this.ord('pathfinder'), trait = [null, 'highland', 'forest', 'river'][o.prefer];
+      // no readiness wait (a fresh capital took ~20 s to expand while the bots grabbed the land):
+      // the spend limit alone keeps a tile from emptying itself
+      this.attack(b, { sent, help, used, enemies: false, maxShare: o.spend / 100, ready: (s) => s.troops >= 3, bonus: (t) => (trait && t.trait === trait ? 1.5 : 0) });
     }
     if (due('quartermaster')) {
       const o = this.ord('quartermaster'), allow = [null, ['farm'], ['hospital'], ['lab'], ['fort']][o.first] ?? undefined;
@@ -468,15 +472,36 @@ export class Idle {
     for (const id of used) since.set(id, b.time);
   }
 
-  // one attack pass (warlord: enemy tiles, pathfinder: neutrals); see autoTick
+  // warlord rally: the best enemy target was too strong for the tiles next to it. our tiles behind
+  // them (not on any border, at least council.rallyAt full) pass all but 10% one step toward those
+  // tiles, through our own land, so the next attack pass can afford it (as the bot gathers troops)
+  rally(b, { from }, used) {
+    const d = new Map(from.map((s) => [s.id, 0])), q = from.map((s) => s.id);
+    for (let k = 0; k < q.length; k++) {
+      for (const a of b.segs[q[k]].adj) if (!d.has(a) && b.segs[a].owner === 0) { d.set(a, d.get(q[k]) + 1); q.push(a); }
+    }
+    for (const [id, dist] of d) {
+      const s = b.segs[id];
+      if (!dist || used.has(id) || s.troops < Math.max(5, council.rallyAt * s.cap)) continue;
+      if (s.adj.some((a) => b.segs[a].owner > 0)) continue;   // border tiles facing a rival keep their troops
+      const next = s.adj.filter((a) => d.get(a) === dist - 1).map((a) => b.segs[a]).sort((x, y) => x.troops / x.cap - y.troops / y.cap)[0];
+      if (next && b.send(0, id, next.id, s.troops - Math.max(1, 0.1 * s.cap), true)) used.add(id);
+    }
+  }
+
+  // one attack pass (warlord: enemy tiles, pathfinder: neutrals); see autoTick. returns the best
+  // target it could not afford ({ t, from, need }) or null
   attack(b, { sent, help, used, enemies, ready, bonus, maxShare = 1 }) {
     const speed = rules.armySpeed * (b.mods(0).speed ?? 1), targets = [];
     for (const t of b.segs) {
       if (t.owner === 0 || (enemies ? t.owner < 0 : t.owner >= 0)) continue;
-      const from = t.adj.map((id) => b.segs[id]).filter((s) => s.owner === 0 && !used.has(s.id) && ready(s));
-      if (!from.length) continue;
+      // border = our free tiles next to it, from = those ready to attack (the rally gathers behind
+      // the border even while none is ready)
+      const border = t.adj.map((id) => b.segs[id]).filter((s) => s.owner === 0 && !used.has(s.id));
+      if (!border.length) continue;
+      const from = border.filter(ready);
       // march time of the farthest helper to the fight point at the border (game s)
-      const eta = Math.max(...from.map((s) => Math.hypot(t.x - s.x, t.y - s.y))) / speed * rules.fightAt;
+      const eta = Math.max(...border.map((s) => Math.hypot(t.x - s.x, t.y - s.y))) / speed * rules.fightAt;
       // what the tile grows meanwhile: owned tiles up to their cap (while their land lasts),
       // neutrals back toward their garrison
       const grow = t.owner < 0 ? (t.troops < t.garrison ? t.baseGrowth * rules.neutralRegrow : 0)
@@ -484,21 +509,23 @@ export class Idle {
       const defenders = t.troops + grow * eta + (help.get(t.id) ?? 0);
       const need = defenders * b.fightDef(t, 0) * council.margin + 2 - (sent.get(t.id) ?? 0);   // in strength (foglets x attack)
       const worth = t.cap / 50 + (t.building ? 0.6 : 0) + (t.relic ? 1.2 : 0) + bonus(t);
-      if (need > 0) targets.push({ t, from, need, score: worth / need });
+      if (need > 0) targets.push({ t, from, border, need, score: worth / need });
     }
     targets.sort((x, y) => y.score - x.score);
-    for (const { t, from, need } of targets) {
+    let short = null;
+    for (const { t, from, border, need } of targets) {
       const pool = from.filter((s) => !used.has(s.id));
       // all helpers together must reach the need (each keeps one foglet), else wait. each sends the
       // same share of what it can spare, so no border tile is emptied while others stay full
       const power = pool.reduce((v, s) => v + Math.max(0, s.troops - 1) * b.atkMult(s), 0);
-      if (power < need || need / power > maxShare) continue;
+      if (!pool.length || power < need || need / power > maxShare) { short ??= { t, from: border, need }; continue; }
       const share = need / power;
       for (const s of pool) {
         const n = Math.ceil(Math.max(0, s.troops - 1) * share);
         if (n >= 1 && b.send(0, s.id, t.id, n, true)) used.add(s.id);
       }
     }
+    return short;
   }
 
   // war drummer: a roll every drumEvery s (on cooldown / once we attack / once we are attacked)

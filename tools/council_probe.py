@@ -21,6 +21,7 @@ ap.add_argument("--cap", type=int, default=600, help="game seconds before a stag
 ap.add_argument("--orders", default="{}", help='json, e.g. {"warlord": {"at": 50}}')
 ap.add_argument("--seats", default="warlord,pathfinder,quartermaster,marshal")
 ap.add_argument("--growth", type=float, default=1, help="player growth x (council runs only)")
+ap.add_argument("--trace", type=int, default=0, help="print a per-10 s trace of this stage")
 ap.add_argument("--set", nargs="*", default=[], help="idleCfg overrides")
 args = ap.parse_args()
 over = {k: float(v) for k, v in (kv.split("=") for kv in args.set)}
@@ -36,9 +37,14 @@ try:
         page.on("pageerror", lambda e: print("page error:", e))
         page.goto(f"http://localhost:{port}/tools/")
         page.evaluate("async (o) => { window.cp = await import('/tools/council_probe.js'); cp.tune(o); }", over)
-        rows = page.evaluate("(o) => cp.probe(o)", {"campaigns": args.campaigns, "cap": args.cap, "lv": args.lv, "orders": json.loads(args.orders), "seats": args.seats.split(","), "growth": args.growth})
+        rows = page.evaluate("(o) => cp.probe(o)", {"campaigns": args.campaigns, "cap": args.cap, "lv": args.lv, "orders": json.loads(args.orders), "seats": args.seats.split(","), "growth": args.growth, "traceStage": args.trace})
 finally:
     server.terminate()
 print(f"{'stg':>3} {'bot':<9} {'council':<10} {'atk':>4} {'own':>4} {'fill':>5} {'full':>5} {'tiles':>6}")
 for r in rows:
     print(f"{r['stage']:>3} {r['bot']:<4}{r['botT']:>5} {r['res']:<5}{r['t']:>5} {r['atk']:>4} {r['own']:>4} {r['fill']:>5} {r['full']:>5} {r['tiles']:>3}/{r['of']:<3}")
+for r in rows:
+    if r.get("trace"):
+        print(f"\ntrace stage {r['stage']}: t / my tiles, troops / bot tiles, troops / neutral / my armies")
+        for x in r["trace"]:
+            print(f"{x['t']:>4} {x['me']:>3} {x['meT']:>6} {x['bots']:>3} {x['botT']:>6} {x['neut']:>3} {x['armies']:>3}")

@@ -30,7 +30,7 @@ const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage',
 const copy = (idle) => new Idle(JSON.parse(JSON.stringify(Object.fromEntries(fields.map((k) => [k, idle[k]])))));
 
 // replay one stage with the council only: warlord, pathfinder, quartermaster, marshal at level lv
-function councilRun(idle0, stamp, seed, lv, cap, orders, seats) {
+function councilRun(idle0, stamp, seed, lv, cap, orders, seats, trace = null) {
   const idle = copy(idle0);
   for (const id of seats) idle.gens[id] = lv;
   idle.seats = [...seats];
@@ -47,16 +47,20 @@ function councilRun(idle0, stamp, seed, lv, cap, orders, seats) {
   const at = idle.ord('warlord').at / 100;
   while (b.state === 'running' && t < cap) {
     b.step(rules.step); idle.autoTick(b, rules.step); t += rules.step;
+    if (trace && Math.round(t / rules.step) % Math.round(10 / rules.step) === 0) {
+      const own = (o) => b.segs.filter((x) => (o ? x.owner > 0 : x.owner === 0));
+      trace.push({ t: Math.round(t), me: own(false).length, meT: Math.round(own(false).reduce((v, x) => v + x.troops, 0)), bots: own(true).length, botT: Math.round(own(true).reduce((v, x) => v + x.troops, 0)), neut: b.segs.filter((x) => x.owner < 0).length, armies: b.armies.filter((x) => !x.done && x.owner === 0).length });
+    }
     if ((tick += rules.step) >= 1) {
       tick = 0;
       for (const s of b.segs) if (s.owner === 0) { samples++; fill += s.troops / s.cap; if (s.troops >= at * s.cap) full++; }
     }
   }
   const mine = b.segs.filter((s) => s.owner === 0);
-  return { res: b.state === 'running' ? 'stall' : b.state, t: Math.round(t), atk: sends.atk, own: sends.own, fill: samples ? +(fill / samples).toFixed(2) : 0, full: samples ? +(full / samples).toFixed(2) : 0, tiles: mine.length, of: b.segs.length };
+  return { trace, res: b.state === 'running' ? 'stall' : b.state, t: Math.round(t), atk: sends.atk, own: sends.own, fill: samples ? +(fill / samples).toFixed(2) : 0, full: samples ? +(full / samples).toFixed(2) : 0, tiles: mine.length, of: b.segs.length };
 }
 
-export function probe({ campaigns = 4, cap = 600, lv = 3, seed = 1, orders = {}, seats = ['warlord', 'pathfinder', 'quartermaster', 'marshal'], growth = 1 } = {}) {
+export function probe({ campaigns = 4, cap = 600, lv = 3, seed = 1, orders = {}, seats = ['warlord', 'pathfinder', 'quartermaster', 'marshal'], growth = 1, traceStage = 0 } = {}) {
   const idle = new Idle(), out = [], seen = new Set();
   let s = seed;
   for (let c = 1; c <= campaigns; c++) {
@@ -64,7 +68,7 @@ export function probe({ campaigns = 4, cap = 600, lv = 3, seed = 1, orders = {},
     while (clock < idleCfg.years * 60) {
       const sd = (s = (s * 16807) % 2147483647);
       const n = idle.stage;
-      const probeRow = !seen.has(n) ? (seen.add(n), testing.growth = growth, councilRun(idle, stamp, sd, lv, cap, orders, seats)) : null;
+      const probeRow = !seen.has(n) ? (seen.add(n), testing.growth = growth, councilRun(idle, stamp, sd, lv, cap, orders, seats, n === traceStage ? [] : null)) : null;
       testing.growth = 1;   // the bot career itself plays the normal game
       const setup = idle.setup(stamp, sd);
       const map = generateMap({ seed: setup.seed, cells: setup.cells, grid: rules.grid, shape: setup.shape, obstacles: true, detail: setup.detail, stamp });
