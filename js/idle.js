@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=137';
-import { rng, hops } from './mapgen.js?v=137';
-import { effects, rules } from './config.js?v=137';
+import { personalities, pickBuilding } from './ai.js?v=138';
+import { rng, hops } from './mapgen.js?v=138';
+import { effects, rules } from './config.js?v=138';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -42,7 +42,11 @@ export const idleCfg = {
   // rule alone left the auto-battle idle early on (sim 2026-11-15, see README)
   autoWait: [30, 30, 25, 20, 15, 10],
   deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
-  quietEnd: 30,       // nobody marching for 30 game s: the side with the most foglets wins the stage
+  quietEnd: 0,        // (old quiet rule, off in the campaign: faith fade ends stalled stages instead)
+  faithFade: 0.01,    // a Fogbound tile with dry land loses 1% of its foglets per game second
+  stages: 30,         // a campaign: 30 stages (stage 30 cleared = campaign over; later also the 60-year clock)
+  pushBack: 3,        // a lost stage pushes you back 3 stages (Wisp and upgrades are kept)
+  obeliskMist: 1,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
 };
 
 // stage n (1-based): map size, rivals, climate. something new every 10 stages (climate, a rival)
@@ -72,8 +76,10 @@ export const bossMist = (n) => Math.max(1, Math.round((n / 10) ** idleCfg.mistEx
 // placement: ring = distance from the centre (0-4), off = degrees left (-) / right (+) of the
 // branch's direction (bridges: ang = their own direction). needs = [[id, level], ...]: a node opens
 // once every listed upgrade has that level; or: true = any one of them is enough (merge and bridge
-// nodes, reachable from either side). cost = base x grow^level in Fog, or in Mist for the keystones
-// (cur: 'mist'). max = level cap (the root stats have none). value(l) = the effect at level l
+// nodes, reachable from either side). cost = base x grow^level in Wisp. max = level cap (the root
+// stats have none). value(l) = the effect at level l. the Wisp tree resets when a campaign ends.
+// legacy (branch 'legacy', cur: 'mist', slot = place in the Legacy tab): bought with Mist, kept
+// forever, no prerequisites; most have no cap (doubling price), so Mist always has a use
 const pctUp = (v) => `+${Math.round((v - 1) * 100)}%`;
 const pctDown = (v) => `-${Math.round((1 - v) * 100)}%`;
 export const branches = [
@@ -92,7 +98,7 @@ export const upgrades = [
   { id: 'conscription', branch: 'offense', ring: 2, off: -22, needs: [['march', 2]], icon: '📜', name: 'Conscription', base: 300, grow: 2.2, max: 5, value: (l) => 0.97 ** l, text: (v) => `neutrals defend ${pctDown(v)}` },
   { id: 'plunder', branch: 'offense', ring: 3, off: -22, needs: [['conscription', 2]], icon: '💰', name: 'Plunder', base: 4000, grow: 2.5, max: 5, value: (l) => 0.005 * l, text: (v) => `taken enemy tiles add ${(v * 100).toFixed(1)}% of cap` },
   { id: 'volley', branch: 'offense', ring: 2, off: 22, needs: [['veterans', 4]], icon: '🎯', name: 'Volley', base: 8000, grow: 2.6, max: 4, value: (l) => 1 + 0.15 * l, text: (v) => `the Marksman's arrows ${pctUp(v)}` },
-  { id: 'mistblades', branch: 'offense', ring: 4, off: 0, cur: 'mist', or: true, needs: [['plunder', 1], ['volley', 1]], icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
+  { id: 'mistblades', branch: 'legacy', slot: 0, cur: 'mist', icon: '⚜️', name: 'Mist blades', base: 1, grow: 2, value: (l) => 1.1 ** l, text: (v) => `attack x${v.toFixed(2)} (on top of blades)` },
   // defense: shield wall, then the walls path (great walls -> bigger camp) and the forts path
   // (stonemasons -> field medics); they meet at stoneskin, then mist veil
   { id: 'def', branch: 'defense', ring: 0, off: 0, icon: '🛡️', name: 'Shield wall', base: 40, grow: 1.9, value: (l) => 1.05 ** l, text: (v) => `defense ${pctUp(v)}` },
@@ -101,7 +107,7 @@ export const upgrades = [
   { id: 'start', branch: 'defense', ring: 2, off: -22, needs: [['walls', 2]], icon: '🏕️', name: 'Bigger camp', base: 400, grow: 2.2, value: (l) => idleCfg.startTroops + 8 * l, text: (v, sc) => `start with ${fmtBig(v * sc)} foglets` },
   { id: 'medics', branch: 'defense', ring: 2, off: 22, needs: [['masons', 1]], icon: '⛑️', name: 'Field medics', base: 1350, grow: 2.2, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `hospitals ${pctUp(v)}` },
   { id: 'stoneskin', branch: 'defense', ring: 3, off: 0, or: true, needs: [['start', 1], ['medics', 1]], icon: '⛰️', name: 'Stoneskin', base: 7200, grow: 2.2, max: 10, value: (l) => 1.01 ** l, text: (v) => `defense ${pctUp(v)} more` },
-  { id: 'mistveil', branch: 'defense', ring: 4, off: 0, cur: 'mist', needs: [['stoneskin', 1]], icon: '🌁', name: 'Mist veil', base: 1, grow: 2, max: 5, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
+  { id: 'mistveil', branch: 'legacy', slot: 1, cur: 'mist', icon: '🌁', name: 'Mist veil', base: 1, grow: 2, value: (l) => 1.1 ** l, text: (v) => `defense x${v.toFixed(2)} (on top of shields)` },
   // growth: fertile fog, then the builders path (master builders -> engineers -> deep roots) and the
   // fields path (spring rains -> scholars -> harvest moon); both lead to evergreen
   { id: 'growth', branch: 'growth', ring: 0, off: 0, icon: '🌱', name: 'Fertile fog', base: 50, grow: 2, value: (l) => 1.04 ** l, text: (v) => `growth ${pctUp(v)}` },
@@ -109,24 +115,25 @@ export const upgrades = [
   { id: 'rains', branch: 'growth', ring: 1, off: 20, needs: [['growth', 2]], icon: '🌧️', name: 'Spring rains', base: 540, grow: 2, max: 10, value: (l) => 1.01 ** l, text: (v) => `growth ${pctUp(v)} more` },
   { id: 'engineers', branch: 'growth', ring: 2, off: -22, needs: [['granary', 2]], icon: '🛠️', name: 'Engineers', base: 450, grow: 2.2, max: 5, value: (l) => 0.96 ** l, text: (v) => `buildings cost ${pctDown(v)}` },
   { id: 'scholars', branch: 'growth', ring: 2, off: 22, needs: [['rains', 2]], icon: '🔬', name: 'Scholars', base: 1500, grow: 2.2, max: 4, value: (l) => 1 + 0.06 * l, text: (v) => `labs ${pctUp(v)}` },
-  { id: 'roots', branch: 'growth', ring: 3, off: -22, cur: 'mist', needs: [['engineers', 1]], icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
+  { id: 'roots', branch: 'legacy', slot: 3, cur: 'mist', icon: '🌳', name: 'Deep roots', base: 1, grow: 2, max: 5, value: (l) => 1 + 0.4 * l, text: (v) => `your land raises ${(idleCfg.deplete * v).toFixed(0)}x its cap before it runs dry` },
   { id: 'harvest', branch: 'growth', ring: 3, off: 22, needs: [['scholars', 1]], icon: '🌕', name: 'Harvest moon', base: 6000, grow: 2.3, max: 5, value: (l) => 1 + 0.04 * l, text: (v) => `farms ${pctUp(v)}` },
-  { id: 'evergreen', branch: 'growth', ring: 4, off: 0, cur: 'mist', or: true, needs: [['roots', 1], ['harvest', 1]], icon: '🌲', name: 'Evergreen', base: 2, grow: 2, max: 5, value: (l) => 1.05 ** l, text: (v) => `growth x${v.toFixed(2)} (on top of fertile fog)` },
+  { id: 'evergreen', branch: 'legacy', slot: 2, cur: 'mist', icon: '🌲', name: 'Evergreen', base: 2, grow: 2, value: (l) => 1.05 ** l, text: (v) => `growth x${v.toFixed(2)} (on top of fertile fog)` },
   // fog: harvest, then the wells path and the hunters path
   // (scavengers -> bounty -> mist seeker); fog drift sits between them, then mistborn
   { id: 'fog', branch: 'fog', ring: 0, off: 0, icon: '🧺', name: 'Wisp harvest', base: 80, grow: 2.3, value: (l) => 1.05 ** l, text: (v) => `Wisp ${pctUp(v)}` },
   { id: 'wells', branch: 'fog', ring: 1, off: -20, needs: [['fog', 2]], icon: '⛲', name: 'Wisp wells', base: 300, grow: 2.4, max: 5, value: (l) => idleCfg.wellRate * l, text: (v, sc) => (v ? `${fmtRate(v * sc)} Wisp/s per tile held` : 'tiles you hold make Wisp') },
   { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Wisp from beaten foglets ${pctUp(v)}` },
   { id: 'bounty', branch: 'fog', ring: 2, off: 22, needs: [['scavengers', 2]], icon: '🏆', name: 'Bounty', base: 2700, grow: 2.5, max: 4, value: (l) => 1 + 0.05 * l, text: (v) => `stage clear bonus ${pctUp(v)}` },
-  { id: 'drift', branch: 'fog', ring: 3, off: 0, or: true, needs: [['wells', 1], ['bounty', 1]], icon: '🌀', name: 'Fog drift', base: 1500, grow: 3, max: 5, value: (l) => 2 * l, text: (v) => (v ? `start runs at stage ${1 + v} (max half your best)` : 'start runs further in') },
   { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
-  { id: 'mistborn', branch: 'fog', ring: 4, off: 0, cur: 'mist', needs: [['drift', 1]], icon: '💠', name: 'Mistborn', base: 2, grow: 2, max: 5, value: (l) => 1.2 ** l, text: (v) => `all Wisp x${v.toFixed(2)}` },
+  { id: 'headstart', branch: 'legacy', slot: 5, cur: 'mist', icon: '🌀', name: 'Head start', base: 2, grow: 2, max: 5, value: (l) => 2 * l, text: (v) => (v ? `campaigns start at stage ${1 + v} (max half your best)` : 'campaigns start further in') },
+  { id: 'mistborn', branch: 'legacy', slot: 4, cur: 'mist', icon: '💠', name: 'Mistborn', base: 2, grow: 2, value: (l) => 1.2 ** l, text: (v) => `all Wisp x${v.toFixed(2)}` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
   { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
   { id: 'sanctuary', branch: 'bridge', ring: 4, ang: 18, or: true, needs: [['medics', 1], ['engineers', 1]], icon: '⛪', name: 'Sanctuary', base: 27000, grow: 2.6, max: 5, value: (l) => 1.01 ** l, text: (v) => `growth and defense ${pctUp(v)}` },
-  { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['wells', 2]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `fog wells ${pctUp(v)}` },
+  { id: 'mistgarden', branch: 'bridge', ring: 4, ang: 90, or: true, needs: [['harvest', 1], ['wells', 2]], icon: '🌸', name: 'Mist garden', base: 27000, grow: 2.6, max: 4, value: (l) => 1 + 0.08 * l, text: (v) => `wisp wells ${pctUp(v)}` },
 ];
 export const upgradeById = Object.fromEntries(upgrades.map((u) => [u.id, u]));
+export const isLegacy = (id) => upgradeById[id]?.cur === 'mist';
 
 // ---------- war council: 4 seats, generals give the orders (the old command branch) ----------
 // generals are unlocked with Mist only, in any order; every unlock raises the next price. a
@@ -193,7 +200,7 @@ export const generalById = Object.fromEntries(generals.map((g) => [g.id, g]));
 const commanders = ['warlord', 'pathfinder', 'warden', 'quartermaster', 'marshal'];
 // upgrades that left the tree (command branch, archers, patrols, blitz): what one level cost, to
 // refund old saves. [base, grow, currency]
-const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6], horn: [600, 2.5], deephorn: [7500, 2.6] };
+const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6], horn: [600, 2.5], deephorn: [7500, 2.6], drift: [1500, 3] };
 
 // sample "other player" profiles (v1: made up; later: real profiles from the online board)
 // lean = how the profile's strength is split (atk / def / growth), total stays at the stage's level
@@ -218,9 +225,11 @@ export function fmtBig(v) {
 const fmtRate = (v) => (v < 10 ? String(Math.round(v * 100) / 100) : fmtBig(v));
 
 const save_key = 'frontlines.idle';
-const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'gens', 'seats', 'orders'];
+const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'gens', 'seats', 'orders', 'campaign', 'cleared'];
 // gens = general id -> level (unlocked = 1+), seats = 4 x general id | null, orders = id -> { key: value }
-const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, gens: {}, seats: [null, null, null, null], orders: {} });
+// campaign = campaigns started (1 = the first), cleared = highest stage won in this campaign (Mist is
+// paid only for stages above it); runFogs / runTime = this campaign's Wisp and time
+const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, gens: {}, seats: [null, null, null, null], orders: {}, campaign: 1, cleared: 0 });
 
 // the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, the run in progress
 export class Idle {
@@ -244,6 +253,10 @@ export class Idle {
     }
     // levels of upgrades that no longer exist (e.g. the old time warp) are dropped
     this.levels = Object.fromEntries(Object.entries(old).filter(([id]) => upgradeById[id]));
+    // a campaign has 30 stages: older saves (endless idle) past that continue at stage 30, and
+    // stages already reached count as cleared (no second Mist for them)
+    this.stage = Math.min(this.stage, idleCfg.stages);
+    if (data.cleared === undefined) this.cleared = Math.min(idleCfg.stages, Math.max(0, (this.best || 1) - 1));
   }
 
   static load() {
@@ -262,7 +275,7 @@ export class Idle {
   maxed(id) { const u = upgradeById[id]; return u.max !== undefined && this.lvl(id) >= u.max; }
   // the requirements still missing (empty = open)
   missing(id) {
-    const u = upgradeById[id], miss = (u.needs ?? []).filter(([n, l]) => this.lvl(n) < l);
+    const u = upgradeById[id], miss = (u.needs ?? []).filter(([n, l]) => this.lvl(n) < l);   // legacy nodes have no needs
     if (this.lvl(id) > 0) return [];   // owned (e.g. bought before the tree changed): stays open
     return u.or && miss.length < (u.needs ?? []).length ? [] : miss;
   }
@@ -335,8 +348,8 @@ export class Idle {
   get fogMult() { return this.val('fog') * this.val('mistborn'); }
   // the order-giving generals work (council switched on and one of them seated)
   get autoOn() { return this.auto && commanders.some((id) => this.on(id)); }
-  // first stage of a new run: fog drift skips ahead, at most to half the best stage reached
-  get startStage() { return Math.max(1, Math.min(1 + this.val('drift'), Math.floor(this.best / 2))); }
+  // first stage of a new campaign: head start (legacy) skips ahead, at most to half the best stage
+  get startStage() { return Math.max(1, Math.min(1 + this.val('headstart'), Math.floor(this.best / 2))); }
 
   // Fog for sim foglets killed on the current stage (ghost stages pay double). divided by the
   // stage's enemy growth: stronger enemies field more foglets, each is worth less, so a stage pays
@@ -548,7 +561,7 @@ export class Idle {
     return {
       seed, cells: st.cells, shape: st.shape, theme: st.theme, neutral: st.neutral, detail: st.detail, stamp,
       camps: n > 1 ? { mult: Math.max(1, nm), share: 0.2, boost: 1.3 } : undefined,
-      deplete: idleCfg.deplete, quietEnd: idleCfg.quietEnd,
+      deplete: idleCfg.deplete, quietEnd: idleCfg.quietEnd, faithFade: idleCfg.faithFade,
       capObelisks: true, homeLit: n > 1,   // obelisks by the keeps: grey on bot capitals, lit on yours after stage 1
       factions: [me, ...bots],
       ghost: ghost && { name: ghost.name }, boss: st.boss,
@@ -556,25 +569,46 @@ export class Idle {
     };
   }
 
-  // a stage was won: bonus Fog (and Mist from a boss), next stage. returns { bonus, mist }
+  // a stage was won: bonus Wisp; Mist for its obelisks (one per Fogbound chief) and its boss, but
+  // only the first time this campaign clears it. returns { bonus, mist, obelisks, done } (done =
+  // stage 30 cleared: the campaign is over, see endCampaign)
   win(secs) {
-    const bonus = this.clearFogs(), mist = stageSpec(this.stage).boss ? Math.round(bossMist(this.stage) * this.val('mistseeker')) : 0;
+    const n = this.stage, st = stageSpec(n), first = n > this.cleared;
+    const bonus = this.clearFogs();
+    const obelisks = first ? st.bots * idleCfg.obeliskMist : 0;
+    const boss = first && st.boss ? Math.round(bossMist(n) * this.val('mistseeker')) : 0;
+    const mist = obelisks + boss;
     this.earn(bonus);
     this.mist += mist; this.mistTotal += mist;
     this.runTime += secs;
-    if (this.stage === 10 && (!this.fast10 || this.runTime < this.fast10)) this.fast10 = Math.round(this.runTime);
-    this.stage++;
+    if (n === 10 && (!this.fast10 || this.runTime < this.fast10)) this.fast10 = Math.round(this.runTime);
+    this.cleared = Math.max(this.cleared, n);
+    const done = n >= idleCfg.stages;
+    if (!done) this.stage++;
     this.best = Math.max(this.best, this.stage);   // best = highest stage reached
-    return { bonus, mist };
+    return { bonus, mist, obelisks, boss, done };
   }
 
-  // the run ended (stage lost or withdrawn): reset the run, keep Fog, Mist and upgrades.
-  // returns the run summary for the end card
-  endRun(secs) {
-    this.best = Math.max(this.best, this.stage);
-    const out = { reached: this.stage, fogs: this.runFogs, secs: this.runTime + secs, best: this.best, fast10: this.fast10 };
-    this.runs++;
-    this.stage = this.startStage; this.runFogs = 0; this.runTime = 0;
+  // a stage was lost: the Fog pushes you back pushBack stages; Wisp, upgrades and generals stay.
+  // returns { from, to }
+  lose(secs) {
+    const from = this.stage;
+    this.runTime += secs;
+    this.stage = Math.max(1, this.stage - idleCfg.pushBack);
+    return { from, to: this.stage };
+  }
+
+  // the campaign is over (stage 30 cleared; later also the 60-year clock): what Wisp bought resets
+  // (Wisp, the Wisp tree, general promotions back to level 1), what Mist bought stays (Legacy tree,
+  // unlocked generals and their seats). the next campaign starts at the head start stage.
+  // returns the summary for the end card
+  endCampaign() {
+    const out = { campaign: this.campaign, reached: this.stage, cleared: this.cleared, fogs: this.runFogs, secs: this.runTime, mist: this.mist };
+    this.levels = Object.fromEntries(Object.entries(this.levels).filter(([id]) => isLegacy(id)));
+    for (const id of Object.keys(this.gens)) this.gens[id] = 1;
+    this.fogs = 0; this.runFogs = 0; this.runTime = 0;
+    this.campaign++; this.cleared = 0; this.runs++;
+    this.stage = this.startStage;
     return out;
   }
 }

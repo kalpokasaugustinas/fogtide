@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=137">
-  <link rel="stylesheet" href="pc.css?v=137">
+  <link rel="stylesheet" href="style.css?v=138">
+  <link rel="stylesheet" href="pc.css?v=138">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -168,7 +168,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 137 · 2026-11-16 10:36</span>
+    <span id="version">build 138 · 2026-11-16 10:55</span>
   </section>
 
   <!-- campaign world map -->
@@ -309,7 +309,7 @@
       <div class="shop-in">
         <h3 id="shop-title" class="shop-title">Upgrades</h3>
         <button id="shop-close" class="shop-close" title="Close (Esc)">Close</button>
-        <div class="shop-tabs"><button data-tab="up">Upgrades<kbd>U</kbd></button><button data-tab="wc">War Council<kbd>C</kbd></button></div>
+        <div class="shop-tabs"><button data-tab="up">Upgrades<kbd>U</kbd></button><button data-tab="wc">War Council<kbd>C</kbd></button><button data-tab="lg">Legacy<kbd>L</kbd></button></div>
         <p id="shop-fogs" class="shop-fogs"></p>
         <div id="shop-tree" class="roots"></div>
         <div id="shop-detail" class="shop-detail"></div>
@@ -357,10 +357,10 @@
         <li>Each segment can hold one building, paid with its own foglets. Captured buildings switch sides.</li>
       </ul>
       <ul id="help-buildings"></ul>
-      <p><b>🌫️ Campaign</b>: zoom out stage by stage. Every defeated foglet gives 🌫️ Wisp, every stage won a bonus, every 👑 boss (stage 10, 20, 30...) 💠 Mist: deeper bosses drop more. Spend them in the ⬆️ upgrade tree during a run (Upgrade or U): the island slides up and keeps fighting, upgrades apply at once and are kept forever, each one opens the next (locked ones hide in the fog), and the advanced ones at the end of each branch cost Mist. Rivals get stronger every stage while the numbers keep climbing (K, M, B...). Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and if nobody marches for a while the fog closes in and the bigger army takes the stage. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (tab next to the upgrades, or C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. Lose a stage and the run ends; your Wisp, Mist and upgrades stay.</p>
+      <p><b>🌫️ Campaign</b>: 30 stages, each zooming out to a bigger island. Every Fogbound chief guards an obelisk by its keep: clear the stage and the obelisks shine (💠 Mist, the first time this campaign), every 👑 boss (stage 10, 20, 30) drops more. Every defeated foglet gives 🌫️ Wisp: spend it in the ⬆️ upgrade tree during the campaign (Upgrade or U); the island slides aside and keeps fighting, upgrades apply at once and each one opens the next. Mist buys the 📜 Legacy upgrades (L), kept forever. Lose a stage and the Fog pushes you back 3 stages; your Wisp and upgrades stay. Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and Fogbound tiles with dry land slowly lose faith. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. When the campaign ends, Wisp, its upgrades and promotions fade; Mist, Legacy and your generals stay.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
-      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = upgrades, C = war council, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
+      <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = upgrades, C = war council, L = legacy, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
       <p class="credits"><b>Music:</b> "Aphelion", "Song Of The Forge" by Scott Buckley (CC BY 4.0) · "Five Armies" by Kevin MacLeod, incompetech.com (CC BY 4.0) · "Heroic Demise" by Matthew Pablo, matthewpablo.com (CC BY 3.0) · "The Precipice of Victory", "The Fallen" by Jonathan Shaw, jshaw.co.uk (CC BY 3.0) · "Battle Theme A" by cynicmusic (CC0). <b>Sound:</b> Kenney, starninjas, William Hector and other OpenGameArt artists (CC0). All tracks trimmed. Full list: audio/CREDITS.md.</p>
       <button id="help-feedback">💬 Send feedback</button>
       <button id="help-close" class="primary">Got it</button>
@@ -368,6 +368,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=137"></script>
+  <script type="module" src="js/main.js?v=138"></script>
 </body>
 </html>

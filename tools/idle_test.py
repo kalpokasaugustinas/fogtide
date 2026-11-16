@@ -37,6 +37,7 @@ try:
             page = browser.new_page(viewport=vp)
             page.add_init_script("localStorage.setItem('frontlines.tutorial', '1')")
             page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on("requestfailed", lambda r: print("request failed:", r.url))
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
             page.goto(f"http://localhost:{port}/index.html?test")
             page.evaluate("localStorage.removeItem('frontlines.idle')")
@@ -132,6 +133,7 @@ try:
             page.screenshot(path=str(out / f"idle-{name}-archers.png"))
             # win the stage -> zoom-out -> stage 2, numbers x display
             bank = page.evaluate("__fl.idle.fogs")
+            mist0 = page.evaluate("__fl.idle.mist")
             page.evaluate("document.querySelector('#test-win').click()")
             page.wait_for_timeout(800)
             page.screenshot(path=str(out / f"idle-{name}-won.png"))
@@ -139,6 +141,21 @@ try:
             st = page.evaluate("({ stage: __fl.idle.stage, badge: document.querySelector('#stage').textContent, fogs: __fl.idle.fogs, state: __fl.battle.state })")
             check(st["stage"] == 2 and st["badge"] == "Stage 2" and st["state"] == "running", f"{name}: zoomed out to stage 2 ({st})")
             check(st["fogs"] > bank, f"{name}: stage bonus paid ({bank:.0f} -> {st['fogs']:.0f})")
+            mist1 = page.evaluate("__fl.idle.mist")
+            check(mist1 == mist0 + 1 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 1 Mist on the first clear ({mist0} -> {mist1})")
+            # legacy tab: the permanent Mist nodes, no prerequisites
+            page.evaluate("__fl.idle.mist += 3")
+            page.keyboard.press("l")
+            page.wait_for_timeout(700)
+            lg = page.evaluate("({ title: document.querySelector('#shop-title').textContent, nodes: [...document.querySelectorAll('#shop-tree .node')].map((n) => n.dataset.id), veiled: document.querySelectorAll('#shop-tree .node.veiled').length })")
+            check(lg["title"] == "Legacy" and len(lg["nodes"]) == 6 and "mistblades" in lg["nodes"] and lg["veiled"] == 0, f"{name}: legacy tab lists 6 open Mist nodes ({lg})")
+            page.click("#shop-tree .node[data-id=mistblades]")
+            page.wait_for_timeout(200)
+            page.click("#shop-buy")
+            page.wait_for_timeout(300)
+            check(page.evaluate("__fl.idle.lvl('mistblades')") == 1, f"{name}: legacy node bought with Mist")
+            page.keyboard.press("l")
+            page.wait_for_timeout(600)
             page.wait_for_timeout(1500)
             page.screenshot(path=str(out / f"idle-{name}-stage2.png"))
             # save: reload resumes stage 2 with the upgrades
@@ -154,17 +171,26 @@ try:
             mig = page.evaluate("""(() => { const I = __fl.idle.constructor; const o = new I({ fogs: 0, mist: 0, levels: { atk: 3, auto: 2, archers: 1, sharpeye: 1, reinforce: 1 } });
               return { fogs: o.fogs, mist: o.mist, seats: o.seats, gens: o.gens, levels: o.levels }; })()""")
             check(mig["fogs"] == 40 + 104 + 1400 + 700 and mig["mist"] == 1 and mig["seats"][:2] == ["warlord", "marksman"] and "auto" not in mig["levels"], f"{name}: old command upgrades refunded, warlord + marksman seated ({mig})")
-            # lose: hand every player tile to bot 1 -> run over card
+            # lose at stage 2: hand every player tile to bot 1 -> pushed back to stage 1 (3 back, min 1)
             page.evaluate("""(() => { const b = __fl.battle; for (const s of b.segs) if (s.owner === 0) s.owner = 1;
               b.armies = b.armies.filter((a) => a.owner !== 0); b.version++; b.updateGrowth(); b.step(0.1); })()""")
             page.wait_for_timeout(1500)
             title = page.text_content("#end-title")
-            check(title == "Run over" and page.evaluate("__fl.idle.stage") == 1, f"{name}: run over card, next run at stage 1 ({title})")
-            page.screenshot(path=str(out / f"idle-{name}-runover.png"))
-            check(page.query_selector("#end-shop") is None, f"{name}: no Spend Fog on the run-over card (spent during a run)")
+            kept = page.evaluate("({ atk: __fl.idle.lvl('atk'), fogs: __fl.idle.fogs })")
+            check(title == "Pushed back" and page.evaluate("__fl.idle.stage") == 1 and kept["atk"] == 2, f"{name}: pushed back to stage 1, upgrades kept ({title}, {kept})")
+            page.screenshot(path=str(out / f"idle-{name}-pushed.png"))
             page.evaluate("document.querySelector('#end-retry').click()")
             page.wait_for_timeout(2500)
-            check(page.evaluate("__fl.idle.stage") == 1 and page.evaluate("__fl.battle.state") == "running", f"{name}: new run starts")
+            check(page.evaluate("__fl.idle.stage") == 1 and page.evaluate("__fl.battle.state") == "running", f"{name}: stage 1 starts again")
+            # replaying stage 1: no second obelisk Mist this campaign
+            m = page.evaluate("__fl.idle.mist")
+            page.evaluate("document.querySelector('#test-win').click()")
+            page.wait_for_timeout(1500)
+            check(page.evaluate("__fl.idle.mist") == m, f"{name}: no Mist for clearing stage 1 again")
+            # campaign end: Wisp, Wisp tree and promotions reset; Mist, legacy and unlocks stay
+            r = page.evaluate("""(() => { const id = __fl.idle; id.gens.warlord = 3; const r = __fl.finishCampaign();
+              return { campaign: id.campaign, fogs: id.fogs, atk: id.lvl('atk'), blades: id.lvl('mistblades'), warlord: id.gens.warlord, stage: id.stage, cleared: id.cleared, mist: id.mist }; })()""")
+            check(r["campaign"] == 2 and r["fogs"] == 0 and r["atk"] == 0 and r["blades"] == 1 and r["warlord"] == 1 and r["stage"] == 1 and r["cleared"] == 0, f"{name}: campaign end resets the Wisp side, keeps Mist side ({r})")
             page.close()
         browser.close()
 finally:

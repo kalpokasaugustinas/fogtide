@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=137';
-import { generateMap, rng } from './mapgen.js?v=137';
-import { initAnalytics, track } from './analytics.js?v=137';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=137';
-import { Battle } from './battle.js?v=137';
-import { personalities } from './ai.js?v=137';
-import { Campaign } from './campaign.js?v=137';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=137';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=137';
-import { drawGeneral } from './generals.js?v=137';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=137';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=137';
-import { previewBuildings } from './structures.js?v=137';
-import { initTune, tuneChanges } from './tune.js?v=137';
-import { initFogNoise } from './fogui.js?v=137';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=138';
+import { generateMap, rng } from './mapgen.js?v=138';
+import { initAnalytics, track } from './analytics.js?v=138';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=138';
+import { Battle } from './battle.js?v=138';
+import { personalities } from './ai.js?v=138';
+import { Campaign } from './campaign.js?v=138';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=138';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg } from './idle.js?v=138';
+import { drawGeneral } from './generals.js?v=138';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=138';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=138';
+import { previewBuildings } from './structures.js?v=138';
+import { initTune, tuneChanges } from './tune.js?v=138';
+import { initFogNoise } from './fogui.js?v=138';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -1665,17 +1665,20 @@ function floatText(text, at) {
   setTimeout(() => el.remove(), 1400);
 }
 
-// stage over: a win zooms straight out to the next stage; a loss ends the run (Fog, Mist, upgrades kept)
+// stage over: a win zooms straight out to the next stage (stage 30: the campaign is over); a loss
+// pushes you back 3 stages (Wisp, Mist, upgrades kept)
 function endIdleStage(won) {
   idleTick(0);
   const secs = battle.time / rules.timeScale;
   if (won) {
-    const { bonus, mist } = idle.win(secs), stamp = islandShape(battle);
+    const { bonus, mist, obelisks, boss, done } = idle.win(secs), stamp = islandShape(battle);
     if (idleMilestones.has(idle.stage)) track(`campaign-stage-${idle.stage}`);
-    if (mist) track(`campaign-boss-${idle.stage - 1}`);
+    if (boss) track(`campaign-boss-${idle.stage - 1}`);
+    if (done) { idle.save(); endCampaignCard(secs); return; }
     idle.save();
     const why = battle.closedIn ? '🌫️ The fog closed in: your bigger army takes it · ' : '';
-    flash(mist ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Wisp` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️`, mist || why ? 3200 : 2200);
+    const lit = obelisks ? ` · ${obelisks === 1 ? 'the obelisk shines' : `${obelisks} obelisks shine`} +${mist} 💠 Mist` : '';
+    flash(boss ? `👑 Boss down! +${mist} 💠 Mist · +${fmtBig(bonus)} 🌫️ Wisp` : `${why}🏆 Stage ${idle.stage - 1} cleared · +${fmtBig(bonus)} 🌫️${lit}`, mist || why ? 3200 : 2200);
     sfx.perk();
     fogRise($('idle-shop-btn'));
     bv.setStorm(false);   // the storm clears as the boss falls
@@ -1691,23 +1694,44 @@ function endIdleStage(won) {
     return;
   }
   closeShop();
-  const prevBest = idle.best, run = idle.endRun(secs);
+  const { from, to } = idle.lose(secs);
   idle.save();
-  trackIdleRun(run);
-  $('end-title').textContent = 'Run over';
-  $('end-stats').innerHTML = (battle.closedIn ? '<p class="next-up">🌫️ The fog closed in: the bigger army took the island</p>' : '')
-    + `<p class="next-up">Reached stage <b>${run.reached}</b>${run.reached > prevBest ? ' · 🏆 new best' : ` · best ${run.best}`}`
-    + ` · ${fmtTime(run.secs * rules.timeScale)}</p><div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this run · <b>${fmtBig(idle.fogs)}</b> Wisp`
-    + `${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} to spend next run</div></div>`
+  track(`campaign-pushed-back-${from}`);
+  $('end-title').textContent = 'Pushed back';
+  $('end-stats').innerHTML = `<p class="next-up">The Fog drives you back from stage <b>${from}</b> to stage <b>${to}</b></p>`
+    + `<div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(idle.fogs)}</b> Wisp${idle.mistTotal ? ` · <b>${idle.mist}</b> 💠 Mist` : ''} · your upgrades and generals stay</div></div>`
     + statsHtml(battle);
-  $('end-perks').innerHTML = '';   // Fog is spent during the next run (Upgrade in the top bar)
-  $('end-retry').textContent = '▶ New run';
+  $('end-perks').innerHTML = '';
+  $('end-retry').textContent = `▶ Stage ${to}`;
   $('end-retry').classList.remove('hidden');
   $('end-continue').textContent = 'Menu';
   $('end-continue').classList.remove('hidden');
   withdrawLook();
   showEnd(false, null);
   setTrack('defeat');
+}
+
+// the campaign is over (stage 30 cleared; phase 5 adds the 60-year clock): Wisp, the Wisp tree and
+// general promotions reset, Mist, the Legacy tree and unlocked generals stay
+function endCampaignCard(secs) {
+  closeShop();
+  const run = idle.endCampaign();
+  idle.save();
+  trackIdleRun(run);
+  track(`campaign-complete-${run.campaign}`);
+  $('end-title').textContent = 'The continent is safe';
+  $('end-stats').innerHTML = `<p class="next-up">All ${idleCfg.stages} obelisks shine. For now.</p>`
+    + `<div class="score-box"><div class="score-total">🌫️ <b>${fmtBig(run.fogs)}</b> Wisp this campaign · ${fmtTime((run.secs + secs) * rules.timeScale)}`
+    + ` · <b>${idle.mist}</b> 💠 Mist kept</div></div>`
+    + '<p class="next-up">Wisp and its upgrades fade with the old campaign; Mist, the Legacy tree and your generals stay.</p>';
+  $('end-perks').innerHTML = '';
+  $('end-retry').textContent = '▶ Next campaign';
+  $('end-retry').classList.remove('hidden');
+  $('end-continue').textContent = 'Menu';
+  $('end-continue').classList.remove('hidden');
+  withdrawLook();
+  showEnd(true, null);
+  setTrack('victory');
 }
 
 // analytics for an ended run: how far (stage buckets) and how long (minute buckets)
@@ -1721,12 +1745,13 @@ function trackIdleRun(run) {
 // upgrades + war council in one panel on the right: the island slides left, shrinks and keeps
 // running; tabs switch between the upgrade tree (4 branch columns) and the war council (4 seats,
 // generals). opened at any time during an idle battle, purchases apply at once
-let shopKey = '', shopSel = 'atk', shopTab = 'up', genSel = 'warlord', genPick = null, ordDrag = false;
+let shopKey = '', shopSel = 'atk', legacySel = 'mistblades', shopTab = 'up', genSel = 'warlord', genPick = null, ordDrag = false;
 // tree layout (panel logical px): one column per branch, rows = rings 0-4 going down; bridges on
 // the bottom row between the two columns they join
 const colOrder = ['offense', 'defense', 'growth', 'fog'], treeY0 = 166, treeRow = 50;
 const colX = (b) => 130 + 140 * colOrder.indexOf(b);
 function rootPos(u) {
+  if (u.branch === 'legacy') return [130 + 190 * (u.slot % 3), treeY0 + 30 + Math.floor(u.slot / 3) * 120];   // Legacy tab: 2 rows of 3
   if (u.branch !== 'bridge') return [colX(u.branch) + u.off * 1.6, treeY0 + u.ring * treeRow];
   const xs = u.needs.map(([n]) => colX(upgradeById[n].branch));
   return [(Math.min(...xs) + Math.max(...xs)) / 2, treeY0 + 5 * treeRow];
@@ -1774,34 +1799,40 @@ function renderShop() {
   $('shop-fogs').innerHTML = `Wisp <b>${fmtBig(idle.fogs)}</b>` + (idle.mistTotal ? ` · Mist <b>${idle.mist}</b>` : '');
   if (key === shopKey || ordDrag) return;
   shopKey = key;
-  $('shop-title').textContent = shopTab === 'up' ? 'Upgrades' : 'War Council';
+  $('shop-title').textContent = shopTab === 'up' ? 'Upgrades' : shopTab === 'lg' ? 'Legacy' : 'War Council';
   for (const b of document.querySelectorAll('.shop-tabs button')) b.classList.toggle('on', b.dataset.tab === shopTab);
-  $('shop-tree').classList.toggle('hidden', shopTab !== 'up');
-  $('shop-detail').classList.toggle('hidden', shopTab !== 'up');
+  $('shop-tree').classList.toggle('hidden', shopTab === 'wc');
+  $('shop-detail').classList.toggle('hidden', shopTab === 'wc');
   $('council').classList.toggle('hidden', shopTab !== 'wc');
   if (shopTab === 'wc') { renderCouncil(); return; }
-  const tree = $('shop-tree');
+  const tree = $('shop-tree'), lg = shopTab === 'lg';
+  // upgrades tab = the Wisp tree, legacy tab = the permanent Mist nodes (each tab keeps its pick)
+  const list = upgrades.filter((u) => (u.branch === 'legacy') === lg);
+  if (!list.some((u) => u.id === shopSel)) shopSel = lg ? legacySel : list[0].id;
   // requirement links (solid when met, faint dashes while unmet)
   const curve = (x1, y1, x2, y2) => { const my = (y1 + y2) / 2; return `M${x1},${y1 + 18} C${x1},${my} ${x2},${my} ${x2},${y2 - 18}`; };
   let lines = '';
-  for (const u of upgrades) {
+  for (const u of list) {
     if (!u.needs?.length) continue;
     const [x2, y2] = rootPos(u);
     for (const [n, l] of u.needs) { const [x1, y1] = rootPos(upgradeById[n]); lines += `<path class="${idle.lvl(n) >= l ? 'met' : 'dim'}" d="${curve(x1, y1, x2, y2)}"/>`; }
   }
   let h = `<svg class="root-links" viewBox="0 0 640 480" width="640" height="480">${lines}</svg>`;
-  for (const b of colOrder) {
+  if (lg) h += `<span class="root-label" style="left:320px;top:${treeY0 - 64}px">Kept forever<small>bought with Mist · no prerequisites</small></span>`;
+  else for (const b of colOrder) {
     const lv = upgrades.filter((u) => u.branch === b).reduce((v, u) => v + idle.lvl(u.id), 0);
     h += `<span class="root-label" style="left:${colX(b)}px;top:${treeY0 - 64}px">${branches.find((x) => x.id === b).name}<small>${lv} level${lv === 1 ? '' : 's'}</small></span>`;
   }
-  for (const u of upgrades) {
+  for (const u of list) {
     const l = idle.lvl(u.id), locked = idle.locked(u.id), maxed = idle.maxed(u.id), [x, y] = rootPos(u);
     const cls = ['node', u.cur === 'mist' && 'mist', u.branch === 'bridge' && 'bridge', locked && 'veiled', !locked && idle.canBuy(u.id) && 'buyable', l > 0 && 'owned', maxed && 'maxed', u.id === shopSel && 'sel'].filter(Boolean).join(' ');
     const lv = maxed ? '★' : l ? `${l}` : '';
     h += `<button class="${cls}" data-id="${u.id}" style="left:${x}px;top:${y}px" title="${u.name}"><svg class="i"><use href="#${glyphOf(u)}"/></svg>${lv ? `<span class="n-lv">${lv}</span>` : ''}</button>`;
+    // legacy nodes all share the Mist glyph: name + level under each
+    if (lg) h += `<span class="root-label" style="left:${x}px;top:${y + 34}px;font-size:12px">${u.name}<small>${u.max ? `level ${l}/${u.max}` : `level ${l}`}</small></span>`;
   }
   tree.innerHTML = h;
-  for (const b of tree.querySelectorAll('.node')) b.onclick = () => { shopSel = b.dataset.id; sfx.click(); renderShop(); };
+  for (const b of tree.querySelectorAll('.node')) b.onclick = () => { shopSel = b.dataset.id; if (lg) legacySel = shopSel; sfx.click(); renderShop(); };
   renderShopDetail();
 }
 function fitShop() { /* the panel has a fixed logical size and follows the --ui zoom */ }
@@ -1816,7 +1847,7 @@ function renderShopDetail() {
   const btn = maxed ? '<button class="up-buy" disabled>Max level</button>'
     : idle.locked(u.id) ? '<button class="up-buy" disabled>Locked</button>'
     : `<button class="up-buy" id="shop-buy" ${idle.canBuy(u.id) ? '' : 'disabled'}>Buy · ${fmtBig(idle.cost(u.id))} ${cur}</button>`;
-  $('shop-detail').innerHTML = `<div><span class="d-tag">${br ? br.name : 'Bridge'}${u.cur === 'mist' ? ' · Mist' : ''}</span>`
+  $('shop-detail').innerHTML = `<div><span class="d-tag">${u.branch === 'legacy' ? 'Legacy · kept forever' : br ? br.name : 'Bridge'}</span>`
     + `<h4><span>${u.name}</span><span>Lv ${u.max ? `${l}/${u.max}` : l}</span></h4><p>${what}</p>`
     + (needs ? `<p class="d-needs">${u.or && u.needs.length > 1 ? 'Needs one of' : 'Needs'}: ${needs}</p>` : '') + `</div><div class="d-act">${btn}</div>`;
   if ($('shop-buy')) $('shop-buy').onclick = () => buyUpgrade(u.id);
@@ -2248,10 +2279,10 @@ $('test-win').onclick = () => {
 let pausedBeforeLeave = false;
 const leaveBattle = () => { $('leave').classList.add('hidden'); if (mode === 'campaign') show('campaign'); else withLoading(() => show('menu')); };
 // withdrawing from a running conquest battle ends the run (as the dialog says)
-// idle: withdrawing ends the run (Fog, Mist and upgrades are kept)
+// campaign: withdrawing keeps your stage (it starts over when you come back), Wisp, Mist and upgrades
 const withdraw = () => {
   if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave();
-  if (mode === 'idle' && battle.state === 'running') { idleTick(0); trackIdleRun(idle.endRun(battle.time / rules.timeScale)); idle.save(); }
+  if (mode === 'idle' && battle.state === 'running') { idleTick(0); idle.runTime += battle.time / rules.timeScale; idle.save(); track(`campaign-withdraw-${idle.stage}`); }   // the stage is kept (exact battle save: phase 4)
   closeShop();
   leaveBattle();
 };
@@ -2259,7 +2290,7 @@ $('battle-quit').onclick = () => {
   if (battle.state !== 'running') { closeShop(); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
-    : mode === 'idle' ? `Withdraw? This run ends at stage ${idle.stage}. Your Wisp, Mist and upgrades are kept.`
+    : mode === 'idle' ? `Withdraw? You come back to stage ${idle.stage} (the battle starts over). Your Wisp, Mist and upgrades are kept.`
     : 'Are you sure you want to withdraw? Your progress in this battle will not be saved.';
   pausedBeforeLeave = paused;
   setSpeed(0);
@@ -2298,6 +2329,7 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'u' && shown('idle-shop-btn')) toggleShop('up');
   if (k === 'c' && shown('idle-shop-btn')) toggleShop('wc');
+  if (k === 'l' && shown('idle-shop-btn')) toggleShop('lg');   // legacy (permanent Mist tree)
   if (k === 'a' && shown('idle-auto')) $('idle-auto').click();
 });
 addEventListener('resize', () => { if (screen === 'battle' && bv) { bv.resize(); key = ''; } if (screen === 'campaign') cv.resize(), paintCampaign(); });
@@ -2832,6 +2864,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, get nextPrep() { return nextPrep; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { finishCampaign: () => { const r = idle.endCampaign(); idle.save(); return r; }, tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, get nextPrep() { return nextPrep; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

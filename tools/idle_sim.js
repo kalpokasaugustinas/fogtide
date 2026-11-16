@@ -1,9 +1,11 @@
-// idle mode balance sim: a bot plays whole idle careers headless (tools/idle_sim.py drives it).
+// campaign balance sim: a bot plays whole careers of campaigns headless (tools/idle_sim.py drives it).
+// rules as in the game (campaign rework, phase 2): a won stage zooms out (Wisp bonus, obelisk + boss
+// Mist on the first clear), a lost stage pushes back 3 stages (Wisp and upgrades kept), a campaign
+// ends when stage 30 is cleared or its clock runs out (60 years = 60 game minutes, the phase 5
+// timer); then Wisp, the Wisp tree and general promotions reset, Mist and the Legacy tree stay.
 // the player side is a fixed bot standing in for an active human (the order-giving generals only
-// save the human's time, so they are off). every 5 game seconds it buys the cheapest affordable
-// open upgrade in the tree, which applies at once like in the game. war council: its first Mist
-// unlocks the Marksman (arrows; the old archers upgrade), more Mist goes to the tree's keystones;
-// the always-on generals run through autoTick. a run ends on a lost stage; fogs and upgrades carry on.
+// save the human's time, so they are off). every 5 game seconds it buys the cheapest affordable Wisp
+// upgrade (applies at once). Mist: first the Marksman (arrows), then the cheapest Legacy node.
 // modules are imported with the game's own ?v= stamp so they share one copy of config.js
 const src = await (await fetch(new URL('../js/battle.js', import.meta.url))).text();
 const v = src.match(/config\.js\?v=(\d+)/)?.[1] ?? '';
@@ -25,66 +27,74 @@ function brain(idle, f) {
   f.personality = { build: 0.4, risk: 1.3, actions: 2, grudge: 0 };
 }
 
-// marksman first with Mist, then the cheapest affordable upgrade, bought repeatedly; returns how many were bought
+// Mist: marksman first, then the cheapest Legacy node; Wisp: the cheapest open tree node, bought
+// repeatedly. returns how many were bought
 function shop(idle) {
   let n = 0;
   idle.auto = false;   // order-giving generals stay off (they stand in for the human)
   if (!idle.genLvl('marksman') && idle.unlock('marksman')) { idle.seat(0, 'marksman'); n++; }
   for (;;) {
-    const open = upgrades.filter((u) => idle.canBuy(u.id)).sort((a, b) => idle.cost(a.id) - idle.cost(b.id));
+    const open = upgrades.filter((u) => idle.canBuy(u.id)).sort((a, b) => (a.cur === 'mist') - (b.cur === 'mist') || idle.cost(a.id) - idle.cost(b.id));
     if (!open.length) return n;
     idle.buy(open[0].id);
     n++;
   }
 }
 
-// one career: runs until maxRuns or a run reaches target. stageCap = game seconds before a stage
-// counts as a stalemate (lost). returns per-stage rows and per-run summaries
-export function career({ maxRuns = 8, target = 30, stageCap = 900, seed = 1 } = {}) {
+// one career: maxCampaigns campaigns of `years` game minutes each. stageCap = game seconds before a
+// stage counts as a stalemate (lost). returns per-stage rows and per-campaign summaries
+export function career({ maxCampaigns = 5, years = 60, stageCap = 900, seed = 1 } = {}) {
   const idle = new Idle();
-  const rows = [], runs = [];
+  const rows = [], camps = [];
   let s = seed;
-  for (let run = 1; run <= maxRuns; run++) {
-    let stamp = null, runReal = 0;
-    for (;;) {
+  for (let c = 1; c <= maxCampaigns; c++) {
+    let stamp = null, clock = 0, pushes = 0, top = idle.stage;
+    const mist0 = idle.mistTotal;
+    let complete = false;
+    while (clock < years * 60) {
       const setup = idle.setup(stamp, (s = (s * 16807) % 2147483647));
       const map = generateMap({ seed: setup.seed, cells: setup.cells, grid: rules.grid, shape: setup.shape, obstacles: true, detail: setup.detail, stamp });
       const b = new Battle(map, setup);
       brain(idle, b.factions[0]);
       let killed = 0, fogs = 0, t = 0, shopT = 5;
-      while (b.state === 'running' && t < stageCap) {
+      while (b.state === 'running' && t < stageCap && clock + t < years * 60) {
         b.step(rules.step);
         idle.autoTick(b, rules.step);
         t += rules.step;
         const f = idle.fogsFor(b.stats.killed - killed);
         killed = b.stats.killed;
-        const w = idle.wellFogs(b.segs.filter((x) => x.owner === 0).length, rules.step);   // fog wells
+        const w = idle.wellFogs(b.segs.filter((x) => x.owner === 0).length, rules.step);   // wisp wells
         idle.earn(f + w); fogs += f + w;
         if ((shopT -= rules.step) <= 0) {
           shopT = 5;
           if (shop(idle)) { b.factions[0].mods = idle.mods(); b.updateGrowth(); brain(idle, b.factions[0]); }
         }
       }
-      const won = b.state === 'won';
-      const real = t / rules.timeScale;   // real seconds (the game runs at x1 only)
-      const row = { run, stage: idle.stage, won, timeout: b.state === 'running', game: Math.round(t), real1x: Math.round(t / rules.timeScale), real: Math.round(real), fogs: Math.round(fogs), levels: Object.values(idle.levels).reduce((a, c) => a + c, 0) };
-      runReal += real;
+      clock += t;
+      const won = b.state === 'won', timeUp = clock >= years * 60 && b.state === 'running';
+      const row = { campaign: c, stage: idle.stage, won, timeout: b.state === 'running' && !timeUp, timeUp, game: Math.round(t), clock: Math.round(clock), fogs: Math.round(fogs), levels: Object.values(idle.levels).reduce((a, x) => a + x, 0) };
       if (won) {
         const w = idle.win(t / rules.timeScale);
         row.bonus = Math.round(w.bonus);
         row.mist = w.mist;
         stamp = islandShape(b);
         shop(idle);
+        if (w.done) complete = true;
+      } else if (!timeUp) {
+        idle.lose(t / rules.timeScale);
+        pushes++;
+        stamp = null;   // back in: a fresh smaller island
       }
+      top = Math.max(top, idle.stage);
       row.bank = Math.round(idle.fogs);
       rows.push(row);
-      if (!won || idle.stage > target) {
-        const out = idle.endRun(0);
-        runs.push({ run, reached: out.reached, fogs: Math.round(out.fogs), realMin: +(runReal / 60).toFixed(1), mist: idle.mistTotal, levels: { ...idle.levels } });
-        break;
-      }
+      if (complete || timeUp) break;
     }
-    if (runs.at(-1).reached > target) break;
+    const cleared = idle.cleared, mistGot = idle.mistTotal - mist0, wisp = idle.runFogs;
+    const legacy = Object.fromEntries(Object.entries(idle.levels).filter(([id]) => upgrades.find((u) => u.id === id)?.cur === 'mist'));
+    const wispLv = Object.entries(idle.levels).filter(([id]) => upgrades.find((u) => u.id === id)?.cur !== 'mist').reduce((a, [, x]) => a + x, 0);
+    idle.endCampaign();
+    camps.push({ campaign: c, cleared, top, complete, pushes, mistGot, mistBank: idle.mist, wisp: Math.round(wisp), wispLv, minutes: +(clock / 60).toFixed(1), legacy, gens: Object.keys(idle.gens).length, startNext: idle.stage });
   }
-  return { rows, runs };
+  return { rows, camps };
 }

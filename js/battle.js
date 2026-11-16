@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=137';
-import { perks, combineMods } from './expedition.js?v=137';
-import { hops } from './mapgen.js?v=137';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=137';
-import { think } from './ai.js?v=137';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=138';
+import { perks, combineMods } from './expedition.js?v=138';
+import { hops } from './mapgen.js?v=138';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=138';
+import { think } from './ai.js?v=138';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -39,6 +39,10 @@ export class Battle {
     this.quietEnd = opts.quietEnd ?? 0;
     this.quiet = 0;
     this.closedIn = false;   // true when the quiet rule decided the battle
+    // faith fades (campaign): a Fogbound (bot) tile whose land has run dry loses faithFade of its
+    // foglets per game second, so every stage ends with the map cleared (replaces the quiet rule
+    // there). they just leave: no kills, no Wisp. 0 = off
+    this.faithFade = opts.faithFade ?? 0;
     // campaign obelisks (idle mode): every bot capital shows a grey Fog obelisk next to its keep,
     // the player's capital a lit one once earlier stages are cleared (homeLit). looks only
     this.capObelisks = opts.capObelisks ?? false;
@@ -387,6 +391,9 @@ export class Battle {
         this.state = total[0] > Math.max(...total.slice(1)) ? 'won' : 'lost';
         return;
       }
+    }
+    if (this.faithFade && this.deplete) {
+      for (const s of this.segs) if (s.owner > 0 && s.troops > 0 && this.landShare(s) <= 0) s.troops = Math.max(0, s.troops - s.troops * this.faithFade * dt);
     }
     // end check: player gone = lost, every bot gone = won (neutral segments may remain)
     if (!this.alive(0)) this.state = 'lost';

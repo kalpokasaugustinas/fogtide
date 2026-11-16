@@ -1,7 +1,8 @@
-# idle mode balance sim: plays whole idle careers headless (tools/idle_sim.js) and prints, per stage,
-# game time, real time, fogs earned and bank, plus a summary per run.
-# use it to check pacing (stage 1 ~30 s, stage 20 ~3 min real at x1) and a smooth fog curve.
-# usage: python tools/idle_sim.py [--careers 2] [--runs 8] [--target 30] [--set display=1.5 enemyAtk=1.08]
+# campaign balance sim: plays careers of campaigns headless (tools/idle_sim.js) and prints per
+# campaign: highest stage cleared, push-backs, Mist earned / banked, Wisp, Legacy levels; with
+# --stages also every stage (game s, result, Wisp). a campaign = 30 stages or the 60-year clock
+# (1 year = 1 game minute). use it to see how far campaign 1, 2, 3... get and where the walls are.
+# usage: python tools/idle_sim.py [--careers 2] [--campaigns 5] [--years 60] [--stages] [--set enemyAtk=1.08]
 import argparse
 import asyncio
 import json
@@ -18,8 +19,9 @@ root = Path(__file__).resolve().parent.parent
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--careers", type=int, default=2, help="independent careers (parallel pages)")
-ap.add_argument("--runs", type=int, default=8, help="max runs per career")
-ap.add_argument("--target", type=int, default=30, help="stop a career once a run passes this stage")
+ap.add_argument("--campaigns", type=int, default=5, help="campaigns per career")
+ap.add_argument("--years", type=float, default=60, help="campaign clock in years (= game minutes)")
+ap.add_argument("--stages", action="store_true", help="print every stage, not only the campaign summaries")
 ap.add_argument("--cap", type=int, default=900, help="game seconds before a stage counts as a stalemate")
 ap.add_argument("--set", nargs="*", default=[], help="idleCfg overrides, e.g. display=1.5")
 ap.add_argument("--out", default=None, help="json results file")
@@ -59,7 +61,7 @@ async def main():
                 pages.append(page)
 
             async def one(i):
-                r = await pages[i].evaluate("(o) => sim.career(o)", {"maxRuns": args.runs, "target": args.target, "stageCap": args.cap, "seed": 1000 + i * 7919})
+                r = await pages[i].evaluate("(o) => sim.career(o)", {"maxCampaigns": args.campaigns, "years": args.years, "stageCap": args.cap, "seed": 1000 + i * 7919})
                 results.append(r)
                 print(f"career {i + 1} done ({time.time() - t0:.0f}s)", flush=True)
 
@@ -70,14 +72,15 @@ async def main():
 
     for c, r in enumerate(results):
         print(f"\n=== career {c + 1} ===")
-        print(f"{'run':>3} {'stg':>3} {'res':<4} {'game s':>6} {'real@1x':>7} {'real':>5} {'fogs':>8} {'bank':>8} {'lvls':>4}")
-        for row in r["rows"]:
-            res = "win" if row["won"] else ("TIME" if row["timeout"] else "lost")
-            print(f"{row['run']:>3} {row['stage']:>3} {res:<4} {row['game']:>6} {row['real1x']:>7} {row['real']:>5} {fmt(row['fogs']):>8} {fmt(row['bank']):>8} {row['levels']:>4}")
-        print("runs:")
-        for run in r["runs"]:
-            lv = " ".join(f"{k}{v}" for k, v in run["levels"].items())
-            print(f"  run {run['run']}: reached stage {run['reached']}, {fmt(run['fogs'])} Fog, Mist so far {run.get('mist', 0)}, {run['realMin']} min real · {lv}")
+        if args.stages:
+            print(f"{'cmp':>3} {'stg':>3} {'res':<5} {'game s':>6} {'clock':>6} {'wisp':>8} {'bank':>8} {'lvls':>4}")
+            for row in r["rows"]:
+                res = "win" if row["won"] else ("TIME" if row["timeUp"] else ("STALL" if row["timeout"] else "lost"))
+                print(f"{row['campaign']:>3} {row['stage']:>3} {res:<5} {row['game']:>6} {row['clock']:>6} {fmt(row['fogs']):>8} {fmt(row['bank']):>8} {row['levels']:>4}")
+        print(f"{'cmp':>3} {'cleared':>7} {'top':>3} {'done':>4} {'push':>4} {'mist+':>5} {'bank':>4} {'gens':>4} {'wispLv':>6} {'min':>5} {'next':>4}  legacy")
+        for k in r["camps"]:
+            lv = " ".join(f"{a}{b}" for a, b in k["legacy"].items())
+            print(f"{k['campaign']:>3} {k['cleared']:>7} {k['top']:>3} {'yes' if k['complete'] else '':>4} {k['pushes']:>4} {k['mistGot']:>5} {k['mistBank']:>4} {k['gens']:>4} {k['wispLv']:>6} {k['minutes']:>5} {k['startNext']:>4}  {lv}")
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=1), encoding="utf-8")
 
