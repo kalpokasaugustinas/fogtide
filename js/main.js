@@ -1,20 +1,20 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=141';
-import { generateMap, rng } from './mapgen.js?v=141';
-import { initAnalytics, track } from './analytics.js?v=141';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=141';
-import { Battle } from './battle.js?v=141';
-import { personalities } from './ai.js?v=141';
-import { Campaign } from './campaign.js?v=141';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=141';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=141';
-import { drawGeneral } from './generals.js?v=141';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=141';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=141';
-import { previewBuildings, capitalObelisk } from './structures.js?v=141';
-import { initTune, tuneChanges } from './tune.js?v=141';
-import { initFogNoise } from './fogui.js?v=141';
-import { outlineLoops } from './outline.js?v=141';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=142';
+import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=142';
+import { initAnalytics, track } from './analytics.js?v=142';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=142';
+import { Battle } from './battle.js?v=142';
+import { personalities } from './ai.js?v=142';
+import { Campaign } from './campaign.js?v=142';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=142';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=142';
+import { drawGeneral } from './generals.js?v=142';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=142';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=142';
+import { previewBuildings, capitalObelisk } from './structures.js?v=142';
+import { initTune, tuneChanges } from './tune.js?v=142';
+import { initFogNoise } from './fogui.js?v=142';
+import { outlineLoops } from './outline.js?v=142';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -315,8 +315,10 @@ function styleFor(b) {
   return (id) => {
     const s = b.segs[id], o = s.owner;
     let building = s.obelisk ? 'obelisk' : s.building ?? (s.relic ? 'relic' : s.home ? 'home' : s.camp ? 'camp' + s.camp : null);   // shrine shows until something is built
-    // campaign obelisks: 'capital-fog' (bot keep, grey) / 'capital-lit' (your keep after stage 1)
-    if (building === 'capital' && b.capObelisks && s.capital) building = o > 0 ? 'capital-fog' : b.homeLit ? 'capital-lit' : 'capital';
+    // campaign obelisks: a Fogbound keep's obelisk stays grey, even once you take it (the Fogbound
+    // left on the map still worship the Fog), until the stage is cleared (b.lit): then every obelisk
+    // shines. your own keep: lit after stage 1 (homeLit), grey on stage 1 until you clear it
+    if (building === 'capital' && b.capObelisks && s.capital) building = b.lit || (id === b.factions[0].capitalSeg && b.homeLit) ? 'capital-lit' : 'capital-fog';
     if (o < 0) return { color: null, fill: 0, building, huts: !building };   // neutral: shacks show people live there
     return { color: colors[b.factions[o].color], fill: 0.16, building, skin: b.factions[o].skin?.buildings };
   };
@@ -1569,11 +1571,49 @@ function startIdle(screen = true) {
   track('play-campaign');
   idle = idle ?? Idle.load();
   idle.cheatPower = cheatsOn ? cheats.power : 1;   // desktop tune panel
-  startBattle(idle.setup(), 'idle');
+  const saved = resumeIdleBattle();
+  if (!saved) clearIdleBattle();
+  startBattle(saved?.setup ?? idle.setup(), 'idle', -1, saved?.made ?? null);
+  if (saved) { idleKilled = battle.stats.killed; idleBT = battle.time; countdown = 0; }   // kills / years already counted
   if (screen) { openCmap(); return; }
   if (idle.stage > 1) flash(`🌫️ Stage ${idle.stage}`, 1800);
   idleIntro();
 }
+
+// ---------- exact battle save (campaign) ----------
+// withdraw, closing the window (or the exe) and every 5 s keep the running stage exactly as it is;
+// back in the campaign it continues from there (same map, foglets, armies, buildings, clock)
+const battleKey = 'fogtide.battle';
+function saveIdleBattle() {
+  if (mode !== 'idle' || !battle || battle.state !== 'running' || zooming || !lastStart) return;
+  const setup = lastStart[0], st = setup.stamp;
+  const packed = { ...setup, stamp: st ? { n: st.n, bits: Array.from(st.data).join('') } : null };
+  try { localStorage.setItem(battleKey, JSON.stringify({ v: 1, campaign: idle.campaign, stage: idle.stage, pre: battle.preStarts, setup: packed, snap: battle.snapshot() })); } catch { /* storage full or blocked: the stage starts over */ }
+}
+function clearIdleBattle() { try { localStorage.removeItem(battleKey); } catch { /* blocked */ } }
+// the saved battle for this campaign stage, rebuilt (null = none, or it doesn't fit any more)
+function resumeIdleBattle() {
+  let sv = null;
+  try { sv = JSON.parse(localStorage.getItem(battleKey)); } catch { /* broken save */ }
+  if (!sv || sv.v !== 1 || sv.campaign !== idle.campaign || sv.stage !== idle.stage) return null;
+  try {
+    const setup = sv.setup;
+    if (setup.stamp) setup.stamp = { n: setup.stamp.n, data: Uint8Array.from(setup.stamp.bits, (c) => +c) };
+    const map = generateMap(mapOpts(setup));
+    if (sv.pre) {   // the worker picked the starts: pick them the same way
+      const first = setup.factions[0]?.capital && map.stampSeg >= 0 ? map.stampSeg : -1;
+      map.starts = spreadStarts(map, setup.factions.length, rng(setup.seed ^ 0x51a7), first);
+      equalizeStarts(map, map.starts, first);
+    }
+    dress(setup.factions, setup.seed);
+    const b = new Battle(map, setup);
+    if (!b.restore(sv.snap)) return null;
+    b.factions[0].mods = idle.mods(); b.updateGrowth();   // upgrades bought since
+    return { setup, made: b };
+  } catch (e) { console.warn('battle save not restored', e); return null; }
+}
+addEventListener('pagehide', () => { if (mode === 'idle' && screen === 'battle' && idle) { saveIdleBattle(); idle.save(); } });
+addEventListener('beforeunload', () => { if (mode === 'idle' && screen === 'battle' && idle) { saveIdleBattle(); idle.save(); } });
 
 // ---------- campaign screen (mockup v3, layout A) ----------
 // the real map of the stage you're on, frozen, light fog over everything but your tile, which
@@ -1626,6 +1666,7 @@ $('cm-abandon').onclick = () => {
   const b = $('cm-abandon');
   if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Click again: Wisp and upgrades fade'; return; }
   closeShop();
+  clearIdleBattle();
   const run = idle.endCampaign();
   idle.save();
   trackIdleRun(run);
@@ -1730,7 +1771,7 @@ function idleTick(dt) {
     while (fogLog.length > 2 && battle.time - fogLog[1][0] >= 10) fogLog.shift();
   }
   idleSaveT -= dt;
-  if (idleSaveT <= 0) { idle.save(); idleSaveT = 5; }
+  if (idleSaveT <= 0) { idle.save(); saveIdleBattle(); idleSaveT = 5; }
 }
 
 // ---------- full auto (tuning panel: testing.autoPlay, or ?autoplay) ----------
@@ -1776,6 +1817,19 @@ function mapToPage(px, py) {
 }
 // boss win: the boss's obelisks flare one by one, each pours its share of the Mist (sparks fly into
 // the Mist badge, which counts up as they land) and shows "+n 💠" above it. returns the time it takes
+// the stage is cleared: the obelisks light up (your own first, then the Fogbound chiefs' ones), each
+// with a beam of light and a ring on the ground. returns the ms the sequence takes
+function lightObelisks() {
+  if (!battle.capObelisks) return 0;
+  const home = battle.factions[0].capitalSeg;
+  const ids = battle.segs.filter((sg) => sg.capital && sg.building === 'capital').map((sg) => sg.id).sort((a, b) => (b === home) - (a === home));
+  const now = performance.now(), step = 380;
+  battle.lit = true; battle.version++; key = '';   // the keeps repaint with lit obelisks
+  ids.forEach((id, i) => fxs.push({ kind: 'lit', id, born: now + i * step, life: 1.8 }));
+  if (ids.length) setTimeout(() => sfx.perk(), 120);
+  return 600 + ids.length * step + 900;
+}
+
 function obeliskMist(mist) {
   const obs = battle.segs.filter((s) => s.obelisk), target = $('idle-mist');
   mistShown = idle.mist - mist;
@@ -1814,7 +1868,9 @@ function endIdleStage(won) {
   idleTick(0);
   const secs = battle.time / rules.timeScale;
   if (won) {
+    clearIdleBattle();   // the stage is over: nothing to resume
     const { bonus, mist, obelisks, boss } = idle.win(secs), stamp = islandShape(battle);
+    const litFor = lightObelisks();   // ms the light-up needs
     if (idleMilestones.has(idle.stage)) track(`campaign-stage-${idle.stage}`);
     if (boss) track(`campaign-boss-${idle.stage - 1}`);
     idle.save();
@@ -1832,10 +1888,11 @@ function endIdleStage(won) {
       if (mode !== 'idle' || screen !== 'battle' || battle.state !== 'won') return;   // left meanwhile
       zoomOut({ save: () => idle.save(), setup: () => idle.setup(stamp, seed), mode: 'idle', pre: () => takePrep(idle.stage, seed), ready: () => (nextPrep?.done && !nextPrep.cancelled && nextPrep.stage === idle.stage && nextPrep.seed === seed ? nextPrep : null), refresh: refreshIdlePlayer });
       setTimeout(idleIntro, 5200);   // after the zoom-out
-    }, 1000 + pour);
+    }, Math.max(1000 + pour, litFor));
     return;
   }
   closeShop();
+  clearIdleBattle();
   const { from, to } = idle.lose(secs);
   idle.save();
   track(`campaign-pushed-back-${from}`);
@@ -1855,6 +1912,7 @@ function endIdleStage(won) {
 
 // the 60 years are up mid-stage: the battle stops where it is and the Fog Tide card shows
 function tideComes() {
+  clearIdleBattle();
   battle.state = 'tide'; battle.endShown = true;   // not a win or a loss: endBattle never runs
   idle.runTime += battle.time / rules.timeScale;
   endCampaignCard(0);
@@ -2436,7 +2494,7 @@ const leaveBattle = () => { $('leave').classList.add('hidden'); if (mode === 'ca
 // campaign: withdrawing keeps your stage (it starts over when you come back), Wisp, Mist and upgrades
 const withdraw = () => {
   if (mode === 'expedition' && battle.state === 'running') Expedition.clearSave();
-  if (mode === 'idle' && battle.state === 'running') { idleTick(0); idle.runTime += battle.time / rules.timeScale; idle.save(); track(`campaign-withdraw-${idle.stage}`); }   // the stage is kept (exact battle save: phase 4)
+  if (mode === 'idle' && battle.state === 'running') { idleTick(0); idle.save(); saveIdleBattle(); track(`campaign-withdraw-${idle.stage}`); }   // the battle is saved exactly as it is
   closeShop();
   leaveBattle();
 };
@@ -2444,7 +2502,7 @@ $('battle-quit').onclick = () => {
   if (battle.state !== 'running' || cmap) { closeShop(); leaveBattle(); return; }
   $('leave-text').textContent = mode === 'expedition'
     ? 'Are you sure you want to withdraw? Your conquest will end and its progress will not be saved.'
-    : mode === 'idle' ? `Withdraw? You come back to stage ${idle.stage} (the battle starts over). Your Wisp, Mist and upgrades are kept.`
+    : mode === 'idle' ? `Withdraw? The battle for stage ${idle.stage} is saved exactly as it is; continue it from the campaign.`
     : 'Are you sure you want to withdraw? Your progress in this battle will not be saved.';
   pausedBeforeLeave = paused;
   setSpeed(0);
@@ -2546,6 +2604,26 @@ function drawFx(ctx, fs) {
         ctx.lineWidth = 3.5; ctx.strokeStyle = '#ff3b30';
         ctx.beginPath(); ctx.arc(x, y, fs * (2.8 - 1.4 * k), 0, Math.PI * 2); ctx.stroke();
       }
+    } else if (f.kind === 'lit') {
+      // obelisk light-up: a gold beam rising from the obelisk, a glow at its gem, a ring on the ground
+      const o = capitalObelisk(bv, f.id);
+      if (!o) continue;
+      const u = bv.u, [ox, oy] = o.p, gy = oy - u * 6.2, k = Math.min(1, age / f.life);
+      const rise = Math.min(1, age / 0.35), fade = (1 - k) ** 1.4;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const top = gy - u * 22 * rise, bw = u * 1.5 * (1 - 0.5 * k);
+      const beam = ctx.createLinearGradient(0, oy, 0, top);
+      beam.addColorStop(0, `rgba(255, 222, 120, ${0.75 * fade})`); beam.addColorStop(1, 'rgba(255, 222, 120, 0)');
+      ctx.fillStyle = beam; ctx.fillRect(ox - bw, top, bw * 2, oy - top);
+      const r = u * (3 + 7 * Math.min(1, age / 0.6));
+      const glow = ctx.createRadialGradient(ox, gy, 0, ox, gy, r);
+      glow.addColorStop(0, `rgba(255, 240, 170, ${0.9 * fade})`); glow.addColorStop(0.4, `rgba(255, 210, 90, ${0.4 * fade})`); glow.addColorStop(1, 'rgba(255, 210, 90, 0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(ox, gy, r, 0, Math.PI * 2); ctx.fill();
+      const rk = Math.min(1, age / 1.1);
+      ctx.globalAlpha = (1 - rk) * 0.9; ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(ox, oy, u * (1.5 + 9 * rk), u * (0.8 + 4.5 * rk), 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     } else if (f.kind === 'shine') {
       const k = Math.min(1, age / f.life), fade = (1 - k) ** 1.5, p = bv.segP[f.id], [x0, y0, x1, y1] = bv.boxes[f.id];
       ctx.save();
@@ -3026,6 +3104,6 @@ renderMenuStats();
 // ?tune=1: live balance sliders; restart replays the current battle with the tuned values
 initTune(() => { if (lastStart && screen === 'battle') startBattle(...lastStart); });
 
-window.__fl = { finishCampaign: () => { const r = idle.endCampaign(); idle.save(); return r; }, get cmap() { return cmap; }, cmapGo, testWin, cheats, applyCheats, tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, get nextPrep() { return nextPrep; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
+window.__fl = { finishCampaign: () => { clearIdleBattle(); const r = idle.endCampaign(); idle.save(); return r; }, saveIdleBattle, lightObelisks, get cmap() { return cmap; }, cmapGo, testWin, cheats, applyCheats, tuneChanges, fogRise: () => fogRise($('idle-shop-btn')), setSpeed, skipCountdown: () => { countdown = 0; goFlash = 0; }, setCam, get nextMap() { return nextMap; }, get mapWorkerInfo() { return { failed: mapWorkerFailed, live: !!mapWorker, jobs: [...mapJobs.keys()] }; }, get tutor() { return tutor; }, endTutor, nextTutor, campaign, startSkirmish, startBattle, startExpedition, get expedition() { return expedition; }, startIdle, get idle() { return idle; }, get nextPrep() { return nextPrep; }, buyUpgrade, get battle() { return battle; }, get view() { return bv; }, cview: cv, audioState, audioFiles };
 initAnalytics();
 initOffline();

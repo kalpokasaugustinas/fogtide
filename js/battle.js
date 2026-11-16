@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=141';
-import { perks, combineMods } from './expedition.js?v=141';
-import { hops } from './mapgen.js?v=141';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=141';
-import { think } from './ai.js?v=141';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=142';
+import { perks, combineMods } from './expedition.js?v=142';
+import { hops } from './mapgen.js?v=142';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=142';
+import { think } from './ai.js?v=142';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -58,6 +58,7 @@ export class Battle {
     const pre = opts.equalStarts !== false && map.starts?.length === this.factions.length ? map.starts : null;
     delete map.starts;   // used once: a replay of this map object picks its own
     const startIds = pre ?? spreadStarts(map, this.factions.length, this.rand, first);
+    this.preStarts = !!pre;   // the worker picked the starts (a restore must rebuild the map the same way)
     if (!pre && opts.equalStarts !== false) { equalizeStarts(map, startIds, first); delete map.outlines; delete map.prep; }   // reshaped here: the worker's outlines are stale
     const maxArea = Math.max(...map.segs.map((s) => s.area));
     this.segs = map.segs.map((s) => {
@@ -132,6 +133,45 @@ export class Battle {
       fac.reserve = total - s.troops;
     }
     this.updateGrowth();
+  }
+
+  // exact save (campaign: withdraw, window close): everything that changes during a battle, as plain
+  // json. the map itself is not saved: the same setup (seed + stamp) rebuilds the same map. maps,
+  // sets and functions are left out (caches the battle rebuilds), a clash points at its army index
+  snapshot() {
+    const plain = (o, skip) => {
+      const r = {};
+      for (const [k, v] of Object.entries(o)) if (!skip.has(k) && typeof v !== 'function' && !(v instanceof Map) && !(v instanceof Set)) r[k] = v;
+      return r;
+    };
+    const mapKeys = new Set(Object.keys(this.map.segs[0] ?? {}));   // static tile data comes from the map
+    const idx = new Map(this.armies.map((a, i) => [a, i]));
+    return {
+      segs: this.segs.map((sg) => plain(sg, mapKeys)),
+      armies: this.armies.map((a) => ({ ...a, clash: a.clash ? { ...a.clash, with: idx.get(a.clash.with) ?? -1 } : null })),
+      factions: this.factions.map((f) => plain(f, new Set(['mods']))),   // mods: the caller sets them (upgrades may have changed)
+      routes: [...this.routes],
+      top: plain(this, new Set(['map', 'rand', 'segs', 'armies', 'events', 'routes', 'factions', 'modsCache'])),
+    };
+  }
+  // put a snapshot back onto a battle built from the same setup. false = it doesn't fit this map
+  restore(sn) {
+    if (!sn || sn.segs.length !== this.segs.length || sn.factions.length !== this.factions.length) return false;
+    const mapKeys = new Set(Object.keys(this.map.segs[0] ?? {}));
+    this.segs.forEach((sg, i) => {
+      const d = sn.segs[i];
+      for (const k of Object.keys(sg)) if (!mapKeys.has(k) && !(k in d)) delete sg[k];   // e.g. a relic or camp this build placed elsewhere
+      Object.assign(sg, d);
+    });
+    this.armies = sn.armies.map((a) => ({ ...a }));
+    this.armies.forEach((a) => { if (a.clash) { const w = this.armies[a.clash.with]; a.clash = w ? { ...a.clash, with: w } : null; } });
+    sn.factions.forEach((d, i) => Object.assign(this.factions[i], d));
+    this.routes = new Map(sn.routes);
+    Object.assign(this, sn.top);
+    this.events = [];
+    this.version++;
+    this.updateGrowth();
+    return true;
   }
 
   // live modifiers: the faction's own perks plus the perks of every relic tile it holds
