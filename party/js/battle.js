@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=139';
-import { perks, combineMods } from './expedition.js?v=139';
-import { hops } from './mapgen.js?v=139';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=139';
-import { think } from './ai.js?v=139';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=140';
+import { perks, combineMods } from './expedition.js?v=140';
+import { hops } from './mapgen.js?v=140';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=140';
+import { think } from './ai.js?v=140';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
