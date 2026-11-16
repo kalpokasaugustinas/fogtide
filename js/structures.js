@@ -48,6 +48,70 @@ function shadow(x, cx, cy, rx, ry) {
   x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); x.fill();
 }
 
+// mausoleum (relic tile): stepped plinth, pale stone body with a shaded side, two columns, slate
+// pediment, a dark doorway with warm candlelight. cx, cy = middle of the front step on the ground
+export function mausoleum(x, cx, cy, u) {
+  const pale = [222, 216, 200], side = [176, 170, 156], slate = [78, 82, 96], slateD = [56, 58, 70];
+  shadow(x, cx + u * 1.2, cy, u * 3.4, u * 0.8);
+  x.fillStyle = css(side); x.fillRect(cx - u * 2.8, cy - u * 0.5, u * 5.6, u * 0.55);          // bottom step
+  x.fillStyle = css(pale); x.fillRect(cx - u * 2.4, cy - u * 0.9, u * 4.8, u * 0.45);          // upper step
+  x.fillStyle = css(pale); x.fillRect(cx - u * 2, cy - u * 3.6, u * 4, u * 2.75);              // front wall
+  x.fillStyle = css(side);                                                                      // side wall (depth to the right)
+  x.beginPath(); x.moveTo(cx + u * 2, cy - u * 0.85); x.lineTo(cx + u * 2.9, cy - u * 1.35); x.lineTo(cx + u * 2.9, cy - u * 4); x.lineTo(cx + u * 2, cy - u * 3.6); x.fill();
+  x.fillStyle = css(slateD);                                                                    // roof side
+  x.beginPath(); x.moveTo(cx + u * 2.3, cy - u * 3.6); x.lineTo(cx, cy - u * 5.4); x.lineTo(cx + u * 0.9, cy - u * 5.8); x.lineTo(cx + u * 3.2, cy - u * 4.05); x.fill();
+  x.fillStyle = css(slate);                                                                     // pediment
+  x.beginPath(); x.moveTo(cx - u * 2.3, cy - u * 3.6); x.lineTo(cx, cy - u * 5.4); x.lineTo(cx + u * 2.3, cy - u * 3.6); x.fill();
+  x.fillStyle = css(pale);                                                                      // carved disc in the pediment
+  x.beginPath(); x.arc(cx, cy - u * 4.2, u * 0.38, 0, Math.PI * 2); x.fill();
+  x.fillStyle = css([255, 205, 80]);
+  x.beginPath(); x.arc(cx, cy - u * 4.2, u * 0.18, 0, Math.PI * 2); x.fill();
+  x.fillStyle = css([40, 36, 34]);                                                              // arched doorway
+  x.beginPath(); x.moveTo(cx - u * 0.75, cy - u * 0.9); x.lineTo(cx - u * 0.75, cy - u * 2.3); x.arc(cx, cy - u * 2.3, u * 0.75, Math.PI, 0); x.lineTo(cx + u * 0.75, cy - u * 0.9); x.fill();
+  const g = x.createRadialGradient(cx, cy - u * 1.4, 0, cx, cy - u * 1.4, u * 0.9);             // candlelight inside
+  g.addColorStop(0, 'rgba(255, 210, 110, 0.95)'); g.addColorStop(1, 'rgba(255, 180, 70, 0)');
+  x.fillStyle = g; x.beginPath(); x.arc(cx, cy - u * 1.4, u * 0.9, 0, Math.PI * 2); x.fill();
+  for (const dx of [-1.5, 1.5]) {                                                               // columns
+    x.fillStyle = css([240, 236, 224]); x.fillRect(cx + dx * u - u * 0.3, cy - u * 3.5, u * 0.6, u * 2.6);
+    x.fillStyle = css(side); x.fillRect(cx + dx * u + u * 0.1, cy - u * 3.5, u * 0.2, u * 2.6);
+    x.fillStyle = css(pale); x.fillRect(cx + dx * u - u * 0.42, cy - u * 3.65, u * 0.84, u * 0.22);
+  }
+}
+
+// campaign obelisk (each Fogbound chief's capital, later the player's saved land): pale sandstone
+// needle with a rune line and a gem on top (the old relic obelisk). look 'fog' = held by the Fog:
+// grey stone, grey runes, dull grey shine. look 'lit' = stage cleared: gold runes, bright yellow glow.
+// cx, cy = foot of the obelisk on the ground, u = the map view's unit (v.u)
+export function drawObelisk(x, cx, cy, u, look = 'lit') {
+  const lit = look === 'lit';
+  const face = lit ? [236, 226, 196] : [176, 178, 182], dark = lit ? [196, 178, 140] : [128, 130, 138];
+  const rune = lit ? [255, 200, 70] : [214, 218, 226], gem = lit ? [255, 205, 80] : [200, 204, 214];
+  const gy = cy - u * 5.3, r = u * (lit ? 4.2 : 2.6);
+  const halo = x.createRadialGradient(cx, gy, 0, cx, gy, r);   // shine behind the needle
+  halo.addColorStop(0, lit ? 'rgba(255, 236, 150, 0.9)' : 'rgba(225, 228, 235, 0.65)');
+  halo.addColorStop(0.45, lit ? 'rgba(255, 215, 90, 0.4)' : 'rgba(200, 204, 214, 0.22)');
+  halo.addColorStop(1, lit ? 'rgba(255, 215, 106, 0)' : 'rgba(200, 204, 214, 0)');
+  x.fillStyle = halo; x.beginPath(); x.arc(cx, gy, r, 0, Math.PI * 2); x.fill();
+  if (lit) {   // light pool on the ground
+    const f = x.createRadialGradient(0, 0, 0, 0, 0, u * 4);
+    f.addColorStop(0, 'rgba(255, 220, 120, 0.35)'); f.addColorStop(1, 'rgba(255, 220, 120, 0)');
+    x.save(); x.translate(cx, cy); x.scale(1, 0.5); x.fillStyle = f; x.beginPath(); x.arc(0, 0, u * 4, 0, Math.PI * 2); x.fill(); x.restore();
+  }
+  shadow(x, cx + u * 0.8, cy, u * 1.4, u * 0.45);
+  x.fillStyle = css(face);
+  x.beginPath(); x.moveTo(cx - u * 0.8, cy); x.lineTo(cx - u * 0.45, cy - u * 4.6); x.lineTo(cx + u * 0.45, cy - u * 4.6); x.lineTo(cx + u * 0.8, cy); x.fill();
+  x.fillStyle = css(dark);
+  x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + u * 0.8, cy); x.lineTo(cx + u * 0.45, cy - u * 4.6); x.lineTo(cx, cy - u * 4.6); x.fill();
+  x.strokeStyle = css(rune, 0.95);
+  x.lineWidth = Math.max(1, u * 0.22);
+  x.beginPath(); x.moveTo(cx - u * 0.32, cy - u * 0.6); x.lineTo(cx - u * 0.22, cy - u * 4.1); x.stroke();
+  for (let i = 1; i <= 3; i++) { x.beginPath(); x.moveTo(cx - u * 0.55, cy - u * i * 1.1); x.lineTo(cx - u * 0.05, cy - u * i * 1.1); x.stroke(); }
+  x.fillStyle = css(gem);
+  x.beginPath(); x.moveTo(cx, cy - u * 6.2); x.lineTo(cx - u * 0.6, cy - u * 5.3); x.lineTo(cx, cy - u * 4.5); x.lineTo(cx + u * 0.6, cy - u * 5.3); x.fill();
+  x.fillStyle = 'rgba(255, 255, 255, 0.55)';   // gem highlight
+  x.beginPath(); x.moveTo(cx, cy - u * 6.2); x.lineTo(cx - u * 0.6, cy - u * 5.3); x.lineTo(cx, cy - u * 5.3); x.fill();
+}
+
 // gabled house seen from the front-top: wall, door, two-tone roof
 function house(x, cx, cy, u, wall = wallWhite, roof = roofRed, w = 2.4, h = 1.3) {
   w *= u; h *= u;
@@ -464,32 +528,18 @@ export function top(v, x, id, type, owner, skin) {
     x.fillStyle = css([74, 112, 76]);
     x.beginPath(); x.arc(p[0] + u * 3.9, p[1] - u * 1.6, u * 0.95, 0, Math.PI * 2); x.fill();
   } else if (type === 'relic') {
-    // standing stones around a tall obelisk with a glowing gold gem
+    // ancient mausoleum inside a ring of standing stones: pale stone crypt, two columns, a slate
+    // pediment roof and a doorway lit by gold candlelight (its live pulse is drawn in main.js)
     const [p] = v.spots(id, 1, 0);
     if (!p) { x.restore(); return; }
     for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2, sx = p[0] + Math.cos(a) * u * 3.6, sy = p[1] - u * 0.3 + Math.sin(a) * u * 2.1;
+      const a = (i / 7) * Math.PI * 2 + 0.3, sx = p[0] + Math.cos(a) * u * 4.2, sy = p[1] - u * 0.3 + Math.sin(a) * u * 2.4;
+      if (Math.sin(a) < -0.2 && Math.abs(Math.cos(a)) < 0.5) continue;   // no stone right behind the roof
       shadow(x, sx + u * 0.3, sy, u * 0.5, u * 0.2);
       x.fillStyle = css(i % 2 ? stone : stoneDark);
       x.fillRect(sx - u * 0.35, sy - u * 1.3, u * 0.7, u * 1.3);
     }
-    shadow(x, p[0] + u * 0.8, p[1], u * 1.4, u * 0.45);
-    // pale sandstone obelisk (stands out from the grey stones) with a gold rune line up its face
-    x.fillStyle = css([236, 226, 196]);
-    x.beginPath(); x.moveTo(p[0] - u * 0.8, p[1]); x.lineTo(p[0] - u * 0.45, p[1] - u * 4.6); x.lineTo(p[0] + u * 0.45, p[1] - u * 4.6); x.lineTo(p[0] + u * 0.8, p[1]); x.fill();
-    x.fillStyle = css([196, 178, 140]);
-    x.beginPath(); x.moveTo(p[0], p[1]); x.lineTo(p[0] + u * 0.8, p[1]); x.lineTo(p[0] + u * 0.45, p[1] - u * 4.6); x.lineTo(p[0], p[1] - u * 4.6); x.fill();
-    x.strokeStyle = css([255, 200, 70], 0.95);
-    x.lineWidth = Math.max(1, u * 0.22);
-    x.beginPath(); x.moveTo(p[0] - u * 0.32, p[1] - u * 0.6); x.lineTo(p[0] - u * 0.22, p[1] - u * 4.1); x.stroke();
-    for (let i = 1; i <= 3; i++) { x.beginPath(); x.moveTo(p[0] - u * 0.55, p[1] - u * i * 1.1); x.lineTo(p[0] - u * 0.05, p[1] - u * i * 1.1); x.stroke(); }
-    // soft halo around the gem (the live pulse is drawn on top every frame, see main.js)
-    const halo = x.createRadialGradient(p[0], p[1] - u * 5.3, 0, p[0], p[1] - u * 5.3, u * 2.4);
-    halo.addColorStop(0, 'rgba(255, 230, 140, 0.6)'); halo.addColorStop(1, 'rgba(255, 215, 106, 0)');
-    x.fillStyle = halo;
-    x.beginPath(); x.arc(p[0], p[1] - u * 5.3, u * 2.4, 0, Math.PI * 2); x.fill();
-    x.fillStyle = css([255, 205, 80]);
-    x.beginPath(); x.moveTo(p[0], p[1] - u * 6.2); x.lineTo(p[0] - u * 0.6, p[1] - u * 5.3); x.lineTo(p[0], p[1] - u * 4.5); x.lineTo(p[0] + u * 0.6, p[1] - u * 5.3); x.fill();
+    mausoleum(x, p[0], p[1], u);
   } else if (type === 'obelisk') {
     // boss mist obelisk: big dark slate needle with blue-violet runes, a mist crystal hovering on
     // top (its live pulse and the pour-out flare are drawn every frame, see main.js drawUnits)

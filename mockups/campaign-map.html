@@ -21,16 +21,15 @@
   .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; color: #232a2c; font-size: 14px; background: #b3bcc3; }
 
   /* map: real capture + fog canvas + obelisk canvas + clickable dot, shifted right of the column */
-  .map { position: absolute; left: 150px; top: 0; width: 1280px; height: 720px; transition: transform 1.4s cubic-bezier(.6,0,.3,1); }
+  .map { position: absolute; left: 190px; top: 0; width: 1280px; height: 720px; transition: transform 1.4s cubic-bezier(.6,0,.3,1); }
   .map img, .map canvas { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; }
   .map .fogc { animation: drift 16s ease-in-out infinite alternate; }
   @keyframes drift { from { transform: translate(-8px, 0) scale(1.01); } to { transform: translate(8px, -4px) scale(1.025); } }
-  .dot { position: absolute; width: 0; height: 0; cursor: pointer; z-index: 3; }
-  .dot i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: #2f74d6; border: 2px solid #f4f1e6; box-shadow: 0 0 10px rgba(47,116,214,.9); transition: transform .15s; }
-  .dot::before { content: ''; position: absolute; left: -18px; top: -18px; width: 36px; height: 36px; border-radius: 50%; border: 2px solid rgba(244,241,230,.95); animation: ping 1.8s ease-out infinite; }
-  @keyframes ping { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
-  .dot span { position: absolute; left: 16px; top: -12px; white-space: nowrap; font-size: 14px; font-weight: 600; color: #f4f1e6; text-shadow: 0 1px 3px #000, 0 0 8px #000; letter-spacing: .5px; }
-  .dot:hover i { transform: scale(1.3); }
+  /* your tile: a soft pulse on its real outline; click it to start */
+  .home { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; z-index: 3; pointer-events: none; overflow: visible; }
+  .home path { pointer-events: all; cursor: pointer; fill: rgba(255, 246, 214, .0); stroke: rgba(255, 250, 230, .9); stroke-width: 2.5; animation: pulse 1.8s ease-in-out infinite; }
+  .home path:hover { fill: rgba(255, 246, 214, .28); }
+  @keyframes pulse { 0%, 100% { fill: rgba(255, 246, 214, .02); stroke-opacity: .35; stroke-width: 1.5; } 50% { fill: rgba(255, 246, 214, .22); stroke-opacity: 1; stroke-width: 3.5; } }
   .tag { position: absolute; transform: translate(-50%, 0); white-space: nowrap; font-size: 12px; font-weight: 600; letter-spacing: .5px; padding: 2px 8px; border-radius: 10px; z-index: 3; pointer-events: none; }
   .tag.lit { background: rgba(35,42,44,.85); color: #ffd76a; }
   .tag.dark { background: rgba(35,42,44,.7); color: #c9c3d6; }
@@ -40,7 +39,7 @@
   .ink::before { content: ''; position: absolute; inset: 0; z-index: -1; background: #232a2c; filter: blur(3px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
   .ink:hover::before { background: #2f74d6; }
   .year { font-size: 44px; font-weight: 300; letter-spacing: 1px; line-height: 1; }
-  .tide { font-size: 15px; text-transform: uppercase; letter-spacing: 4px; font-weight: 600; color: #4a4f63; }
+  .tide { font-size: 13px; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600; color: #4a4f63; }
   .lore { font-size: 14px; line-height: 1.45; color: #384044; }
   .k { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #6a7478; margin: 0 0 6px; }
   .mod { position: relative; display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 13px; cursor: default; }
@@ -70,7 +69,7 @@
     <button data-s="new">New campaign</button>
     <button data-s="mid" class="on">Stage 12, back after withdraw</button>
     <button data-s="over">Hour over</button>
-    <small>Real game maps (stage 1 and stage 12 captures). Obelisks sit on the real capitals; stages 1-11 merge into the home tile (×19). Hover the modifiers, click the dot or the button. Sample numbers.</small>
+    <small>Real game maps and the game's obelisk art: grey shine = Fogbound chief, yellow = your cleared land (stages 1-11 merge into your tile, ×19). Your tile pulses: click it to start. Clock = years before the Fog Tide (1 year = 1 min). Sample numbers.</small>
   </div>
   <div class="stage" id="stage"><div class="frame" id="frame"><div id="lay"></div></div></div>
 <script type="module">
@@ -83,11 +82,12 @@
   }
   addEventListener('resize', fit);
 
-  // ---------- captured maps: tile positions in the 1280x720 capture [x, y, radius] ----------
-  const MAPS = {
-    s1: { img: 'img/campaign-s1.jpg', home: [450, 482, 119], bots: [[758, 188, 120]] },
-    s12: { img: 'img/campaign-s12.jpg', home: [880, 270, 91], bots: [[645, 538, 70], [356, 338, 70], [620, 173, 70]] },
-  };
+  // ---------- captured maps (tools capture: idle stage 1 / stage 12 at 1280x720) ----------
+  // per map: u = the game's map unit, home = [x, y, r] of your tile, homePath = its real outline,
+  // bots = [x, y, r] of each Fogbound chief's capital
+  import { drawObelisk } from '../js/structures.js';
+  const MAPS = await (await fetch('img/campaign-maps.json')).json();
+  MAPS.s1.img = 'img/campaign-s1.jpg'; MAPS.s12.img = 'img/campaign-s12.jpg';
 
   // ---------- noise for the fog ----------
   function hash(x, y) { let h = (x * 374761393 + y * 668265263 + 911) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
@@ -112,32 +112,14 @@
     g.putImageData(im, 0, 0);
   }
 
-  // obelisks at 2x for crisp edges: lit = pale stone, gold tip, glow, barrier ring; dark = Fogbound
-  function obelisk(g, x, y, s, lit) {
-    const gy = y - 22 * s;
-    const gr = g.createRadialGradient(x, gy, 0, x, gy, (lit ? 46 : 34) * s);
-    gr.addColorStop(0, lit ? 'rgba(255,215,106,.85)' : 'rgba(60,50,85,.7)'); gr.addColorStop(1, lit ? 'rgba(255,215,106,0)' : 'rgba(60,50,85,0)');
-    g.fillStyle = gr; g.beginPath(); g.arc(x, gy, (lit ? 46 : 34) * s, 0, 7); g.fill();
-    g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(x + 3 * s, y, 9 * s, 3 * s, 0, 0, 7); g.fill();   // shadow
-    g.lineJoin = 'round'; g.lineWidth = 1.4; g.strokeStyle = '#1e2426';
-    g.fillStyle = lit ? '#ece6d2' : '#3a3f47';
-    g.beginPath(); g.moveTo(x - 6 * s, y); g.lineTo(x - 4 * s, y - 34 * s); g.lineTo(x, y - 42 * s); g.lineTo(x + 4 * s, y - 34 * s); g.lineTo(x + 6 * s, y); g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = lit ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.06)';                                   // shaded right face
-    g.beginPath(); g.moveTo(x, y - 42 * s); g.lineTo(x + 4 * s, y - 34 * s); g.lineTo(x + 6 * s, y); g.lineTo(x + 1 * s, y); g.closePath(); g.fill();
-    g.fillStyle = lit ? '#ffd76a' : '#7d6aa8';                                                         // tip: gold / sickly violet
-    g.beginPath(); g.moveTo(x - 4 * s, y - 34 * s); g.lineTo(x, y - 42 * s); g.lineTo(x + 4 * s, y - 34 * s); g.closePath(); g.fill(); g.stroke();
-    if (!lit) { g.strokeStyle = 'rgba(200,190,230,.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x - 1.5 * s, y - 26 * s); g.lineTo(x + 1.5 * s, y - 18 * s); g.lineTo(x - 1 * s, y - 10 * s); g.stroke(); }   // rune crack
-  }
+  // obelisks: the game's own drawObelisk (structures.js), grey shine on Fogbound capitals, bright
+  // yellow on your land. stages 1-11 all sit inside your home tile, so they show as one obelisk
+  const obPos = (x, y, r) => [x + r * 0.5, y + r * 0.25];
   function drawObelisks(cv, m, st) {
     cv.width = 2560; cv.height = 1440; const g = cv.getContext('2d'); g.scale(2, 2);
     const [hx, hy, hr] = m.home;
-    if (st.lit) {
-      // barrier around your land: a soft dome ring (thicker once the hour is over and the obelisk holds)
-      g.strokeStyle = st.over ? 'rgba(255,225,140,.85)' : 'rgba(190,215,255,.7)'; g.lineWidth = st.over ? 3 : 2;
-      g.setLineDash(st.over ? [] : [6, 6]); g.beginPath(); g.ellipse(hx, hy + 8, hr * 1.05, hr * 0.8, 0, 0, 7); g.stroke(); g.setLineDash([]);
-      obelisk(g, hx + hr * 0.5, hy + hr * 0.15, st.over ? 1.5 : 1.25, true);
-    }
-    if (!st.over) for (const [x, y, r] of m.bots) obelisk(g, x + r * 0.45, y + r * 0.2, 0.9, false);
+    if (st.lit) { const [x, y] = obPos(hx, hy, hr); drawObelisk(g, x, y, m.u * (st.over ? 1.6 : 1.25), 'lit'); }
+    if (!st.over) for (const [bx, by, br] of m.bots) { const [x, y] = obPos(bx, by, br); drawObelisk(g, x, y, m.u, 'fog'); }
   }
 
   // ---------- sample campaign data ----------
@@ -155,16 +137,17 @@
   ];
   const modsHtml = () => mods.map((m) => `<div class="mod${m.up ? ' up' : ''}">${icon[m.i]}<span>${m.t}</span><div class="tip">${m.tip}</div></div>`).join('');
 
+  // the clock: 60 years before the Fog Tide, one year per minute of game time
   const STATES = {
-    new: { map: 's1', year: 1147, tide: 'III', left: '60:00', share: 1, lit: false, over: false, dot: 'Your village', stageN: 1, saved: 0, obel: 0, mist: 34,
-      lore: '112 years have passed since the last obelisk faded. The Fog came back stronger, and your village is the last free place. You have one hour before it closes in for good.',
+    new: { map: 's1', year: 1147, years: 60, lit: false, over: false, label: 'Your village', stageN: 1, obel: 0, mist: 34,
+      lore: '112 years ago the last obelisk faded and the Fog came back. Your village is the last free place. Light the obelisks before the next Fog Tide swallows everything.',
       go: 'Defend the village', toast: 'Stage 1' },
-    mid: { map: 's12', year: 1147, tide: 'III', left: '38:12', share: 0.637, lit: true, over: false, dot: 'Stage 12', stageN: 12, saved: 11, obel: 19, mist: 41,
+    mid: { map: 's12', year: 1169, years: 38, lit: true, over: false, label: 'Stage 12', stageN: 12, obel: 19, mist: 41,
       lore: 'Nineteen obelisks shine around your home. Three Fogbound chiefs still hold the land beyond.',
       go: 'Continue stage 12', toast: 'Stage 12' },
-    over: { map: 's12', year: 1147, tide: 'III', left: '00:00', share: 0, lit: true, over: true, dot: '', stageN: 12, saved: 11, obel: 19, mist: 58,
-      lore: 'The hour is over. Your obelisk rises and its light holds the Fog back from your land. Everything beyond is lost to the Fog again. For now.',
-      go: 'Begin year 1259', toast: 'Year 1259' },
+    over: { map: 's12', year: 1207, years: 0, lit: true, over: true, label: '', stageN: 12, obel: 19, mist: 58,
+      lore: 'The third Fog Tide has come. Your obelisk holds it back from your land; everything beyond is lost to the Fog again. For now.',
+      go: 'Begin year 1312', toast: 'Year 1312' },
   };
 
   let state = 'mid';
@@ -174,35 +157,32 @@
     const lay = document.getElementById('lay');
     lay.innerHTML = `
       <div class="map" id="map"><img src="${m.img}" alt=""><canvas class="fogc"></canvas><canvas class="o"></canvas>
-        ${st.dot ? '<div class="dot" id="dot"><i></i><span></span></div>' : ''}<div id="tags"></div></div>
+        ${st.over ? '' : `<svg class="home" viewBox="0 0 1280 720"><path d="${m.homePath}"><title>${st.label}: click to start</title></path></svg>`}<div id="tags"></div></div>
       <div class="toast" id="toast"></div>
       <div class="col">
-        <div><div class="year">Year ${st.year}</div><div class="tide" style="margin-top:8px">Fog tide ${st.tide}</div></div>
+        <div><div class="year">Year ${st.year}</div><div class="tide" style="margin-top:8px">${st.over ? 'The third Fog Tide' : 'Before the third Fog Tide'}</div></div>
         <div class="lore">${st.lore}</div>
-        <div><div class="clock"><b>${st.left}</b><span>${st.over ? 'The hour is over' : 'Left this campaign'}</span></div><div class="tbar"><i style="width:${st.share * 100}%"></i></div></div>
+        <div><div class="clock"><b>${st.years}</b><span>${st.over ? 'The Fog Tide is here' : 'Years before the Fog Tide'}</span></div><div class="tbar"><i style="width:${st.years / 60 * 100}%"></i></div></div>
         <div class="stats"><div><b>${st.stageN} / 30</b>${st.over ? 'Stage reached' : 'Stage'}</div><div><b>${st.obel}</b>Obelisks lit</div><div><b>${st.mist}</b>Mist${st.over ? ' (+17)' : ''}</div></div>
-        <div><div class="k">The Fog this tide</div>${modsHtml()}</div>
+        <div><div class="k">The third tide brings</div>${modsHtml()}</div>
         <div class="go"><button class="ink" data-go>${st.go}</button></div>
       </div>`;
     const map = document.getElementById('map');
     drawFog(map.querySelector('.fogc'), m, st.over);
     drawObelisks(map.querySelector('.o'), m, st);
-    // labels: merged obelisk count on the home tile, "Fogbound chief" under dark ones
+    // labels: merged obelisk count on your tile, "Fogbound chief" above the grey ones
     const tags = document.getElementById('tags'), [hx, hy, hr] = m.home;
     let t = '';
-    if (st.lit) t += `<div class="tag lit" style="left:${hx + hr * 0.5}px;top:${hy + hr * 0.15 - (st.over ? 63 : 52) - 26}px">${st.over ? 'Obelisk of 1147 · stages 1-11 saved' : '×19 · stages 1-11'}</div>`;
-    if (!st.over) for (const [x, y, r] of m.bots) t += `<div class="tag dark" style="left:${x + r * 0.45}px;top:${y + r * 0.2 - 38 - 24}px">Fogbound chief</div>`;
+    if (st.lit) { const [x, y] = obPos(hx, hy, hr); t += `<div class="tag lit" style="left:${x}px;top:${y - m.u * (st.over ? 1.6 : 1.25) * 6.4 - 24}px">${st.over ? 'Obelisk of 1207 · stages 1-11 saved' : '×19 · stages 1-11'}</div>`; }
+    if (!st.over) for (const [bx, by, br] of m.bots) { const [x, y] = obPos(bx, by, br); t += `<div class="tag dark" style="left:${x}px;top:${y - m.u * 6.4 - 24}px">Fogbound chief</div>`; }
     tags.innerHTML = t;
-    // the dot sits on your home tile; click = zoom in and start (the real game starts the battle)
-    const p = [hx - hr * 0.5, hy + hr * 0.3];
-    const dot = document.getElementById('dot');
-    if (dot) { dot.style.left = p[0] + 'px'; dot.style.top = p[1] + 'px'; dot.querySelector('span').textContent = st.dot; }
+    // click your pulsing tile (or the button): zoom in and start (the real game starts the battle)
     const go = () => {
-      map.style.transformOrigin = `${p[0]}px ${p[1]}px`; map.style.transform = st.over ? 'scale(.4)' : 'scale(3.2)';
+      map.style.transformOrigin = `${hx}px ${hy}px`; map.style.transform = st.over ? 'scale(.4)' : 'scale(3.2)';
       const to = document.getElementById('toast'); to.textContent = st.toast; to.classList.add('on');
       setTimeout(() => { map.style.transform = ''; to.classList.remove('on'); }, 2600);
     };
-    if (dot) dot.onclick = go;
+    const hp = map.querySelector('.home path'); if (hp) hp.onclick = go;
     lay.querySelector('[data-go]').onclick = go;
     fit();
   }

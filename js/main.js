@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=134';
-import { generateMap, rng } from './mapgen.js?v=134';
-import { initAnalytics, track } from './analytics.js?v=134';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=134';
-import { Battle } from './battle.js?v=134';
-import { personalities } from './ai.js?v=134';
-import { Campaign } from './campaign.js?v=134';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=134';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=134';
-import { drawGeneral } from './generals.js?v=134';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=134';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=134';
-import { previewBuildings } from './structures.js?v=134';
-import { initTune, tuneChanges } from './tune.js?v=134';
-import { initFogNoise } from './fogui.js?v=134';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=135';
+import { generateMap, rng } from './mapgen.js?v=135';
+import { initAnalytics, track } from './analytics.js?v=135';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=135';
+import { Battle } from './battle.js?v=135';
+import { personalities } from './ai.js?v=135';
+import { Campaign } from './campaign.js?v=135';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=135';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=135';
+import { drawGeneral } from './generals.js?v=135';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=135';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=135';
+import { previewBuildings } from './structures.js?v=135';
+import { initTune, tuneChanges } from './tune.js?v=135';
+import { initFogNoise } from './fogui.js?v=135';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -335,8 +335,8 @@ function drawUnits(ctx, v, b, ac, numbers) {
   const lk = v === bv ? 1.04 ** Math.round(Math.log(cam.z ** 0.65) / Math.log(1.04)) : 1;
   const fs = Math.max(11, Math.min(18 * uiK, v.size / 30)) * mapScale(b.map) / lk;
   const { z, kind, per, sp } = unitLook(v, b), dpr = v.dpr;
-  // relic obelisks (tile without a building): a slow pulsing glow around the gem and a faint
-  // light pool at its foot, added on top of the cached sprite so the special tiles catch the eye
+  // relic mausoleums (tile without a building): a slow pulsing candle glow in the doorway and a
+  // faint light pool at its foot, added on top of the cached sprite so the special tiles catch the eye
   const glow = 0.5 + 0.5 * Math.sin(performance.now() / 650);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -344,7 +344,7 @@ function drawUnits(ctx, v, b, ac, numbers) {
     if (!s.relic || s.building) continue;
     const [p] = v.spots(s.id, 1, 0), u = v.u;
     if (!p) continue;
-    const gx = p[0], gy = p[1] - u * 5.3, r = u * (2.8 + 0.9 * glow);
+    const gx = p[0], gy = p[1] - u * 1.5, r = u * (2.2 + 0.7 * glow);
     const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
     g.addColorStop(0, `rgba(255, 220, 120, ${0.32 + 0.2 * glow})`); g.addColorStop(0.4, `rgba(255, 200, 90, ${0.12 + 0.1 * glow})`); g.addColorStop(1, 'rgba(255, 190, 80, 0)');
     ctx.fillStyle = g;
