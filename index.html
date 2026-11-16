@@ -25,8 +25,8 @@
   <!-- game fonts, bundled in fonts/ (works offline and in the desktop app); @font-face in style.css -->
   <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/luckiest-guy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=140">
-  <link rel="stylesheet" href="pc.css?v=140">
+  <link rel="stylesheet" href="style.css?v=141">
+  <link rel="stylesheet" href="pc.css?v=141">
   <!-- phones held upright: turn the page to landscape before the first paint (main.js keeps it in
        sync on resize, but only runs once every module has loaded) -->
   <script>
@@ -168,7 +168,7 @@
         <button id="m-quit" class="mode desktop-only hidden"><span class="m-txt"><b>Quit</b></span></button>
       </div>
     </div>
-    <span id="version">build 140 · 2026-11-16 11:27</span>
+    <span id="version">build 141 · 2026-11-16 12:02</span>
   </section>
 
   <!-- campaign world map -->
@@ -204,6 +204,7 @@
       <span class="grow"></span>
       <button id="test-fill" class="ibtn fog" title="Test: fill all my tiles to their cap">F</button>
       <button id="test-win" class="ibtn fog" title="Test: win this battle now">W</button>
+      <button id="cheat-btn" class="ibtn wide fog hidden" title="Tune (desktop test options)"><span>Tune</span></button>
       <button id="idle-shop-btn" class="ibtn wide fog hidden" title="Upgrades (U)"><svg class="i"><use href="#i-up"/></svg><span>Upgrade</span></button>
       <button id="idle-auto" class="ibtn fog hidden" title="Generals' orders (A)"><svg class="i"><use href="#i-auto"/></svg></button>
       <button id="bar-music" class="ibtn fog toggle" title="Music on/off"><svg class="i"><use href="#i-music"/></svg></button>
@@ -229,6 +230,23 @@
         <div class="ctrl-row"><button id="speed" title="Pause / play (Space)">Pause</button></div>
         <div class="keys"><span>Right click: send</span><span>Q / E: send %</span></div>
       </div>
+    </div>
+    <!-- campaign screen: chronicle column over the real stage map (your tile pulses: click it to start) -->
+    <div id="cmap" class="hidden">
+      <div><div id="cm-year" class="cm-year">Year 1147</div><div id="cm-tide" class="cm-tide">Before the first Fog Tide</div></div>
+      <p id="cm-lore" class="cm-lore"></p>
+      <div><div class="cm-clock"><b id="cm-years">60</b><span>Years before the Fog Tide</span></div><div class="cm-bar"><i id="cm-bar"></i></div></div>
+      <div id="cm-stats" class="cm-stats"></div>
+      <p class="cm-hint">Click your glowing tile to begin</p>
+      <div class="cm-btns"><button id="cm-go" class="cm-go">Defend the village</button><button id="cm-abandon" class="cm-abandon hidden">Abandon campaign</button></div>
+    </div>
+    <!-- desktop tune panel (exe or ?cheats): test options, never part of normal play -->
+    <div id="cheats" class="fog hidden">
+      <h3>Tune <small>test options</small></h3>
+      <label>Foglet strength <b id="ch-power-v">x1</b><input id="ch-power" type="range" min="1" max="20" step="1" value="1"></label>
+      <label>Year speed <b id="ch-clock-v">x1</b><input id="ch-clock" type="range" min="0" max="5" step="1" value="0"></label>
+      <label class="ch-row"><input id="ch-auto" type="checkbox"> Auto-win every stage</label>
+      <div class="ch-btns"><button id="ch-win">Win stage</button><button id="ch-years">-10 years</button><button id="ch-close">Close</button></div>
     </div>
     <!-- tutorial coach card (first game, or replayed from the help) -->
     <div id="tutor" class="hidden">
@@ -357,7 +375,7 @@
         <li>Each segment can hold one building, paid with its own foglets. Captured buildings switch sides.</li>
       </ul>
       <ul id="help-buildings"></ul>
-      <p><b>🌫️ Campaign</b>: 60 years before the Fog Tide; clear as many stages as you can, each zooming out to a bigger island. Every Fogbound chief guards an obelisk by its keep: clear the stage and the obelisks shine (💠 Mist, the first time this campaign), every 👑 boss (stage 10, 20, 30...) drops more. Every defeated foglet gives 🌫️ Wisp: spend it in the ⬆️ upgrade tree during the campaign (Upgrade or U); the island slides aside and keeps fighting, upgrades apply at once and each one opens the next. Mist buys the 📜 Legacy upgrades (L), kept forever. Lose a stage and the Fog pushes you back 3 stages; your Wisp and upgrades stay. Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and Fogbound tiles with dry land slowly lose faith. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. When the campaign ends, Wisp, its upgrades and promotions fade; Mist, Legacy and your generals stay.</p>
+      <p><b>🌫️ Campaign</b>: 60 years before the Fog Tide (1 year = 1 minute of play); clear as many stages as you can, each zooming out to a bigger island. Every Fogbound chief guards an obelisk by its keep: clear the stage and the obelisks shine (💠 Mist, the first time this campaign), every 👑 boss (stage 10, 20, 30...) drops more. Every defeated foglet gives 🌫️ Wisp: spend it in the ⬆️ upgrade tree during the campaign (Upgrade or U); the island slides aside and keeps fighting, upgrades apply at once and each one opens the next. Mist buys the 📜 Legacy upgrades (L), kept forever. Lose a stage and the Fog pushes you back 3 stages; your Wisp and upgrades stay. Land runs dry: a tile raises at most 5x its cap in foglets (the bar under its number), and Fogbound tiles with dry land slowly lose faith. Stages 5, 15, 25... bring 👤 another commander's army (Wisp x2). The ⚔️ War Council (C) has 4 seats for generals you unlock with Mist, in any order: the Warlord attacks enemies on his own, the Warden defends, the Marksman gives your tiles arrows (later rivals have them too), the Pathfinder takes neutral land, the Quartermaster builds, the Marshal feeds the front, the War Drummer speeds you up, the Houndmaster bites marching enemies and the Field Surgeon gets fallen foglets back up. Set each one's orders and promote them with Wisp. When the Fog Tide comes, Wisp, its upgrades and promotions fade; Mist, Legacy and your generals stay, and the next campaign starts generations later. The campaign screen (before you play) shows the year and lets you abandon a campaign to start over.</p>
       <p>Game time runs at 80% of real time (all per-second numbers are game seconds).</p>
       <p class="credits">Privacy: an anonymous visit counter (GoatCounter: no cookies, no personal data). Your progress stays on this device.</p>
       <p>Win: wipe out every enemy faction. Keys: space = pause, 1–5 = build, Q / E = send %, right click = send, Esc = deselect / close / leave, U = upgrades, C = war council, L = legacy, A = generals' orders on/off, F11 = fullscreen (desktop app).</p>
@@ -368,6 +386,6 @@
   </div>
 
   <div id="toast"></div>
-  <script type="module" src="js/main.js?v=140"></script>
+  <script type="module" src="js/main.js?v=141"></script>
 </body>
 </html>

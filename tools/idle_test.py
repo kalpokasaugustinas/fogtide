@@ -35,7 +35,7 @@ try:
         browser = p.chromium.launch()
         for name, vp in [("landscape", {"width": 1280, "height": 720}), ("phone", {"width": 844, "height": 390})]:
             page = browser.new_page(viewport=vp)
-            page.add_init_script("localStorage.setItem('frontlines.tutorial', '1')")
+            page.add_init_script("localStorage.setItem('frontlines.tutorial', '1'); localStorage.setItem('fogtide.campaignTutorial', '1')")
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.on("requestfailed", lambda r: print("request failed:", r.url))
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -47,6 +47,12 @@ try:
             page.screenshot(path=str(out / f"idle-{name}-menu.png"))
             page.click("#btn-idle")
             page.wait_for_timeout(2500)
+            # campaign screen first: year, 60 years, the map waits; the button starts the stage
+            cm = page.evaluate("({ open: !!__fl.cmap, year: document.querySelector('#cm-year').textContent, years: document.querySelector('#cm-years').textContent, t: __fl.battle.time })")
+            check(cm == {"open": True, "year": "Year 1147", "years": "60", "t": 0}, f"{name}: campaign screen before stage 1 ({cm})")
+            page.screenshot(path=str(out / f"idle-{name}-cmap.png"))
+            page.click("#cm-go")
+            page.wait_for_timeout(500)
             check(page.evaluate("__fl.battle && document.querySelector('#stage').textContent") == "Stage 1", f"{name}: stage 1 badge")
             check(page.is_visible("#idle-fogs") and page.is_visible("#idle-shop-btn"), f"{name}: fog counter + shop button visible")
             # huts stay off tile lines, mountains and lakes: share of hut boxes (roof to base) that
@@ -166,6 +172,9 @@ try:
             check("stage 2" in menu, f"{name}: menu shows the saved run ({menu})")
             page.click("#btn-idle")
             page.wait_for_timeout(2500)
+            check(page.is_visible("#cm-abandon"), f"{name}: abandon offered once the campaign has begun")
+            page.click("#cm-go")
+            page.wait_for_timeout(500)
             st = page.evaluate("({ stage: __fl.idle.stage, atk: __fl.idle.lvl('atk') })")
             check(st == {"stage": 2, "atk": 2}, f"{name}: resumed with upgrades ({st})")
             mig = page.evaluate("""(() => { const I = __fl.idle.constructor; const o = new I({ fogs: 0, mist: 0, levels: { atk: 3, auto: 2, archers: 1, sharpeye: 1, reinforce: 1 } });
@@ -191,6 +200,13 @@ try:
             r = page.evaluate("""(() => { const id = __fl.idle; id.gens.warlord = 3; const r = __fl.finishCampaign();
               return { campaign: id.campaign, fogs: id.fogs, atk: id.lvl('atk'), blades: id.lvl('mistblades'), warlord: id.gens.warlord, stage: id.stage, cleared: id.cleared, mist: id.mist }; })()""")
             check(r["campaign"] == 2 and r["fogs"] == 0 and r["atk"] == 0 and r["blades"] == 1 and r["warlord"] == 1 and r["stage"] == 1 and r["cleared"] == 0, f"{name}: campaign end resets the Wisp side, keeps Mist side ({r})")
+            # the 60-year clock: at 0 years the Fog Tide card ends the campaign mid-stage
+            page.evaluate("__fl.startIdle(false)")
+            page.wait_for_timeout(1500)
+            page.evaluate("__fl.idle.clock = 3599.5; __fl.skipCountdown()")
+            page.wait_for_timeout(2500)
+            tide = page.evaluate("({ title: document.querySelector('#end-title').textContent, c: __fl.idle.campaign, clock: __fl.idle.clock })")
+            check(tide["title"] == "The Fog Tide" and tide["c"] == 3 and tide["clock"] == 0, f"{name}: the clock runs out -> Fog Tide, next campaign ({tide})")
             page.close()
         browser.close()
 finally:

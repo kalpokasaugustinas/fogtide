@@ -473,3 +473,47 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .council .d-act { display: flex; gap: 14px; align-items: center; margin-top: 8px; }
 .council .lnk { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #4f595c; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .council .council-hint { position: absolute; left: 54px; top: 630px; width: 270px; font-size: 12px; color: #4f595c; }
+
+/* ---------- campaign screen (mockup v3, layout A): chronicle column over the frozen stage map ---------- */
+#cmap { position: absolute; left: 0; top: 0; bottom: 0; width: 370px; zoom: var(--ui); z-index: 2; padding: 76px 36px 30px; display: flex; flex-direction: column; gap: 16px;
+  background: linear-gradient(90deg, rgba(232,234,228,.97) 0%, rgba(232,234,228,.94) 72%, rgba(232,234,228,0) 100%); color: var(--ink); }
+#cmap.hidden { display: none; }
+#cmap { overflow-y: auto; }
+/* short screens (phones in landscape): a tighter column so the button stays on screen */
+@media (max-height: 520px) {
+  #cmap { width: 300px; padding: 58px 20px 12px; gap: 8px; }
+  .cm-year { font-size: 28px; } .cm-tide { margin-top: 4px; font-size: 11px; }
+  .cm-lore { font-size: 12px; line-height: 1.35; } .cm-clock b { font-size: 22px; } .cm-stats b { font-size: 17px; }
+  .cm-hint { display: none; } .cm-btns { margin-top: auto; } .cm-go { padding: 8px 18px; font-size: 13px; }
+}
+.cm-year { font-size: 44px; font-weight: 300; letter-spacing: 1px; line-height: 1; }
+.cm-tide { margin-top: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600; color: #4a4f63; }
+.cm-lore { margin: 0; font-size: 14px; line-height: 1.45; color: #384044; }
+.cm-clock { display: flex; align-items: baseline; gap: 10px; }
+.cm-clock b { font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cm-clock span { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #6a7478; }
+.cm-bar { height: 6px; border-radius: 3px; background: rgba(35,42,44,.18); overflow: hidden; margin-top: 6px; }
+.cm-bar i { display: block; height: 100%; background: var(--ink); }
+.cm-stats { display: flex; gap: 22px; font-size: 13px; }
+.cm-stats b { display: block; font-size: 22px; font-weight: 600; }
+.cm-hint { margin: auto 0 0; font-size: 12px; color: #6a7478; letter-spacing: .5px; }
+.cm-btns { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.cm-go { padding: 12px 26px; color: #f0f0ea; text-transform: uppercase; letter-spacing: 3px; font-weight: 600; font-size: 16px; cursor: pointer; position: relative; isolation: isolate; border: 0; background: none; font-family: inherit; }
+.cm-go::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--ink); filter: blur(3px); border-radius: 58% 42% 55% 45% / 46% 60% 40% 54%; }
+.cm-go:hover::before { background: #2f74d6; }
+.cm-abandon { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 12px; letter-spacing: 1px; color: #6a7478; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cm-abandon:hover, .cm-abandon.sure { color: #a33a2c; }
+.cm-abandon.hidden { display: none; }
+#battle.cmap-open .hud.bl, #battle.cmap-open .hud.bc, #battle.cmap-open .hud.br, #battle.cmap-open #idle-shop-btn, #battle.cmap-open #idle-auto { opacity: 0; pointer-events: none; }
+#battle.cmap-open #battle-canvas { transform: translateX(calc(170px * var(--ui, 1))); }
+
+/* desktop tune panel */
+#cheats { position: absolute; right: 26px; top: 70px; zoom: var(--ui); z-index: 9; width: 260px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--ink); background: var(--paper); border-radius: 10px; }
+#cheats.hidden { display: none; }
+#cheats h3 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; }
+#cheats h3 small { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink-soft); }
+#cheats label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+#cheats label input[type=range] { width: 100%; }
+#cheats .ch-row { justify-content: flex-start; align-items: center; }
+#cheats .ch-btns { display: flex; gap: 6px; }
+#cheats .ch-btns button { flex: 1; font: inherit; font-size: 12px; padding: 6px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff8; cursor: pointer; }

@@ -12,9 +12,9 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=140';
-import { rng, hops } from './mapgen.js?v=140';
-import { effects, rules } from './config.js?v=140';
+import { personalities, pickBuilding } from './ai.js?v=141';
+import { rng, hops } from './mapgen.js?v=141';
+import { effects, rules } from './config.js?v=141';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
@@ -44,6 +44,9 @@ export const idleCfg = {
   deplete: 5,         // a tile's land raises at most 5 x its cap foglets in total, then it stops growing
   quietEnd: 0,        // (old quiet rule, off in the campaign: faith fade ends stalled stages instead)
   faithFade: 0.01,    // a Fogbound tile with dry land loses 1% of its foglets per game second
+  years: 60,          // a campaign lasts 60 years before the Fog Tide; 1 year = 1 minute of game time
+  firstYear: 1147,    // campaign 1 starts in year 1147
+  gapYears: [82, 133],   // the next campaign starts 82-133 years after the tide
   pushBack: 3,        // a lost stage pushes you back 3 stages (Wisp and upgrades are kept)
   legacyGrow: 1.4,    // Legacy (Mist) prices x1.4 per level (x2 left campaigns 2+ barely ahead of campaign 1)
   obeliskMist: 2,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
@@ -225,11 +228,12 @@ export function fmtBig(v) {
 const fmtRate = (v) => (v < 10 ? String(Math.round(v * 100) / 100) : fmtBig(v));
 
 const save_key = 'frontlines.idle';
-const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'gens', 'seats', 'orders', 'campaign', 'cleared'];
+const fields = ['fogs', 'total', 'mist', 'mistTotal', 'levels', 'auto', 'stage', 'runFogs', 'runTime', 'best', 'fast10', 'runs', 'gens', 'seats', 'orders', 'campaign', 'cleared', 'clock', 'year0'];
 // gens = general id -> level (unlocked = 1+), seats = 4 x general id | null, orders = id -> { key: value }
 // campaign = campaigns started (1 = the first), cleared = highest stage won in this campaign (Mist is
-// paid only for stages above it); runFogs / runTime = this campaign's Wisp and time
-const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, gens: {}, seats: [null, null, null, null], orders: {}, campaign: 1, cleared: 0 });
+// paid only for stages above it); runFogs / runTime = this campaign's Wisp and time. clock = game
+// seconds this campaign has used (60 years x 60 s), year0 = the year it started in
+const blank = () => ({ fogs: 0, total: 0, mist: 0, mistTotal: 0, levels: {}, auto: true, stage: 1, runFogs: 0, runTime: 0, best: 0, fast10: 0, runs: 0, gens: {}, seats: [null, null, null, null], orders: {}, campaign: 1, cleared: 0, clock: 0, year0: idleCfg.firstYear });
 
 // the idle profile (kept between runs): Fog, Mist, upgrade levels, best stage, the run in progress
 export class Idle {
@@ -327,6 +331,12 @@ export class Idle {
   setOrder(id, key, v) { (this.orders[id] ??= {})[key] = v; }
 
   // the player's sim modifiers from upgrades (same keys as battle.js / expedition perks)
+  // the campaign clock: game seconds left, years left, the current year and the tide's year
+  get secsLeft() { return Math.max(0, idleCfg.years * 60 - this.clock); }
+  get yearsLeft() { return Math.ceil(this.secsLeft / 60); }
+  get year() { return this.year0 + Math.floor(this.clock / 60); }
+  get tideYear() { return this.year0 + idleCfg.years; }
+
   mods() {
     const g = this.val('granary'), war = this.val('warlord'), sanc = this.val('sanctuary');
     const drum = this.drumOn ? 1.15 + 0.05 * this.on('drummer') : 1;   // war drummer's roll (runtime only)
@@ -340,6 +350,8 @@ export class Idle {
       capitalDef: this.val('walls'), archers: idleCfg.archerRate * this.on('marksman') * this.val('volley'), land: this.val('roots'),
     };
     if (this.lvl('masons')) m.fort = this.val('masons');   // forts: x1.75 unless stonemasons
+    // desktop tune panel: your foglets' strength x cheatPower (runtime only, never saved)
+    if (this.cheatPower > 1) for (const k of ['atk', 'def', 'growth']) m[k] *= this.cheatPower;
     return m;
   }
 
@@ -596,15 +608,16 @@ export class Idle {
     return { from, to: this.stage };
   }
 
-  // the campaign is over (its 60-year clock ran out, phase 5): what Wisp bought resets
+  // the campaign is over (its 60-year clock ran out, or the player abandoned it): what Wisp bought resets
   // (Wisp, the Wisp tree, general promotions back to level 1), what Mist bought stays (Legacy tree,
   // unlocked generals and their seats). the next campaign starts at the head start stage.
   // returns the summary for the end card
   endCampaign() {
-    const out = { campaign: this.campaign, reached: this.stage, cleared: this.cleared, fogs: this.runFogs, secs: this.runTime, mist: this.mist };
+    const gap = idleCfg.gapYears, next = this.tideYear + gap[0] + Math.floor(Math.random() * (gap[1] - gap[0] + 1));
+    const out = { campaign: this.campaign, reached: this.stage, cleared: this.cleared, fogs: this.runFogs, secs: this.runTime, mist: this.mist, tide: this.tideYear, next };
     this.levels = Object.fromEntries(Object.entries(this.levels).filter(([id]) => isLegacy(id)));
     for (const id of Object.keys(this.gens)) this.gens[id] = 1;
-    this.fogs = 0; this.runFogs = 0; this.runTime = 0;
+    this.fogs = 0; this.runFogs = 0; this.runTime = 0; this.clock = 0; this.year0 = next;
     this.campaign++; this.cleared = 0; this.runs++;
     this.stage = this.startStage;
     return out;
