@@ -148,14 +148,14 @@ try:
             check(st["stage"] == 2 and st["badge"] == "Stage 2" and st["state"] == "running", f"{name}: zoomed out to stage 2 ({st})")
             check(st["fogs"] > bank, f"{name}: stage bonus paid ({bank:.0f} -> {st['fogs']:.0f})")
             mist1 = page.evaluate("__fl.idle.mist")
-            check(mist1 == mist0 + 2 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 2 Mist on the first clear ({mist0} -> {mist1})")
+            check(mist1 == mist0 + 3 and page.evaluate("__fl.idle.cleared") == 1, f"{name}: stage 1 obelisk pays 3 Mist on the first clear ({mist0} -> {mist1})")
             # legacy tab: the permanent Mist nodes, no prerequisites
             page.evaluate("__fl.idle.mist += 3")
             page.wait_for_function("!__fl.zooming && __fl.battle.state === 'running'", timeout=20000)   # light-up + zoom-out done
             page.keyboard.press("l")
             page.wait_for_timeout(700)
             lg = page.evaluate("({ title: document.querySelector('#shop-title').textContent, nodes: [...document.querySelectorAll('#shop-tree .node')].map((n) => n.dataset.id), veiled: document.querySelectorAll('#shop-tree .node.veiled').length })")
-            check(lg["title"] == "Legacy" and len(lg["nodes"]) == 6 and "mistblades" in lg["nodes"] and lg["veiled"] == 0, f"{name}: legacy tab lists 6 open Mist nodes ({lg})")
+            check(lg["title"] == "Legacy" and len(lg["nodes"]) == 5 and "mistblades" in lg["nodes"] and lg["veiled"] == 0, f"{name}: legacy tab lists 5 open Mist nodes ({lg})")
             page.click("#shop-tree .node[data-id=mistblades]")
             page.wait_for_timeout(200)
             page.click("#shop-buy")

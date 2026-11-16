@@ -12,22 +12,22 @@
 //     and Fog climb to K, M, B... while the battles stay the same size
 //   - enemy strength: bots attack, defend and grow stronger every stage, so upgrades are needed to
 //     keep going. upgrades never make enemies stronger
-import { personalities, pickBuilding } from './ai.js?v=143';
-import { rng, hops } from './mapgen.js?v=143';
-import { effects, rules } from './config.js?v=143';
+import { personalities, pickBuilding } from './ai.js?v=144';
+import { rng, hops } from './mapgen.js?v=144';
+import { effects, rules } from './config.js?v=144';
 
 export const idleCfg = {
   display: 1.45,      // shown numbers (troops, Fog) grow x1.45 per stage
   enemyBase: 0.75,    // stage 1 bots: attack / defense x0.75 (an easy first island)
-  enemyAtk: 1.12,     // bot attack and defense x1.12 per stage (sim 2026-11-16: 1.08 let campaign 1 reach stage 23, target ~11)
-  enemyGrowth: 1.12,  // bot growth x1.12 per stage (growth decides attrition fights, so it must keep up)
+  enemyAtk: 1.14,     // bot attack and defense x1.14 per stage (sim 2026-11-16: campaigns end ~5, 7, 12, 14, 20, 23; 1.12 was too easy, 1.16 stalled)
+  enemyGrowth: 1.14,  // bot growth x1.12 per stage (growth decides attrition fights, so it must keep up)
   enemyGrowthBase: 0.85,   // stage 1 bots grow at x0.85
   neutralExp: 0.55,   // neutral garrisons x (enemy strength ^ 0.55), at most neutralMax
   neutralMax: 3,
   fogPerKill: 1,      // Fog per defeated sim foglet (then x display scale x fog upgrades)
   clearBonus: 20,     // stage win: 20 x stage x display scale Fog (boss x3)
   bossEvery: 10,      // stage 10, 20, 30...: boss stage (one rival much stronger, bonus x3, drops Mist)
-  bossPower: 1.15,    // boss attack / defense on top of the stage's enemy strength (sim 2026-11-14: 1.35 made stage 10 a 6-run wall)
+  bossPower: 1,       // boss attack / defense on top of the stage's enemy strength (1.15 still made stage 10 a wall once a loss ends the campaign)
   rival2: 5, rival3: 11, rival4: 21,   // stage where the 2nd / 3rd / 4th rival joins (the stage after a boss, not on it)
   bossTroops: 2,      // the boss capital starts with 2x the normal troops
   mistExp: 1.5,       // Mist per boss = round((stage / 10) ^ 1.5): 1, 3, 5, 8, 11 ... deeper bosses pay more
@@ -48,8 +48,8 @@ export const idleCfg = {
   firstYear: 1147,    // campaign 1 starts in year 1147
   gapYears: [82, 133],   // the next campaign starts 82-133 years after the tide
   pushBack: 3,        // a lost stage pushes you back 3 stages (Wisp and upgrades are kept)
-  legacyGrow: 1.4,    // Legacy (Mist) prices x1.4 per level (x2 left campaigns 2+ barely ahead of campaign 1)
-  obeliskMist: 2,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
+  legacyGrow: 1.3,    // Legacy (Mist) prices x1.3 per level (x1.4 left campaigns 2+ barely ahead of campaign 1)
+  obeliskMist: 3,     // Mist per enemy obelisk lit (one per Fogbound chief), first clear of a stage only
 };
 
 // stage n (1-based): map size, rivals, climate. something new every 10 stages (climate, a rival)
@@ -128,7 +128,6 @@ export const upgrades = [
   { id: 'scavengers', branch: 'fog', ring: 1, off: 20, needs: [['fog', 2]], icon: '🦅', name: 'Scavengers', base: 900, grow: 2.3, max: 5, value: (l) => 1 + 0.02 * l, text: (v) => `Wisp from beaten foglets ${pctUp(v)}` },
   { id: 'bounty', branch: 'fog', ring: 2, off: 22, needs: [['scavengers', 2]], icon: '🏆', name: 'Bounty', base: 2700, grow: 2.5, max: 4, value: (l) => 1 + 0.05 * l, text: (v) => `stage clear bonus ${pctUp(v)}` },
   { id: 'mistseeker', branch: 'fog', ring: 3, off: 26, needs: [['bounty', 1]], icon: '🔮', name: 'Mist seeker', base: 9000, grow: 2.8, max: 3, value: (l) => 1 + 0.25 * l, text: (v) => `bosses drop ${pctUp(v)} Mist` },
-  { id: 'headstart', branch: 'legacy', slot: 5, cur: 'mist', icon: '🌀', name: 'Head start', base: 2, grow: 2, max: 5, value: (l) => 2 * l, text: (v) => (v ? `campaigns start at stage ${1 + v} (max half your best)` : 'campaigns start further in') },
   { id: 'mistborn', branch: 'legacy', slot: 4, cur: 'mist', icon: '💠', name: 'Mistborn', base: 2, grow: 2, value: (l) => 1.2 ** l, text: (v) => `all Wisp x${v.toFixed(2)}` },
   // bridges: outer ring between two branches, open from the end of either neighbouring path
   { id: 'warlord', branch: 'bridge', ring: 4, ang: -54, or: true, needs: [['volley', 1], ['start', 1]], icon: '👑', name: 'Warlord', base: 27000, grow: 2.6, max: 5, value: (l) => 1.015 ** l, text: (v) => `attack and defense ${pctUp(v)}` },
@@ -203,7 +202,7 @@ export const generalById = Object.fromEntries(generals.map((g) => [g.id, g]));
 const commanders = ['warlord', 'pathfinder', 'warden', 'quartermaster', 'marshal'];
 // upgrades that left the tree (command branch, archers, patrols, blitz): what one level cost, to
 // refund old saves. [base, grow, currency]
-const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6], horn: [600, 2.5], deephorn: [7500, 2.6], drift: [1500, 3] };
+const retired = { auto: [40, 2.6], autoneutral: [200, 1], signals: [300, 2.5], reinforce: [700, 1], autobuild: [2500, 1], sharpeye: [1, 2, 'mist'], archers: [1400, 2.4], patrols: [27000, 2.6], blitz: [27000, 2.6], horn: [600, 2.5], deephorn: [7500, 2.6], drift: [1500, 3], headstart: [2, 1.4, 'mist'] };   // head start: removed 2026-11-16 (a loss ends the campaign, a late start was a trap)
 
 // sample "other player" profiles (v1: made up; later: real profiles from the online board)
 // lean = how the profile's strength is split (atk / def / growth), total stays at the stage's level
@@ -360,7 +359,7 @@ export class Idle {
   // the order-giving generals work (council switched on and one of them seated)
   get autoOn() { return this.auto && commanders.some((id) => this.on(id)); }
   // first stage of a new campaign: head start (legacy) skips ahead, at most to half the best stage
-  get startStage() { return Math.max(1, Math.min(1 + this.val('headstart'), Math.floor(this.best / 2))); }
+  get startStage() { return 1; }   // every campaign starts at stage 1
 
   // Fog for sim foglets killed on the current stage (ghost stages pay double). divided by the
   // stage's enemy growth: stronger enemies field more foglets, each is worth less, so a stage pays
