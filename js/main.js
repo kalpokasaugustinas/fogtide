@@ -1,19 +1,19 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=135';
-import { generateMap, rng } from './mapgen.js?v=135';
-import { initAnalytics, track } from './analytics.js?v=135';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=135';
-import { Battle } from './battle.js?v=135';
-import { personalities } from './ai.js?v=135';
-import { Campaign } from './campaign.js?v=135';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=135';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=135';
-import { drawGeneral } from './generals.js?v=135';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=135';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=135';
-import { previewBuildings } from './structures.js?v=135';
-import { initTune, tuneChanges } from './tune.js?v=135';
-import { initFogNoise } from './fogui.js?v=135';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=136';
+import { generateMap, rng } from './mapgen.js?v=136';
+import { initAnalytics, track } from './analytics.js?v=136';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=136';
+import { Battle } from './battle.js?v=136';
+import { personalities } from './ai.js?v=136';
+import { Campaign } from './campaign.js?v=136';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=136';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council } from './idle.js?v=136';
+import { drawGeneral } from './generals.js?v=136';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=136';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=136';
+import { previewBuildings } from './structures.js?v=136';
+import { initTune, tuneChanges } from './tune.js?v=136';
+import { initFogNoise } from './fogui.js?v=136';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -311,7 +311,10 @@ function paintBattle() {
 // how battle b's tiles look on the map (owner colour, building / shrine / camp / huts)
 function styleFor(b) {
   return (id) => {
-    const s = b.segs[id], o = s.owner, building = s.obelisk ? 'obelisk' : s.building ?? (s.relic ? 'relic' : s.home ? 'home' : s.camp ? 'camp' + s.camp : null);   // shrine shows until something is built
+    const s = b.segs[id], o = s.owner;
+    let building = s.obelisk ? 'obelisk' : s.building ?? (s.relic ? 'relic' : s.home ? 'home' : s.camp ? 'camp' + s.camp : null);   // shrine shows until something is built
+    // campaign obelisks: 'capital-fog' (bot keep, grey) / 'capital-lit' (your keep after stage 1)
+    if (building === 'capital' && b.capObelisks && s.capital) building = o > 0 ? 'capital-fog' : b.homeLit ? 'capital-lit' : 'capital';
     if (o < 0) return { color: null, fill: 0, building, huts: !building };   // neutral: shacks show people live there
     return { color: colors[b.factions[o].color], fill: 0.16, building, skin: b.factions[o].skin?.buildings };
   };

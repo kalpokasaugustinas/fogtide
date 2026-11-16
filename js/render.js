@@ -5,10 +5,10 @@
 // map grid with marching squares + chaikin smoothing, so nothing looks pixelated at any size.
 // layers (display resolution, cached): under (shadow, lakes, cliff) -> top (ground, building scenes, owner
 // overlays, borders, rocks, trees; repainted when owners, buildings or the selection change)
-import { themes, fogTwirl } from './config.js?v=135';
-import * as structures from './structures.js?v=135';
-import { outline, loopsToPath, segBoxes } from './outline.js?v=135';
-import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=135';
+import { themes, fogTwirl } from './config.js?v=136';
+import * as structures from './structures.js?v=136';
+import { outline, loopsToPath, segBoxes } from './outline.js?v=136';
+import { mix, hash, vnoise, groundPixels, coastSteps, placeTrees, measureIsland } from './viewprep.js?v=136';
 export { mix };
 
 export function hexToRgb(hex) {
@@ -630,7 +630,12 @@ export class MapView {
     else if (type === 'fort') add(main, u * 6.5, u * 4.2);
     else if (type === 'hospital') { add(this.spots(id, 3, u * 6), u * 4, u * 2.6); add(this.spots(id, 6, u * 4), u * 2.2, u * 1.6); }
     else if (type === 'lab') { add(this.spots(id, 3, u * 6), u * 4, u * 2.6); add(main, u * 6.5, u * 4); }
-    else if (type === 'capital') { add(this.spots(id, 7, u * 3.2), u * 3.2, u * 2.2); add(main, u * 8, u * 4.8); }
+    else if (type.startsWith('capital')) {
+      add(this.spots(id, 7, u * 3.2), u * 3.2, u * 2.2); add(main, u * 8, u * 4.8);
+      // capital-fog / capital-lit: clearing around the campaign obelisk beside the keep
+      const ob = type !== 'capital' && structures.capitalObelisk(this, id);
+      if (ob) add([ob.p], u * 2, u * 1.4);
+    }
     else if (type.startsWith('camp')) add(main, u * (4 + Number(type.slice(4)) * 1.3) * Math.max(0.62, this.map.detail ?? 1), u * 3.4);
     else if (type === 'home') add(main, u * 6.6, u * 3);   // house + fence + its own tree
     else if (type === 'obelisk') add(main, u * 5.6, u * 3.3);

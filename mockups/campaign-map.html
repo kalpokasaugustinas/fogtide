@@ -85,7 +85,6 @@
   // ---------- captured maps (tools capture: idle stage 1 / stage 12 at 1280x720) ----------
   // per map: u = the game's map unit, home = [x, y, r] of your tile, homePath = its real outline,
   // bots = [x, y, r] of each Fogbound chief's capital
-  import { drawObelisk } from '../js/structures.js';
   const MAPS = await (await fetch('img/campaign-maps.json')).json();
   MAPS.s1.img = 'img/campaign-s1.jpg'; MAPS.s12.img = 'img/campaign-s12.jpg';
 
@@ -112,14 +111,15 @@
     g.putImageData(im, 0, 0);
   }
 
-  // obelisks: the game's own drawObelisk (structures.js), grey shine on Fogbound capitals, bright
-  // yellow on your land. stages 1-11 all sit inside your home tile, so they show as one obelisk
-  const obPos = (x, y, r) => [x + r * 0.5, y + r * 0.25];
+  // obelisks: drawn by the game itself (capital-fog / capital-lit scenes, structures.js), so the
+  // capture already shows them next to the keeps; the hour-over state adds a big glow on your land
   function drawObelisks(cv, m, st) {
     cv.width = 2560; cv.height = 1440; const g = cv.getContext('2d'); g.scale(2, 2);
-    const [hx, hy, hr] = m.home;
-    if (st.lit) { const [x, y] = obPos(hx, hy, hr); drawObelisk(g, x, y, m.u * (st.over ? 1.6 : 1.25), 'lit'); }
-    if (!st.over) for (const [bx, by, br] of m.bots) { const [x, y] = obPos(bx, by, br); drawObelisk(g, x, y, m.u, 'fog'); }
+    if (!st.over || !m.homeOb) return;
+    const [x, y] = m.homeOb, gy = y - m.u * 5.3, r = m.u * 14;
+    const gr = g.createRadialGradient(x, gy, 0, x, gy, r);
+    gr.addColorStop(0, 'rgba(255, 236, 150, .85)'); gr.addColorStop(0.35, 'rgba(255, 215, 90, .35)'); gr.addColorStop(1, 'rgba(255, 215, 106, 0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(x, gy, r, 0, 7); g.fill();
   }
 
   // ---------- sample campaign data ----------
@@ -173,8 +173,8 @@
     // labels: merged obelisk count on your tile, "Fogbound chief" above the grey ones
     const tags = document.getElementById('tags'), [hx, hy, hr] = m.home;
     let t = '';
-    if (st.lit) { const [x, y] = obPos(hx, hy, hr); t += `<div class="tag lit" style="left:${x}px;top:${y - m.u * (st.over ? 1.6 : 1.25) * 6.4 - 24}px">${st.over ? 'Obelisk of 1207 · stages 1-11 saved' : '×19 · stages 1-11'}</div>`; }
-    if (!st.over) for (const [bx, by, br] of m.bots) { const [x, y] = obPos(bx, by, br); t += `<div class="tag dark" style="left:${x}px;top:${y - m.u * 6.4 - 24}px">Fogbound chief</div>`; }
+    if (st.lit && m.homeOb) { const [x, y] = m.homeOb; t += `<div class="tag lit" style="left:${x}px;top:${y - m.u * 6.4 - 26}px">${st.over ? 'Obelisk of 1207 · stages 1-11 saved' : '×19 · stages 1-11'}</div>`; }
+    if (!st.over) for (const [x, y] of m.botObs) t += `<div class="tag dark" style="left:${x}px;top:${y - m.u * 6.4 - 26}px">Fogbound chief</div>`;
     tags.innerHTML = t;
     // click your pulsing tile (or the button): zoom in and start (the real game starts the battle)
     const go = () => {

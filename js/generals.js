@@ -1,7 +1,7 @@
 // war council portraits: each general is the in-game foglet (drawFoglet: body, head, kit) drawn big
 // on a stone plinth, with general gear on top (cape, epaulettes, helmets, tools, a hound...) and a
 // team-colour standard with the role's sigil. pure canvas drawing; the rules live in idle.js
-import { drawFoglet, hexToRgb, shade } from './render.js?v=135';
+import { drawFoglet, hexToRgb, shade } from './render.js?v=136';
 
 // look per general: kit = base troop kit ('plain' = bare body), cape colour, epaulettes (default
 // on), back() = gear drawn behind the body, front() = gear drawn over it

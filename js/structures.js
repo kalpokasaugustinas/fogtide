@@ -78,6 +78,48 @@ export function mausoleum(x, cx, cy, u) {
   }
 }
 
+// where a capital's campaign obelisk stands: beside the keep, clear of its side towers (they reach
+// 2.95 u out, the needle at x1.2 is 1 u wide, so 4.2 u+ sideways), on the tile and on land, away
+// from the number badge and the troop figures over it. houses it would touch are left out
+// ({ p, skip }); render.js clears trees around p. null = no room (no obelisk)
+export function capitalObelisk(v, id) {
+  const key = `ob${id}`;
+  if (v.spotCache?.has(key)) return v.spotCache.get(key);
+  const u = v.u, [c, ...homes] = v.spots(id, 7, u * 3.2);
+  let res = null;
+  if (c) {
+    const g = v.map.grid, ids = v.map.ids, s = v.map.segs[id], lx = v.sx(s.x), ly = v.sy(s.y);
+    const onTile = (px, py) => {
+      const gx = Math.floor(px / v.scale), gy = Math.floor((py - v.oy) / (v.scale * v.tilt));
+      return gx >= 0 && gy >= 0 && gx < g && gy < g && ids[gy * g + gx] === id;
+    };
+    const wet = (px, py) => v.nearRiver?.(px / v.scale, (py - v.oy) / (v.scale * v.tilt), (u * 1.3) / v.scale);
+    // pass 1: strict (whole needle on the tile, dry land, off the badge); pass 2: wider ring, only
+    // the foot must be on dry land of the tile (a Fogbound capital must always show its obelisk)
+    const passes = [
+      { ds: [4.4, 5.2, 6, 7], es: [0.5, -0.5, 1.5, -1.5, 2.5], strict: true },
+      { ds: [4.4, 5.2, 6, 7, 8, 9], es: [0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 3.5, -3.5], strict: false },
+    ];
+    for (const { ds, es, strict } of passes) {
+      let bs = Infinity;
+      for (const side of [1, -1]) for (const d of ds) for (const e of es) {
+        const px = c[0] + side * d * u, py = c[1] + e * u;
+        const pts = strict ? [[0, 0], [-u, 0], [u, 0], [0, -u * 7.4]] : [[0, 0]];   // foot corners + gem
+        if (!pts.every(([ox, oy]) => onTile(px + ox, py + oy)) || wet(px, py)) continue;
+        if (strict && !roomy(v, px, py, u * 1.4)) continue;
+        const onBadge = Math.abs(px - lx) < u * 4 && py > ly - u * 4.5 && py < ly + u * 2.5;   // badge + figures
+        if (strict && onBadge) continue;
+        const skip = homes.filter((h) => Math.abs(h[0] - px) < u * 2.6 && h[1] - py > -u * 4 && h[1] - py < u * 3);   // house width + roof height
+        const score = d + Math.abs(e) * 0.6 + skip.length * 2.5 + (onBadge ? 6 : 0);
+        if (score < bs) { bs = score; res = { p: [px, py], skip }; }
+      }
+      if (res) break;
+    }
+  }
+  v.spotCache?.set(key, res);
+  return res;
+}
+
 // campaign obelisk (each Fogbound chief's capital, later the player's saved land): pale sandstone
 // needle with a rune line and a gem on top (the old relic obelisk). look 'fog' = held by the Fog:
 // grey stone, grey runes, dull grey shine. look 'lit' = stage cleared: gold runes, bright yellow glow.
@@ -268,6 +310,7 @@ export function fieldPatch(v, s) { return Math.min(v.u * 8, 0.5 * Math.sqrt(s.ar
 
 export function ground(v, x, id, type, owner) {
   usePalette('classic');
+  if (type.startsWith('capital')) type = 'capital';   // capital-fog / capital-lit: same town square
   const s = v.map.segs[id], u = v.u, cx = v.sx(s.x), cy = v.sy(s.y), seed = v.seed + id * 31;
   const snow = v.theme === v.themes?.winter || v.theme.groundA[0] > 215;
   x.save();
@@ -381,6 +424,9 @@ export function ground(v, x, id, type, owner) {
 
 export function top(v, x, id, type, owner, skin) {
   usePalette(skin);
+  // capital-fog / capital-lit: the walled town plus a campaign obelisk (look after the dash)
+  const look = type.startsWith('capital-') ? type.slice(8) : null;
+  if (look) type = 'capital';
   const u = v.u, seed = v.seed + id * 31, col = owner ?? [140, 140, 140];
   x.save();
   v.cssT(x);
@@ -472,12 +518,16 @@ export function top(v, x, id, type, owner, skin) {
     x.restore();
     const [c, ...homes] = v.spots(id, 7, u * 3.2);
     if (!c) { x.restore(); return; }
+    // campaign obelisk beside the keep (capitalObelisk): houses it would touch are left out
+    const ob = look ? capitalObelisk(v, id) : null, skip = ob?.skip ?? [];
     const roofs = [roofRed, [150, 110, 80], [120, 130, 150], roofRed];
-    for (const [i, h] of homes.entries()) if (roomy(v, h[0], h[1], u * 1.2)) house(x, h[0], h[1], u * 0.85, wallWhite, roofs[i % roofs.length]);
+    for (const [i, h] of homes.entries()) if (!skip.includes(h) && roomy(v, h[0], h[1], u * 1.2)) house(x, h[0], h[1], u * 0.85, wallWhite, roofs[i % roofs.length]);
+    if (ob && ob.p[1] <= c[1]) drawObelisk(x, ob.p[0], ob.p[1], u * 1.2, look);   // further back than the keep: before the towers
     const ty = tower(x, c[0], c[1], u, 3, 5.4, lt(stone, 0.1));
     tower(x, c[0] - u * 2.2, c[1] + u * 0.3, u, 1.5, 3.6);
     tower(x, c[0] + u * 2.2, c[1] + u * 0.3, u, 1.5, 3.6);
     flag(x, c[0], ty, u * 1.5, col);
+    if (ob && ob.p[1] > c[1]) drawObelisk(x, ob.p[0], ob.p[1], u * 1.2, look);    // nearer: after the towers
   } else if (type.startsWith('camp')) {
     // zoomed-out maps: smaller hamlets, so they don't crowd the tile
     ((u) => {

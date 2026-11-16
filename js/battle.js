@@ -1,10 +1,10 @@
 // battle simulation: segments, troops, buildings, armies. no drawing here,
 // so the same code runs in the browser and in headless tests.
-import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=135';
-import { perks, combineMods } from './expedition.js?v=135';
-import { hops } from './mapgen.js?v=135';
-import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=135';
-import { think } from './ai.js?v=135';
+import { rules, buildings, effects, traits, relicGarrison, testing } from './config.js?v=136';
+import { perks, combineMods } from './expedition.js?v=136';
+import { hops } from './mapgen.js?v=136';
+import { rng, spreadStarts, equalizeStarts } from './mapgen.js?v=136';
+import { think } from './ai.js?v=136';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
@@ -39,6 +39,10 @@ export class Battle {
     this.quietEnd = opts.quietEnd ?? 0;
     this.quiet = 0;
     this.closedIn = false;   // true when the quiet rule decided the battle
+    // campaign obelisks (idle mode): every bot capital shows a grey Fog obelisk next to its keep,
+    // the player's capital a lit one once earlier stages are cleared (homeLit). looks only
+    this.capObelisks = opts.capObelisks ?? false;
+    this.homeLit = opts.homeLit ?? false;
 
     // segments: cap from size (largest = capMax), growth = growthRate x cap,
     // neutral garrison = a random share of the cap (bigger tiles hold more)
