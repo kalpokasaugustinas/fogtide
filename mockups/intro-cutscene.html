@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide intro cutscene</title>
+<style>
+  /* intro cutscene mockup: the same ~28 s script (obelisk fades, fog rolls in, the Fogbound attack the
+     village, one foglet remains, title) drawn in three hand-drawn looks. everything is drawn live with
+     the game's own code (drawFoglet, previewBuildings, drawObelisk), so no extra art is needed and the
+     cutscene can ship inside the game. ?v=a|b|c picks a look, ?t=12 jumps to a second and pauses */
+  @font-face { font-family: 'Josefin Sans'; font-weight: 300 700; src: url(../fonts/josefin-sans.woff2) format('woff2'); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101417; font-family: 'Josefin Sans', system-ui, sans-serif; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #161c20; color: #ddd; }
+  .top b { margin-right: 8px; font-size: 14px; }
+  .top button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a464d; background: #222b30; color: #cfd8dc; cursor: pointer; }
+  .top button.on { background: #c9a45c; color: #1a1408; border-color: #c9a45c; font-weight: 600; }
+  .top .sep { width: 10px; }
+  .top small { color: #8a979d; font-size: 12px; flex-basis: 100%; }
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 70px); overflow: hidden; }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; background: #000; }
+  .frame canvas { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; }
+
+  /* caption + title + skip, html on top of the canvas (crisp fonts at any scale) */
+  .cap { position: absolute; left: 0; right: 0; bottom: 64px; text-align: center; font-size: 26px; pointer-events: none; transition: opacity .6s; padding: 0 120px; }
+  .title { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; transition: opacity 1.2s; opacity: 0; }
+  .title h1 { margin: 0; font-size: 104px; letter-spacing: 22px; font-weight: 600; padding-left: 22px; }
+  .title p { margin: 10px 0 0; font-size: 20px; letter-spacing: 4px; text-transform: uppercase; }
+  .skip { position: absolute; right: 26px; bottom: 20px; font: inherit; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; background: none; border: 0; cursor: pointer; opacity: .7; }
+  .skip:hover { opacity: 1; }
+  .bar { position: absolute; left: 26px; bottom: 28px; width: 220px; height: 2px; background: rgba(128,128,128,.35); }
+  .bar i { display: block; height: 100%; width: 0; }
+
+  /* per look: A ink wash (serif, sepia ink), B storybook panels (bold caption boxes), C painting (film subtitles) */
+  .look-a .cap { font-family: Georgia, serif; font-style: italic; color: #3a2a1a; font-size: 28px; text-shadow: 0 0 10px #efe2c6, 0 0 22px #efe2c6; }
+  .look-a .title { color: #2e2014; font-family: Georgia, serif; } .look-a .skip { color: #3a2a1a; } .look-a .bar i { background: #3a2a1a; }
+  .look-b .cap { bottom: auto; top: 22px; left: auto; right: 24px; padding: 0; text-align: left; }
+  .look-b .cap span { display: inline-block; background: #f3ead2; color: #1b1712; border: 3px solid #1b1712; padding: 10px 16px; font-size: 21px; font-weight: 600; max-width: 520px; box-shadow: 4px 4px 0 #1b1712; }
+  .look-b .title { color: #1b1712; } .look-b .skip { color: #1b1712; font-weight: 700; } .look-b .bar i { background: #1b1712; }
+  .look-c .cap { color: #f0ece0; font-size: 24px; bottom: 26px; letter-spacing: .5px; text-shadow: 0 2px 6px #000; }
+  .look-c .title { color: #f0ece0; text-shadow: 0 4px 30px rgba(0,0,0,.8); } .look-c .skip { color: #d8d4c8; bottom: 680px; } .look-c .bar { bottom: 690px; } .look-c .bar i { background: #d8d4c8; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>Intro cutscene</b>
+    <button data-v="a" class="on">A · Ink wash</button>
+    <button data-v="b">B · Storybook panels</button>
+    <button data-v="c">C · Living painting</button>
+    <span class="sep"></span>
+    <button id="replay">↺ Replay</button>
+    <button id="pause">❚❚ Pause</button>
+    <small>Same 28 s script in three drawn looks, all drawn live with the game's own foglets, houses and obelisk (no extra art). Replay / pause above, Skip in the frame. Sample scene.</small>
+  </div>
+  <div class="stage" id="stage"><div class="frame" id="frame">
+    <canvas id="cv" width="1280" height="720"></canvas>
+    <div class="cap" id="cap"></div>
+    <div class="title" id="title"><h1>FOGTIDE</h1><p>Light the obelisks before the Fog Tide</p></div>
+    <div class="bar"><i id="prog"></i></div>
+    <button class="skip" id="skip">Skip ›</button>
+  </div></div>
+
+<script type="module">
+  // the game's own drawing code: same foglets, buildings and obelisk as on the map
+  import { drawFoglet } from '../js/render.js';
+  import { previewBuildings, drawObelisk } from '../js/structures.js';
+
+  const frame = document.getElementById('frame'), stage = document.getElementById('stage'), bar = document.getElementById('bar');
+  function fit() {
+    document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px');
+    const s = Math.min(stage.clientWidth / 1280, stage.clientHeight / 720);
+    frame.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  }
+  addEventListener('resize', fit); fit();
+
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  const W = 1280, H = 720, END = 28;
+  const blue = [47, 116, 214], fogGrey = [126, 128, 140];
+
+  // ---------- small helpers ----------
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const ease = (k) => k * k * (3 - 2 * k);
+  const span = (t, a, b) => clamp((t - a) / (b - a));        // 0..1 progress of t between a and b
+  const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+  const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const mixc = (a, b, k) => a.map((v, i) => lerp(v, b[i], k));
+
+  // ---------- the script: shots with caption + camera keyframes (world coords, zoom) ----------
+  const shots = [
+    { a: 0, b: 5, cap: 'For a thousand years the obelisk kept the Fog away.', cam: [[1180, 470, 1.0], [1200, 462, 1.15]] },
+    { a: 5, b: 9, cap: 'Then, one winter, its light went out.', cam: [[1200, 455, 1.8], [1200, 440, 2.05]] },
+    { a: 9, b: 14.5, cap: 'The Fog came back, and took the minds of our neighbours.', cam: [[480, 470, 1.3], [760, 478, 1.2]] },
+    { a: 14.5, b: 20, cap: 'The Fogbound came for the village.', cam: [[980, 520, 1.35], [1060, 520, 1.6]] },
+    { a: 20, b: 25, cap: 'Only you remain.', cam: [[1262, 578, 6.5], [1200, 480, 1.1]] },
+    { a: 25, b: END, cap: '', cam: [[1200, 480, 1.1], [1200, 480, 1.1]] },
+  ];
+  const shotAt = (t) => shots.findIndex((s) => t < s.b) < 0 ? shots.length - 1 : shots.findIndex((s) => t < s.b);
+  function camFor(i, t) {
+    const s = shots[i], k = ease(span(t, s.a, s.b)), [p, q] = s.cam;
+    return { x: lerp(p[0], q[0], k), y: lerp(p[1], q[1], k), z: lerp(p[2], q[2], k) };
+  }
+
+  // ---------- world: village, obelisk, villagers, Fogbound ----------
+  const GROUND = 470;                                   // horizon line in world y
+  const depth = (y) => 0.78 + (y - GROUND) / 230 * 0.5; // things lower on screen are closer = bigger
+  const OBX = 1200, OBY = 540;
+  const houses = [
+    { x: 960, y: 505, pal: 'classic' }, { x: 1085, y: 560, pal: 'tudor' }, { x: 1345, y: 512, pal: 'nordic' },
+    { x: 1450, y: 590, pal: 'classic' }, { x: 1010, y: 645, pal: 'nordic' }, { x: 1530, y: 520, pal: 'tudor' },
+  ];
+  const burns = [0, 4, 1];                              // which houses catch fire, in order
+  // villagers (blue): wander around the village, flee right once the attack starts
+  const villagers = Array.from({ length: 9 }, (_, i) => ({ id: i, x: 1000 + hash(i) * 520, y: 520 + hash(i + 9) * 150, kit: ['soldier', 'archer', 'soldier', 'viking'][i % 4], ph: hash(i + 3) * 6 }));
+  // defenders (blue knights): step out to meet the Fogbound
+  const defenders = Array.from({ length: 4 }, (_, i) => ({ id: 20 + i, x0: 1120 + i * 30, y: 545 + i * 34, x1: 985 + (i % 2) * 18, kit: 'knight' }));
+  // Fogbound (grey, glowing eyes): march out of the fog from the left
+  const fogbound = Array.from({ length: 16 }, (_, i) => ({ id: 40 + i, x0: -60 + hash(i + 40) * 380, y: 500 + hash(i + 70) * 170, kit: i % 3 ? 'barbarian' : 'soldier', ph: hash(i + 5) * 6, stop: 900 + hash(i + 90) * 60 }));
+  const hero = { x: 1262, y: 612 };
+
+  // fog front (world x where the fog wall reaches) and sky darkness over time
+  const fogFront = (t) => lerp(-250, 820, ease(span(t, 5, 15))) + lerp(0, 380, ease(span(t, 17, 24)));
+  const dark = (t) => ease(span(t, 5, 9)) * 0.75 + ease(span(t, 14, 20)) * 0.25;
+
+  // ---------- sprite cache: foglets / buildings / obelisks drawn once, with an optional ink outline ----------
+  const cache = new Map();
+  const S = 12;                                          // cache scale: px per figure unit (sharp up to ~3x zoom)
+  function outlined(src, ink, r) {
+    // ink outline: stamp the silhouette in a ring of offsets, colour it, then draw the sprite on top
+    if (!ink) return src;
+    const o = mk(src.width, src.height), x = o.getContext('2d');
+    for (let a = 0; a < 16; a++) x.drawImage(src, Math.cos(a / 16 * 6.283) * r, Math.sin(a / 16 * 6.283) * r);
+    x.globalCompositeOperation = 'source-in'; x.fillStyle = ink; x.fillRect(0, 0, o.width, o.height);
+    x.globalCompositeOperation = 'source-over'; x.drawImage(src, 0, 0);
+    return o;
+  }
+  function foglet(kit, col, ink, eyes) {
+    const key = `f|${kit}|${col}|${ink}|${eyes}`;
+    if (!cache.has(key)) {
+      const c = mk(16 * S, 16 * S), x = c.getContext('2d');
+      drawFoglet(x, 8 * S, 13 * S, S, col, kit, { noFace: !!eyes });
+      if (eyes) {                                        // Fogbound: violet glowing eyes instead of a face
+        for (const s of [-0.55, 0.55]) {
+          const g = x.createRadialGradient(8 * S + s * S, 13 * S - 5.1 * S, 0, 8 * S + s * S, 13 * S - 5.1 * S, 1.3 * S);
+          g.addColorStop(0, 'rgba(245,235,255,1)'); g.addColorStop(0.35, 'rgba(170,120,255,0.9)'); g.addColorStop(1, 'rgba(150,100,255,0)');
+          x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+        }
+      }
+      cache.set(key, outlined(c, ink, 0.32 * S));
+    }
+    return cache.get(key);
+  }
+  function building(pal, ink) {
+    const key = `b|${pal}|${ink}`;
+    if (!cache.has(key)) {
+      const c = mk(110 * 3, 100 * 3), x = c.getContext('2d');
+      previewBuildings(x, c.width, c.height, pal, '#2f74d6');
+      cache.set(key, outlined(c, ink, 4));
+    }
+    return cache.get(key);
+  }
+  function obelisk(look, ink) {
+    const key = `o|${look}|${ink}`;
+    if (!cache.has(key)) {
+      const u = 20 * 2, c = mk(12 * u, 12 * u), x = c.getContext('2d');
+      drawObelisk(x, 6 * u, 10 * u, u, look);
+      cache.set(key, outlined(c, ink, 5));
+    }
+    return cache.get(key);
+  }
+  // soft fog puff (white radial blob), tinted by globalAlpha when drawn
+  const puff = (() => { const c = mk(256, 256), x = c.getContext('2d'); const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+    g.addColorStop(0, 'rgba(226,228,236,0.9)'); g.addColorStop(0.5, 'rgba(214,216,228,0.45)'); g.addColorStop(1, 'rgba(210,212,226,0)'); x.fillStyle = g; x.fillRect(0, 0, 256, 256); return c; })();
+
+  // ---------- textures for the looks ----------
+  function paper(base, speck) {
+    // paper: warm base, fibre noise, darker burnt edges
+    const c = mk(W, H), x = c.getContext('2d');
+    x.fillStyle = base; x.fillRect(0, 0, W, H);
+    for (let i = 0; i < 9000; i++) { x.fillStyle = `rgba(${hash(i) < 0.5 ? '90,60,30' : '255,250,235'},${speck * hash(i + 1)})`; x.fillRect(hash(i + 2) * W, hash(i + 3) * H, 1 + hash(i + 4) * 2, 1); }
+    for (let i = 0; i < 260; i++) { x.strokeStyle = `rgba(110,80,50,${0.05 * hash(i + 5)})`; x.lineWidth = 1; x.beginPath(); const px = hash(i + 6) * W, py = hash(i + 7) * H; x.moveTo(px, py); x.lineTo(px + 30 * (hash(i + 8) - 0.5), py + 30 * (hash(i + 9) - 0.5)); x.stroke(); }
+    const g = x.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, W * 0.7);
+    g.addColorStop(0, 'rgba(120,80,40,0)'); g.addColorStop(1, 'rgba(110,70,30,0.45)'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+    return c;
+  }
+  function brush() {
+    // painterly overlay: thousands of short soft strokes, light and dark, used with 'overlay'
+    const c = mk(W, H), x = c.getContext('2d');
+    x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, W, H);
+    for (let i = 0; i < 5000; i++) {
+      const px = hash(i * 3) * W, py = hash(i * 3 + 1) * H, a = (hash(i * 3 + 2) - 0.5) * 0.8 + (py > H * 0.6 ? 0 : 0.3), l = 10 + hash(i + 11) * 28;
+      x.strokeStyle = hash(i + 13) < 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'; x.lineWidth = 2 + hash(i + 17) * 4; x.lineCap = 'round';
+      x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke();
+    }
+    return c;
+  }
+  let paperA, paperB, brushC;
+
+  // ---------- drawing the world with a camera ----------
+  // look: { ink: outline colour or null, line: px stroke for shapes, step: hand-drawn frame step (s) or 0 }
+  function drawWorld(x, t, cam, look, vw = W, vh = H) {
+    const d = dark(t), ink = look.ink, boil = look.step ? Math.floor(t / look.step) : 0;
+    const jit = (id, k = 1) => look.step ? (hash(id * 7 + boil) - 0.5) * 1.6 * k : 0;   // line boil
+    x.save();
+    // sky (camera independent): warm dusk -> cold grey
+    const sky = x.createLinearGradient(0, 0, 0, vh);
+    sky.addColorStop(0, css(mixc([206, 196, 170], [70, 74, 86], d))); sky.addColorStop(1, css(mixc([236, 222, 190], [118, 120, 132], d)));
+    x.fillStyle = sky; x.fillRect(0, 0, vw, vh);
+    x.translate(vw / 2, vh / 2); x.scale(cam.z * vw / W, cam.z * vw / W); x.translate(-cam.x, -cam.y);
+
+    // far mountains (parallax: drawn shifted toward the camera)
+    for (const [p, col, hgt, seed] of [[0.35, [150, 156, 160], 120, 1], [0.6, [120, 132, 128], 80, 2]]) {
+      x.save(); x.translate(cam.x * p, 0);
+      x.fillStyle = css(mixc(col, [82, 86, 98], d));
+      x.beginPath(); x.moveTo(-1200, GROUND + 4);
+      for (let i = 0; i <= 40; i++) { const px = -1200 + i * 110; x.lineTo(px, GROUND - hgt * (0.4 + 0.6 * hash(i * seed + 3)) + jit(i * seed, 0.6)); }
+      x.lineTo(3600, GROUND + 4); x.closePath(); x.fill();
+      if (ink) { x.strokeStyle = ink; x.lineWidth = look.line * 0.7; x.stroke(); }
+      x.restore();
+    }
+    // sea on the right, ground plane
+    x.fillStyle = css(mixc([130, 160, 168], [70, 84, 96], d)); x.fillRect(1500, GROUND - 8, 2400, 40);
+    x.fillStyle = css(mixc([150, 168, 110], [86, 96, 84], d));
+    x.beginPath(); x.moveTo(-1400, GROUND + 6);
+    for (let i = 0; i <= 30; i++) x.lineTo(-1400 + i * 160, GROUND + 2 - 10 * hash(i + 21) + jit(i + 21, 0.5));
+    x.lineTo(3400, 1400); x.lineTo(-1400, 1400); x.closePath(); x.fill();
+    if (ink) { x.strokeStyle = ink; x.lineWidth = look.line; x.stroke(); }
+    // field stripes near the village (drawn texture)
+    x.strokeStyle = css(mixc([126, 146, 92], [74, 84, 74], d), 0.6); x.lineWidth = 2;
+    for (let i = 0; i < 40; i++) { const px = 860 + hash(i + 60) * 760, py = 500 + hash(i + 61) * 200; x.beginPath(); x.moveTo(px, py); x.lineTo(px + 26, py - 2); x.stroke(); }
+
+    // forest on the left (where the Fog comes from): round tree clumps
+    const trees = [];
+    for (let i = 0; i < 34; i++) trees.push({ x: -300 + hash(i + 100) * 1000, y: GROUND + 4 + hash(i + 130) * 40, r: 16 + hash(i + 160) * 14, id: i });
+    trees.sort((a, b) => a.y - b.y);
+    for (const tr of trees) {
+      x.fillStyle = css(mixc([92, 74, 50], [50, 46, 44], d)); x.fillRect(tr.x - 2, tr.y - tr.r * 0.4, 4, tr.r * 0.5);
+      x.fillStyle = css(mixc([84, 116, 72], [52, 64, 58], d));
+      x.beginPath(); x.arc(tr.x + jit(tr.id, 0.4), tr.y - tr.r, tr.r, 0, 6.283); x.fill();
+      if (ink) { x.strokeStyle = ink; x.lineWidth = look.line * 0.8; x.stroke(); }
+      x.fillStyle = css(mixc([110, 142, 92], [64, 76, 70], d), 0.8); x.beginPath(); x.arc(tr.x - tr.r * 0.3, tr.y - tr.r * 1.3, tr.r * 0.45, 0, 6.283); x.fill();
+    }
+
+    // everything standing on the ground, sorted by depth
+    const items = [];
+    houses.forEach((h, i) => items.push({ y: h.y, draw: () => {
+      const sp = building(h.pal, ink), s = depth(h.y), w = 110 * s * 1.25, hh = 100 * s * 1.25;
+      x.drawImage(sp, h.x - w / 2 + jit(i + 200), h.y - hh * 0.9, w, hh);
+      const bi = burns.indexOf(i);                     // burning: smoke + flames from a time per house
+      if (bi >= 0) fire(x, h.x - w * 0.12, h.y - hh * 0.45, s * 1.8, span(t, 15.5 + bi * 1.4, 17 + bi * 1.4), t, ink);
+    } }));
+    items.push({ y: OBY, draw: () => {
+      const fade = ease(span(t, 5.5, 8.5)), u = 20, s = 1;
+      const lit = obelisk('lit', ink), fg = obelisk('fog', ink), w = lit.width / 2 * s, hh = lit.height / 2 * s;
+      x.globalAlpha = 1 - fade; x.drawImage(lit, OBX - w / 2, OBY - hh * 10 / 12, w, hh);
+      x.globalAlpha = fade; x.drawImage(fg, OBX - w / 2, OBY - hh * 10 / 12, w, hh); x.globalAlpha = 1;
+      // the last spark (shot 5): a tiny gold light on the gem, the hint of what the player must do
+      const sp = ease(span(t, 22.5, 24.5));
+      if (sp > 0) {
+        const gy = OBY - u * 5.3, r = u * (1 + 1.5 * sp) * (1 + 0.15 * Math.sin(t * 5));
+        const g = x.createRadialGradient(OBX, gy, 0, OBX, gy, r);
+        g.addColorStop(0, `rgba(255,240,170,${sp})`); g.addColorStop(0.4, `rgba(255,205,80,${0.6 * sp})`); g.addColorStop(1, 'rgba(255,205,80,0)');
+        x.fillStyle = g; x.fillRect(OBX - r, gy - r, r * 2, r * 2);
+      }
+    } });
+    // villagers: idle bob, then flee right
+    for (const v of villagers) {
+      const run = ease(span(t, 15 + hash(v.id) * 2, 21)), px = v.x + run * (700 - (v.x - 1000)), walk = t < 15 ? Math.sin(t * 1.5 + v.ph) * 12 : 0;
+      if (t > 20 && t < 25 && px > 1700) continue;
+      items.push({ y: v.y, draw: () => fig(x, v.kit, blue, px + walk, v.y, run > 0 && run < 1 ? 14 : 2, t, v, ink, jit, run > 0 && run < 1 ? 1 : -1) });
+    }
+    // defenders: march to the front at 14-16 s, then fight
+    for (const f of defenders) {
+      const k = ease(span(t, 13.5, 16)), px = lerp(f.x0, f.x1, k) + (t > 16 ? Math.sin(t * 9 + f.id) * 5 : 0);
+      if (t > 20 && f.id !== 20) continue;             // in the last shot only the hero stands
+      if (t > 20) continue;
+      items.push({ y: f.y, draw: () => fig(x, f.kit, blue, px, f.y, k > 0 && k < 1 ? 10 : 3, t, f, ink, jit, -1) });
+    }
+    // Fogbound: walk out of the fog, stop at the village edge, strike
+    for (const f of fogbound) {
+      const k = span(t, 8.5 + hash(f.id) * 2, 16 + hash(f.id + 1) * 2), px = lerp(f.x0, f.stop + (t > 20 ? 200 : 0) * span(t, 20, 25), ease(k)) + (t > 16 ? Math.sin(t * 9 + f.ph) * 6 : 0);
+      if (t < 8.5) continue;
+      items.push({ y: f.y, draw: () => {
+        x.globalAlpha = clamp((t - 8.5 - hash(f.id) * 2) * 1.2);   // fade in out of the fog
+        fig(x, f.kit, fogGrey, px, f.y, k < 1 ? 10 : 3, t, f, ink, jit, 1, true);
+        x.globalAlpha = 1;
+      } });
+    }
+    // clash sparks at the front line
+    if (t > 16 && t < 20) for (let i = 0; i < 5; i++) {
+      const ph = (t * 3 + i * 0.37) % 1, sx = 950 + hash(i + 300) * 40, sy = 550 + hash(i + 301) * 110;
+      if (ph < 0.25) star(x, sx, sy - 22, 9 * (1 - ph * 4), ink);
+    }
+    // the hero (shot 5): one blue knight in front of the dark obelisk
+    if (t >= 20) items.push({ y: hero.y, draw: () => fig(x, 'knight', blue, hero.x, hero.y, 2, t, { id: 99, ph: 0 }, ink, jit, -1) });
+    // fog wall: puffs drifting from the left up to the fog front, thicker as the sky darkens.
+    // drawn twice: a thick wall behind the figures, then a thin veil in front of them
+    const ff = fogFront(t);
+    const fogPass = (mul) => {
+      for (let i = 0; i < 70; i++) {
+        const px = -500 + hash(i + 400) * (ff + 500) + Math.sin(t * 0.3 + i) * 30, py = GROUND - 80 + hash(i + 401) * 300, r = 120 + hash(i + 402) * 160;
+        x.globalAlpha = mul * (0.35 + 0.3 * d) * clamp((ff - px) / 200 + 0.3);
+        x.drawImage(puff, px - r, py - r, r * 2, r * 2);
+      }
+      x.globalAlpha = 1;
+    };
+    fogPass(1);
+    items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
+    fogPass(0.25);
+    x.restore();
+
+    // darkness + cold grade over everything as the light fails
+    x.fillStyle = `rgba(30,34,52,${d * 0.35})`; x.fillRect(0, 0, vw, vh);
+  }
+
+  // one foglet: cached sprite, walking bob + lean, facing (dir -1 = left), Fogbound get fog wisps
+  function fig(x, kit, col, px, py, speed, t, e, ink, jit, dir, bound) {
+    const sp = foglet(kit, `rgb(${col.join(',')})`, ink, bound), s = depth(py) * 5 / S;   // 5 world px per figure unit
+    const bob = Math.abs(Math.sin(t * speed + (e.ph || 0))) * 0.5 * 5 * depth(py) * (speed > 4 ? 1 : 0.4);
+    x.save(); x.translate(px + jit(e.id), py - bob); x.scale(dir * s, s); x.rotate(speed > 4 ? Math.sin(t * speed + (e.ph || 0)) * 0.05 : 0);
+    x.drawImage(sp, -8 * S, -13 * S);
+    x.restore();
+    if (bound) { x.globalAlpha *= 0.5; x.drawImage(puff, px - 26, py - 30, 52, 40); x.globalAlpha = 1; }
+  }
+  // flames + smoke on a house (k = 0..1 how far the fire has grown)
+  function fire(x, fx, fy, s, k, t, ink) {
+    if (k <= 0) return;
+    for (let i = 0; i < 5; i++) {                       // smoke column
+      const ph = (t * 0.25 + i / 5) % 1, r = (14 + ph * 40) * s * k;
+      x.globalAlpha = 0.45 * (1 - ph) * k; x.fillStyle = '#3a3a40';
+      x.beginPath(); x.arc(fx + Math.sin(ph * 4 + i) * 10, fy - 20 - ph * 150 * s, r, 0, 6.283); x.fill();
+    }
+    x.globalAlpha = 1;
+    for (let i = 0; i < 4; i++) {                       // flame tongues
+      const fl = (18 + 10 * Math.sin(t * 9 + i * 2)) * s * k, ox = (i - 1.5) * 8 * s;
+      x.fillStyle = i % 2 ? '#e8742c' : '#f4b33c';
+      x.beginPath(); x.moveTo(fx + ox - 7 * s, fy); x.quadraticCurveTo(fx + ox - 6 * s, fy - fl * 0.6, fx + ox + Math.sin(t * 7 + i) * 3, fy - fl);
+      x.quadraticCurveTo(fx + ox + 6 * s, fy - fl * 0.6, fx + ox + 7 * s, fy); x.closePath(); x.fill();
+      if (ink) { x.strokeStyle = ink; x.lineWidth = 1.2; x.stroke(); }
+    }
+  }
+  function star(x, sx, sy, r, ink) {
+    x.fillStyle = '#fff8e0'; x.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283, rr = i % 2 ? r * 0.35 : r; x.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); }
+    x.closePath(); x.fill(); if (ink) { x.strokeStyle = ink; x.lineWidth = 1; x.stroke(); }
+  }
+
+  // ---------- the three looks ----------
+  const off = mk(W, H), ox = off.getContext('2d');
+  const looks = {
+    // A ink wash: sepia ink outlines, washed-out colour, paper, 12 drawings per second (line boil), hard cuts
+    a(t) {
+      const tq = Math.floor(t * 12) / 12, i = shotAt(tq);
+      drawWorld(ox, tq, camFor(i, tq), { ink: '#3a2614', line: 2.2, step: 1 / 12 });
+      ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(off, 0, 0);
+      ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = 'rgba(128,128,128,0.6)'; ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'color'; ctx.fillStyle = 'rgba(160,118,70,0.35)'; ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(paperA, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      // fade through paper between shots (like turning to the next drawing)
+      const s = shots[i], edge = Math.min(tq - s.a, s.b - tq);
+      if (edge < 0.35 && i > 0) { ctx.globalAlpha = 1 - edge / 0.35; ctx.drawImage(paperA, 0, 0); ctx.globalAlpha = 1; }
+      return i;
+    },
+    // B storybook panels: each shot is a panel on a page; panels appear one by one and keep moving
+    b(t) {
+      const tq = Math.floor(t * 12) / 12;
+      ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(paperB, 0, 0);
+      const pages = [
+        { a: 0, b: 9, panels: [[0, 40, 40, 700, 640], [1, 760, 40, 480, 640]] },
+        { a: 9, b: 20, panels: [[2, 40, 40, 1200, 330], [3, 40, 390, 1200, 290]] },
+        { a: 20, b: END, panels: [[4, 40, 40, 1200, 640]] },
+      ];
+      const pg = pages.find((p) => tq < p.b) || pages[2];
+      for (const [si, px, py, pw, ph] of pg.panels) {
+        const s = shots[si]; if (tq < s.a - 0.01 && si !== 4) continue;
+        const lt = clamp(tq, s.a, s.b), cam = camFor(si, lt), app = ease(span(tq, s.a, s.a + 0.5));
+        // panel camera: keep the shot's zoom relative to panel height, so tall/wide panels crop instead of shrinking
+        const pz = { x: cam.x, y: cam.y, z: cam.z * Math.max(ph / H, pw / W) * W / pw };
+        const pc = mk(pw, ph), px2 = pc.getContext('2d');
+        drawWorld(px2, lt, pz, { ink: '#1b1712', line: 2.6, step: 1 / 12 }, pw, ph);
+        ctx.save(); ctx.globalAlpha = app; ctx.translate(0, (1 - app) * 30);
+        ctx.fillStyle = '#1b1712'; ctx.fillRect(px - 5, py - 5, pw + 10, ph + 10);
+        ctx.drawImage(pc, px, py); ctx.restore();
+      }
+      ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.5; ctx.drawImage(paperB, 0, 0); ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      return shotAt(tq);
+    },
+    // C living painting: full game colours, smooth 60 fps camera, cross-dissolves, brush texture, letterbox
+    c(t) {
+      const i = shotAt(t), s = shots[i];
+      drawWorld(ox, t, camFor(i, t), { ink: null, line: 0, step: 0 });
+      ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(off, 0, 0);
+      if (i > 0 && t - s.a < 0.8) {                    // dissolve from the previous shot
+        const p = shots[i - 1]; drawWorld(ox, t, camFor(i - 1, Math.min(t, p.b + 0.8)), { ink: null, line: 0, step: 0 });
+        ctx.globalAlpha = 1 - (t - s.a) / 0.8; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
+      }
+      ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.5; ctx.drawImage(brushC, 0, 0); ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.65);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.5)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, 64); ctx.fillRect(0, H - 84, W, 84);   // letterbox (wide film)
+      return i;
+    },
+  };
+
+  // ---------- player: clock, captions, title, controls ----------
+  const capEl = document.getElementById('cap'), titleEl = document.getElementById('title'), prog = document.getElementById('prog');
+  const q = new URLSearchParams(location.search);
+  let view = q.get('v') || 'a', t0 = performance.now(), paused = q.has('t'), pausedAt = +(q.get('t') || 0), lastCap = -1;
+  const now = () => paused ? pausedAt : Math.min(END, (performance.now() - t0) / 1000);
+  function frameLoop() {
+    const t = now(), i = looks[view](t);
+    if (i !== lastCap) { lastCap = i; capEl.style.opacity = 0; setTimeout(() => { const c = shots[shotAt(now())].cap; capEl.innerHTML = view === 'b' && c ? `<span>${c}</span>` : c; capEl.style.opacity = 1; }, paused ? 0 : 300); }
+    // title card: paper / dark fade in at the end
+    const tk = ease(span(t, 25, 26.5));
+    if (tk > 0) { ctx.fillStyle = view === 'c' ? `rgba(0,0,0,${tk * 0.75})` : `rgba(240,230,205,${tk * 0.8})`; ctx.fillRect(0, 0, W, H); }
+    titleEl.style.opacity = t > 25.2 ? 1 : 0;
+    prog.style.width = (t / END * 100) + '%';
+    requestAnimationFrame(frameLoop);
+  }
+  function show(v) {
+    view = v; lastCap = -1;
+    frame.className = 'frame look-' + v;
+    document.querySelectorAll('.top button[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+    if (!q.has('t')) { t0 = performance.now(); paused = false; }
+    document.getElementById('pause').textContent = paused ? '▶ Play' : '❚❚ Pause';
+    fit();
+  }
+  bar.addEventListener('click', (e) => { if (e.target.dataset.v) show(e.target.dataset.v); });
+  document.getElementById('replay').onclick = () => { t0 = performance.now(); paused = false; lastCap = -1; document.getElementById('pause').textContent = '❚❚ Pause'; };
+  document.getElementById('pause').onclick = (e) => {
+    if (paused) { t0 = performance.now() - pausedAt * 1000; paused = false; } else { pausedAt = now(); paused = true; }
+    e.target.textContent = paused ? '▶ Play' : '❚❚ Pause';
+  };
+  document.getElementById('skip').onclick = () => { t0 = performance.now() - 25.2 * 1000; paused = false; };
+
+  await document.fonts.load('600 20px "Josefin Sans"').catch(() => {});
+  paperA = paper('#efe2c6', 0.12); paperB = paper('#f3ead2', 0.06); brushC = brush();
+  show(view);
+  requestAnimationFrame(frameLoop);
+</script>
+</body>
+</html>
