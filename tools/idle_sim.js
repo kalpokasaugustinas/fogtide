@@ -91,6 +91,7 @@ export function career({ maxCampaigns = 5, years = null, stageCap = 900, seed = 
     const wispLv = Object.entries(idle.levels).filter(([id]) => upgrades.find((u) => u.id === id)?.cur !== 'mist').reduce((a, [, x]) => a + x, 0);
     idle.endCampaign();
     camps.push({ campaign: c, cleared, top, pushes, mistGot, mistBank: idle.mist, wisp: Math.round(wisp), wispLv, minutes: +(clock / 60).toFixed(1), legacy, gens: Object.keys(idle.gens).length, startNext: idle.stage });
+    console.log(`campaign ${c}/${maxCampaigns} done: top stage ${top}, ${(clock / 60).toFixed(1)} game min`);   // progress line (idle_sim.py prints it)
   }
   return { rows, camps };
 }

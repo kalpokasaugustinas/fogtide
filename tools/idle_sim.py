@@ -46,7 +46,7 @@ async def main():
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
     t0 = time.time()
-    results = []
+    results = [None] * args.careers   # kept in career (seed) order, not finish order
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch()
@@ -57,13 +57,15 @@ async def main():
             for i in range(args.careers):
                 page = await browser.new_page()
                 page.on("pageerror", lambda e: print("page error:", e))
+                # live progress: the sim logs one line per finished campaign (a long run never looks hung)
+                page.on("console", lambda m, i=i: print(f"[{time.time() - t0:4.0f}s] career {i + 1} {m.text}", flush=True))
                 await page.goto(f"http://localhost:{port}/tools/")
                 await page.evaluate("async (o) => { window.sim = await import('/tools/idle_sim.js'); sim.tune(o); }", over)
                 pages.append(page)
 
             async def one(i):
                 r = await pages[i].evaluate("(o) => sim.career(o)", {"maxCampaigns": args.campaigns, "years": args.years, "stageCap": args.cap, "seed": 1000 + i * 7919})
-                results.append(r)
+                results[i] = r
                 print(f"career {i + 1} done ({time.time() - t0:.0f}s)", flush=True)
 
             await asyncio.gather(*(one(i) for i in range(args.careers)))

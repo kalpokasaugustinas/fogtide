@@ -1,20 +1,20 @@
 // app shell: menu, campaign map, battle screen, input and the frame loop
-import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=151';
-import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=151';
-import { initAnalytics, track } from './analytics.js?v=151';
-import { makeBand, drawBand, dressBand } from './foglets.js?v=151';
-import { Battle } from './battle.js?v=151';
-import { personalities } from './ai.js?v=151';
-import { Campaign } from './campaign.js?v=151';
-import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=151';
-import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=151';
-import { drawGeneral } from './generals.js?v=151';
-import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=151';
-import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=151';
-import { previewBuildings, capitalObelisk } from './structures.js?v=151';
-import { initTune, tuneChanges } from './tune.js?v=151';
-import { initFogNoise } from './fogui.js?v=151';
-import { outlineLoops } from './outline.js?v=151';
+import { rules, buildings, effects, factionColors, factionNames, colorNames, troopStyles, buildingStyles, neutralColor, themeNames, themes, traits, testing } from './config.js?v=152';
+import { generateMap, rng, spreadStarts, equalizeStarts } from './mapgen.js?v=152';
+import { initAnalytics, track } from './analytics.js?v=152';
+import { makeBand, drawBand, dressBand } from './foglets.js?v=152';
+import { Battle } from './battle.js?v=152';
+import { personalities } from './ai.js?v=152';
+import { Campaign } from './campaign.js?v=152';
+import { Expedition, stages, perks, scoring, islandShape } from './expedition.js?v=152';
+import { Idle, fmtBig, upgrades, upgradeById, branches, bridgeColor, displayScale, generals, generalById, council, idleCfg, stageSpec } from './idle.js?v=152';
+import { drawGeneral } from './generals.js?v=152';
+import { initAudio, sfx, setSfx, setMusic, setVolume, setTrack, audioPrefs, audioState, audioFiles } from './audio.js?v=152';
+import { MapView, mapScale, hexToRgb, shade, label, pill, unitSprite, pagePoint, pageRect, cloudTexture, setFigureStyle } from './render.js?v=152';
+import { previewBuildings, capitalObelisk } from './structures.js?v=152';
+import { initTune, tuneChanges } from './tune.js?v=152';
+import { initFogNoise } from './fogui.js?v=152';
+import { outlineLoops } from './outline.js?v=152';
 initFogNoise();   // wisp texture for the fog panels (pc.css)
 
 const $ = (id) => document.getElementById(id);
@@ -2455,7 +2455,7 @@ $('btn-help').onclick = $('m-help').onclick = () => $('help').classList.remove('
 const introKey = 'fogtide.introSeen';
 function playIntro() {
   track('intro');
-  return import('./intro.js?v=151').then((m) => m.playIntro({ click: !desktop })).then(() => { try { localStorage.setItem(introKey, '1'); } catch { /* storage blocked */ } });
+  return import('./intro.js?v=152').then((m) => m.playIntro({ click: !desktop })).then(() => { try { localStorage.setItem(introKey, '1'); } catch { /* storage blocked */ } });
 }
 $('m-intro').onclick = playIntro;
 {

@@ -7,9 +7,9 @@
 // game's own drawFoglet / previewBuildings / drawObelisk; placeholder score + sound effects are synthesized
 // with web audio from the same shot list. loaded with import() only when it plays (main.js playIntro).
 // first version from mockups/intro-trailer.html: meant to be improved (art, real music, voice).
-import { drawFoglet } from './render.js?v=151';
-import { previewBuildings, drawObelisk } from './structures.js?v=151';
-import { audioPrefs, duckMusic } from './audio.js?v=151';
+import { drawFoglet } from './render.js?v=152';
+import { previewBuildings, drawObelisk } from './structures.js?v=152';
+import { audioPrefs, duckMusic } from './audio.js?v=152';
 
 const W = 1280, H = 720;
 const BLUE = '#2f74d6', GREY = 'rgb(126,128,140)';
