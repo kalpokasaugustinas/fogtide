@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fogtide intro: motion comic (5 looks)</title>
+<style>
+  /* mockup shell: top bar with one button per option + player controls, a 1280x720 frame scaled to fit
+     (pc or phone). the intro is drawn live on one canvas; sample content only. */
+  @font-face { font-family: 'Josefin Sans'; font-weight: 100 700; src: url(../fonts/josefin-sans.woff2) format('woff2'); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0c0e10; font-family: 'Josefin Sans', system-ui, sans-serif; overflow: hidden; }
+  .top { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #15191c; color: #ddd; }
+  .top button { font: inherit; font-size: 14px; padding: 6px 11px; border: 1px solid #39434a; border-radius: 4px; background: #1e252a; color: #ddd; cursor: pointer; }
+  .top button.on { background: #e6e1d3; color: #15191c; }
+  .top .sep { width: 1px; height: 22px; background: #39434a; margin: 0 4px; }
+  .top .sc { min-width: 30px; padding: 6px 8px; }
+  .top .sc.on { background: #39434a; color: #fff; }
+  .top small { flex-basis: 100%; color: #9aa6ab; font-size: 13px; }
+  .stage { position: fixed; left: 0; right: 0; bottom: 0; top: var(--bar, 60px); }
+  .frame { position: absolute; width: 1280px; height: 720px; left: 50%; top: 50%; transform-origin: 0 0; overflow: hidden; background: #000; }
+  .frame canvas { position: absolute; inset: 0; width: 1280px; height: 720px; }
+  .skip { position: absolute; z-index: 2; right: 26px; top: 18px; font: inherit; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; background: none; border: 0; color: #d8d4c8; opacity: .7; cursor: pointer; padding: 6px 4px; text-shadow: 0 1px 6px #000; }
+  .skip:hover { opacity: 1; }
+  .start { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; background: rgba(5,6,8,.55); cursor: pointer; color: #f0ece0; }
+  .start span { font-size: 22px; letter-spacing: 4px; text-transform: uppercase; padding: 18px 34px; border: 1px solid rgba(240,236,224,.5); background: rgba(5,6,8,.4); }
+  .start:hover span { background: rgba(240,236,224,.08); }
+  .start small { color: #b0b4b8; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
+  .start.hide { display: none; }
+</style>
+</head>
+<body>
+  <div class="top" id="bar">
+    <b>Intro: motion comic</b>
+    <button data-v="a" class="on">A · Painted plates</button>
+    <button data-v="b">B · Graphic novel</button>
+    <button data-v="c">C · Ink wash</button>
+    <button data-v="d">D · Shadow play</button>
+    <button data-v="e">E · Engraved chronicle</button>
+    <span class="sep"></span>
+    <button id="play">▶ Play</button>
+    <button id="snd">Sound: on</button>
+    <span class="sep"></span>
+    <span id="scenes"></span>
+    <small>Same 6 scenes and lines in every option (~50 s): still painted plates, slow parallax pan, drifting fog, one line per scene, Skip / Esc. Click 1-6 to jump to a scene. Drawn live with the game's own foglets, houses, obelisk and map.</small>
+  </div>
+  <div class="stage" id="stage"><div class="frame" id="frame">
+    <canvas id="cv" width="1280" height="720"></canvas>
+    <button class="skip" id="skip">Skip ›</button>
+    <div class="start" id="start"><span>▶ Play intro</span><small>Esc skips · sound on</small></div>
+  </div></div>
+<script type="module">
+// =====================================================================================
+// FOGTIDE INTRO AS A MOTION COMIC (task #80). one storyboard of 6 still scenes; each scene is a set of
+// painted layers (plates) at different depths, moved by a slow camera (parallax), with live fog / eyes /
+// fire / beam effects between the layers. 5 options = 5 looks + presentations of the same storyboard:
+//   a painted plates (full colour, depth blur, letterbox)  b graphic novel (cel shading, ink outlines,
+//   panels on a page, speech balloons)  c ink wash (sepia ink on paper, line boil, ink-bleed cuts)
+//   d shadow play (silhouettes on glowing skies)  e engraved chronicle (hatched plates in a book)
+// =====================================================================================
+import { drawFoglet } from '../js/render.js';
+import { previewBuildings, drawObelisk } from '../js/structures.js';
+
+const W = 1280, H = 720, PW = 1700, PH = 1080;           // screen size, plate (layer) size
+const BLUE = '#2f74d6', GREY = 'rgb(126,128,140)';
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+// ---------- helpers ----------
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = (k) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(k));        // sine in-out: calm camera moves
+const span = (t, a, b) => clamp((t - a) / (b - a));
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const mixc = (a, b, k) => a.map((v, i) => lerp(v, b[i], k));
+function rng(seed) { let a = (seed * 9973) >>> 0 || 1; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+// soft round puff in any colour (cached), used for fog, smoke and glows
+const puffs = new Map();
+function puffC(col) {
+  const k = col.join(',');
+  if (!puffs.has(k)) { const c = mk(128, 128), x = c.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, css(col, 0.9)); g.addColorStop(0.5, css(col, 0.42)); g.addColorStop(1, css(col, 0)); x.fillStyle = g; x.fillRect(0, 0, 128, 128); puffs.set(k, c); }
+  return puffs.get(k);
+}
+function glow(x, gx, gy, r, col, a) {
+  if (r <= 0 || a <= 0) return;
+  const g = x.createRadialGradient(gx, gy, 0, gx, gy, r); g.addColorStop(0, css(col, a)); g.addColorStop(1, css(col, 0));
+  x.fillStyle = g; x.fillRect(gx - r, gy - r, r * 2, r * 2);
+}
+
+// =====================================================================================
+// GAME ART: cached foglet sprites (drawFoglet), houses (previewBuildings), obelisk (drawObelisk)
+// a sprite canvas is 16S x 16S with the foot point at (8S, 13S); the raw sprite faces right
+// =====================================================================================
+const sprites = new Map();
+function sprite(kit, col, S, cape = false, fogbound = false) {
+  const key = [kit, col, S, cape, fogbound].join('|');
+  if (!sprites.has(key)) {
+    const c = mk(16 * S, 16 * S), x = c.getContext('2d'), fx = 8 * S, fy = 13 * S;
+    if (cape) {                                             // hero cape behind the body (war council generals)
+      x.fillStyle = '#1d3f78'; x.beginPath();
+      [[-1.55, -4.3], [1.55, -4.3], [2.5, 0.1], [0.8, -0.25], [0, 0.15], [-0.8, -0.25], [-2.6, 0.05]].forEach(([px, py], i) => (i ? x.lineTo : x.moveTo).call(x, fx + px * S, fy + py * S));
+      x.closePath(); x.fill();
+    }
+    drawFoglet(x, fx, fy, S, col, kit, { noFace: fogbound });
+    sprites.set(key, c);
+  }
+  return sprites.get(key);
+}
+// draw a sprite with its feet at (px, py); returns the two eye points (for live Fogbound eye glows)
+function place(x, sp, S, px, py, { flip = false, rot = 0, k = 1 } = {}) {
+  x.save(); x.translate(px, py); x.rotate(rot); x.scale(flip ? -k : k, k); x.drawImage(sp, -8 * S, -13 * S); x.restore();
+  return [-0.55, 0.55].map((ex) => { const lx = (flip ? -ex : ex) * S * k, ly = -5.1 * S * k;
+    return { x: px + lx * Math.cos(rot) - ly * Math.sin(rot), y: py + lx * Math.sin(rot) + ly * Math.cos(rot), r: S * k * 0.2 }; });
+}
+const housePal = ['classic', 'tudor', 'nordic'];
+function house(pal) {
+  const key = 'h|' + pal;
+  if (!sprites.has(key)) { const c = mk(330, 300); previewBuildings(c.getContext('2d'), 330, 300, pal, BLUE); sprites.set(key, c); }
+  return sprites.get(key);
+}
+function obelisk(look, u) {
+  const key = `o|${look}|${u}`;
+  if (!sprites.has(key)) { const c = mk(12 * u, 12 * u); drawObelisk(c.getContext('2d'), 6 * u, 10 * u, u, look); sprites.set(key, c); }
+  return sprites.get(key);
+}
+const drawOb = (x, look, u, cx, cy) => x.drawImage(obelisk(look, u), cx - 6 * u, cy - 10 * u);
+
+// =====================================================================================
+// PAINTING HELPERS (plate space 1700x960)
+// =====================================================================================
+// a smooth hill line: base - amp * (sum of sines); returns y(px)
+function ridgeFn(base, amp, seed, rough = 0.12) {
+  const r = rng(seed), a = r() * 9, b = r() * 9, c = r() * 9;
+  return (px) => base - amp * (0.5 + 0.3 * Math.sin(px * 0.0037 + a) + 0.2 * Math.sin(px * 0.011 + b) + rough * Math.sin(px * 0.047 + c));
+}
+// sharp mountain peaks (1 - |sin| has a point at every zero), two sizes mixed so they don't repeat
+function peaksFn(base, amp, seed) {
+  const r = rng(seed), a = r() * 9, b = r() * 9, c = r() * 9;
+  return (px) => base - amp * (0.55 * (1 - Math.abs(Math.sin(px * 0.0042 + a))) ** 1.6 + 0.3 * (1 - Math.abs(Math.sin(px * 0.0093 + b))) ** 1.4 + 0.15 * (0.5 + 0.5 * Math.sin(px * 0.031 + c)));
+}
+function fillRidge(x, fn, col, x0 = -80, x1 = PW + 80) {
+  x.fillStyle = typeof col === 'string' ? col : css(col); x.beginPath(); x.moveTo(x0, PH + 20);
+  for (let px = x0; px <= x1; px += 6) x.lineTo(px, fn(px));
+  x.lineTo(x1, PH + 20); x.closePath(); x.fill();
+}
+// a vertical light-to-dark fill under a ridge (gives the ground some volume)
+function shadeRidge(x, fn, top, bot, y0, y1) {
+  x.save(); const g = x.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, css(top)); g.addColorStop(1, css(bot)); fillRidge(x, fn, 'rgba(0,0,0,0)');
+  x.clip(); x.fillStyle = g; x.fillRect(-100, y0 - 200, PW + 200, y1 - y0 + 400); x.restore();
+}
+function pine(x, px, py, h, col) {
+  const w = h * 0.36, tiers = 4, pts = [[0, -h]];
+  for (let i = 1; i <= tiers; i++) { const ty = -h + h * i / tiers * 0.86, tw = w * (0.32 + 0.68 * i / tiers); pts.push([tw, ty]); if (i < tiers) pts.push([tw * 0.38, ty - h * 0.03]); }
+  pts.push([w * 0.08, -h * 0.12], [w * 0.08, 0]);
+  const all = pts.concat(pts.slice().reverse().map(([a, b]) => [-a, b]));
+  x.fillStyle = css(col); x.beginPath(); all.forEach(([a, b], i) => (i ? x.lineTo : x.moveTo).call(x, px + a, py + b)); x.closePath(); x.fill();
+}
+function fogBank(x, y, h, col, a, seed, n = 40, rmin = 80, rmax = 200, x0 = -200, x1 = PW + 200) {
+  const r = rng(seed), p = puffC(col);
+  for (let i = 0; i < n; i++) { const px = lerp(x0, x1, r()), py = y + r() * h, rr = lerp(rmin, rmax, r()); x.globalAlpha = a * (0.6 + 0.4 * r()); x.drawImage(p, px - rr * 1.4, py - rr * 0.7, rr * 2.8, rr * 1.4); }
+  x.globalAlpha = 1;
+}
+// grass blades along the top of a ridge
+function blades(x, fn, cols, seed, { step = 3, hmin = 6, hmax = 22, lean = 0.25, x0 = -40, x1 = PW + 40, w = 2 } = {}) {
+  const r = rng(seed); x.lineCap = 'round';
+  for (let px = x0; px < x1; px += step * (0.5 + r())) {
+    const y = fn(px) + 3, h = lerp(hmin, hmax, r()), l = (r() - 0.5) * 2 * lean * h + lean * h * 0.4;
+    x.strokeStyle = css(cols[(r() * cols.length) | 0]); x.lineWidth = w * (0.6 + r() * 0.8);
+    x.beginPath(); x.moveTo(px, y); x.quadraticCurveTo(px + l * 0.3, y - h * 0.6, px + l, y - h); x.stroke();
+  }
+}
+function skyGrad(x, stops) {
+  const g = x.createLinearGradient(0, 0, 0, PH); stops.forEach(([o, c]) => g.addColorStop(o, css(c)));
+  x.fillStyle = g; x.fillRect(0, 0, PW, PH);
+}
+function streaks(x, col, a, seed, n, y0, y1) {   // long thin clouds
+  const r = rng(seed), p = puffC(col);
+  for (let i = 0; i < n; i++) { const px = r() * PW, py = lerp(y0, y1, r()), w = 200 + r() * 420, h = 10 + r() * 26; x.globalAlpha = a * (0.4 + 0.6 * r()); x.drawImage(p, px - w / 2, py - h / 2, w, h); }
+  x.globalAlpha = 1;
+}
+function darken(x, col, a) { x.save(); x.globalCompositeOperation = 'source-atop'; x.fillStyle = css(col, a); x.fillRect(0, 0, PW, PH); x.restore(); }
+function stake(x, px, top, bot, w, col, lit) {
+  x.fillStyle = css(col); x.beginPath(); x.moveTo(px - w / 2, bot); x.lineTo(px - w / 2, top + w * 0.9); x.lineTo(px, top); x.lineTo(px + w / 2, top + w * 0.9); x.lineTo(px + w / 2, bot); x.closePath(); x.fill();
+  if (lit) { x.fillStyle = css(lit); x.beginPath(); x.moveTo(px - w / 2, bot); x.lineTo(px - w / 2, top + w * 0.9); x.lineTo(px, top); x.lineTo(px - w * 0.25, top + w); x.lineTo(px - w * 0.25, bot); x.fill(); }
+}
+function arrowAt(x, px, py, ang, len, col = [216, 200, 160]) {
+  x.save(); x.translate(px, py); x.rotate(ang); x.strokeStyle = css(col); x.lineWidth = len * 0.04; x.beginPath(); x.moveTo(-len, 0); x.lineTo(0, 0); x.stroke();
+  x.fillStyle = '#c4ccd4'; x.beginPath(); x.moveTo(len * 0.14, 0); x.lineTo(0, -len * 0.05); x.lineTo(0, len * 0.05); x.fill();
+  x.fillStyle = BLUE; x.fillRect(-len, -len * 0.06, len * 0.18, len * 0.12); x.restore();
+}
+
+// =====================================================================================
+// LIVE EFFECTS (drawn every frame in plate space, between the layers)
+// colours follow the look: fog / fire / glow composite
+// =====================================================================================
+let LOOK = 'paint';
+const paper = () => LOOK === 'ink' || LOOK === 'engrave';
+const fogCol = (sc) => LOOK === 'ink' ? [214, 204, 184] : LOOK === 'engrave' ? [236, 228, 208] : LOOK === 'shadow' ? mixc(sc.fog, [255, 255, 255], 0.15) : sc.fog;
+const fireCol = (k) => LOOK === 'engrave' ? [178, 52, 34] : LOOK === 'ink' ? [176, 66, 40] : k ? [244, 179, 60] : [232, 116, 44];
+const VIOLET = [176, 128, 255];
+function addGlow(x, gx, gy, r, col, a) {     // additive light on dark looks, a coloured wash on paper looks
+  if (paper()) { glow(x, gx, gy, r, col, a * 0.45); return; }
+  x.globalCompositeOperation = 'lighter'; glow(x, gx, gy, r, col, a); x.globalCompositeOperation = 'source-over';
+}
+// drifting band of fog puffs, wraps around horizontally
+function fogDrift(x, sc, t, { y, h, n = 16, r0 = 120, r1 = 240, a = 0.4, speed = 8, seed = 1, col } = {}) {
+  const p = puffC(col || fogCol(sc)), span0 = PW + 800;
+  for (let i = 0; i < n; i++) {
+    const r = lerp(r0, r1, hash(i + seed * 31)), px = ((hash(i + seed * 17) * span0 + t * speed * (0.7 + 0.6 * hash(i + seed))) % span0) - 400;
+    const py = y + hash(i + seed * 13) * h + Math.sin(t * 0.3 + i) * 8;
+    x.globalAlpha = a * (0.55 + 0.45 * hash(i + seed * 7)); x.drawImage(p, px - r * 1.5, py - r * 0.6, r * 3, r * 1.2);
+  }
+  x.globalAlpha = 1;
+}
+// violet Fogbound eyes: soft halo + bright core, blink now and then
+function eyes(x, list, t, a = 1, blinkSeed = 0) {
+  for (let i = 0; i < list.length; i += 2) {
+    const e0 = list[i], e1 = list[i + 1], ph = (t * (0.35 + hash(i + blinkSeed) * 0.25) + hash(i * 3 + blinkSeed)) % 1;
+    const open = ph < 0.04 ? Math.abs(ph - 0.02) / 0.02 : 1, al = a * (e0.a ?? 1);
+    if (al <= 0.01) continue;
+    for (const e of [e0, e1]) {
+      const r = e.r * 1.25;
+      addGlow(x, e.x, e.y, r * 2.4, VIOLET, 0.55 * al);
+      x.fillStyle = css(LOOK === 'engrave' ? [120, 60, 200] : [246, 238, 255], al); x.beginPath(); x.ellipse(e.x, e.y, r * 0.42, r * 0.42 * open, 0, 0, 6.283); x.fill();
+    }
+  }
+}
+function flames(x, fx, fy, s, t, k = 1) {
+  for (let i = 0; i < 5; i++) {
+    const fl = (30 + 16 * Math.sin(t * 8 + i * 2.1)) * s * k, ox = (i - 2) * 10 * s;
+    x.fillStyle = css(fireCol(i % 2)); x.beginPath(); x.moveTo(fx + ox - 9 * s, fy);
+    x.quadraticCurveTo(fx + ox - 8 * s, fy - fl * 0.6, fx + ox + Math.sin(t * 6 + i) * 4 * s, fy - fl); x.quadraticCurveTo(fx + ox + 8 * s, fy - fl * 0.6, fx + ox + 9 * s, fy); x.closePath(); x.fill();
+  }
+  addGlow(x, fx, fy - 20 * s, 160 * s, [255, 140, 50], 0.35 * (0.9 + 0.1 * Math.sin(t * 13)));
+}
+function smoke(x, sx, sy, t, s, col, a = 0.4, seed = 0) {
+  const p = puffC(col);
+  for (let i = 0; i < 7; i++) { const ph = (t * 0.06 + i / 7 + hash(seed)) % 1, r = (14 + ph * 70) * s;
+    x.globalAlpha = a * Math.sin(ph * Math.PI) ** 0.7; x.drawImage(p, sx + Math.sin(ph * 4 + seed) * 18 * s + ph * 60 * s - r, sy - ph * 300 * s - r, r * 2, r * 2); }
+  x.globalAlpha = 1;
+}
+function embers(x, t, area, n, seed, size = 3) {
+  for (let i = 0; i < n; i++) {
+    const ph = (t * (0.06 + hash(i + seed) * 0.06) + hash(i * 2 + seed)) % 1;
+    const px = area.x + hash(i * 3 + seed) * area.w + Math.sin(t * 0.8 + i) * 30, py = area.y + area.h - ph * area.h;
+    const r = size * (0.5 + hash(i + 9 + seed)), a = Math.sin(ph * Math.PI) * (0.6 + 0.4 * Math.sin(t * 9 + i));
+    addGlow(x, px, py, r * 4, [255, 170, 70], 0.5 * a); x.fillStyle = css(paper() ? fireCol(0) : [255, 226, 160], a); x.beginPath(); x.arc(px, py, r * 0.6, 0, 6.283); x.fill();
+  }
+}
+
+// =====================================================================================
+// THE STORYBOARD: 6 scenes + title. each layer: p = depth (0 far .. 1 near), paint (once, cached) or
+// fx (live). cam = [[x, y, zoom] start, end] in plate space. hor / dark / fog = scene colours used by the
+// looks (haze, silhouettes, fog). q = the line is spoken by the last Fogbound
+// =====================================================================================
+const SC = [];
+
+// ---- 1. the village at dusk, fog walls all around the horizon ----
+SC.push({ name: 'Village', d: 8, cap: 'Our village kept to itself. Beyond the hills there was only fog.', hor: [236, 204, 160], dark: [44, 40, 52], fog: [222, 214, 206],
+  cam: [[960, 590, 1.04], [780, 572, 1.1]], data: {},
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      skyGrad(x, [[0, [64, 78, 116]], [0.3, [150, 130, 140]], [0.5, [222, 168, 132]], [0.6, [246, 200, 146]], [1, [246, 214, 168]]]);
+      glow(x, 1180, 470, 420, [255, 214, 150], 0.55); glow(x, 1180, 470, 90, [255, 236, 200], 0.9);
+      streaks(x, [250, 214, 196], 0.55, 3, 22, 140, 380);
+    } },
+    { p: 0.12, paint(x) {
+      // the fog wall: tall banks rising behind the far mountains, thickest at both edges of the world
+      for (let i = 0; i < 70; i++) { const u = hash(i + 1), px = u * PW, edge = Math.abs(u - 0.5) * 2, py = 470 - edge * 220 - hash(i + 2) * 120, r = 130 + hash(i + 3) * 160 + edge * 90;
+        x.globalAlpha = 0.35 + 0.6 * edge; x.drawImage(puffC([230, 220, 210]), px - r * 1.3, py - r * 0.8, r * 2.6, r * 1.6); }
+      x.globalAlpha = 1;
+      const m = peaksFn(560, 300, 11); fillRidge(x, m, [118, 112, 146]);
+      const m2 = peaksFn(575, 190, 12); fillRidge(x, m2, [100, 102, 132]);
+      fogBank(x, 500, 70, [232, 222, 208], 0.75, 13, 50, 90, 170);
+    } },
+    { p: 0.3, paint(x, sc) {
+      const f = ridgeFn(600, 70, 21); shadeRidge(x, f, [118, 132, 116], [96, 108, 100], 520, 760);
+      const r = rng(22); for (let i = 0; i < 70; i++) { const px = r() * PW; if (px > 640 && px < 1180 && r() < 0.8) continue; pine(x, px, f(px) + 6 + r() * 30, 34 + r() * 46, mixc([70, 88, 84], [92, 106, 104], r())); }
+    } },
+    { p: 0.36, fx(x, sc, t) { fogDrift(x, sc, t, { y: 560, h: 60, n: 14, r0: 90, r1: 180, a: 0.35, speed: 6, seed: 2 }); } },
+    { p: 0.5, paint(x, sc) {
+      const f = ridgeFn(700, 70, 31, 0.08); sc.data.vf = f;
+      shadeRidge(x, f, [146, 158, 104], [108, 122, 82], 600, 900);
+      blades(x, f, [[132, 146, 92], [158, 168, 110]], 33, { step: 5, hmin: 4, hmax: 10 });
+      // a path winding down from the village
+      x.strokeStyle = 'rgba(196,176,132,0.65)'; x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(980, f(980) + 10); x.bezierCurveTo(900, 760, 1100, 820, 960, 960); x.stroke();
+      const hs = [[720, 0.9, 0], [840, 1.05, 1], [1010, 0.95, 2], [1130, 1.1, 0], [1250, 0.85, 1]];
+      sc.data.smoke = []; sc.data.win = [];
+      for (const [hx, s, pi] of hs) { const w = 120 * s, h = 110 * s, hy = f(hx) + 14; x.drawImage(house(housePal[pi]), hx - w / 2, hy - h * 0.9, w, h); sc.data.smoke.push([hx - w * 0.12, hy - h * 0.62, s]); sc.data.win.push([hx - w * 0.16, hy - h * 0.3, s]); }
+      drawOb(x, 'fog', 16, 1400, f(1400) + 10);
+      for (let i = 0; i < 6; i++) { const px = 760 + i * 95 + hash(i) * 40; place(x, sprite(['soldier', 'viking', 'archer'][i % 3], BLUE, 6), 6, px, f(px) + 30 + hash(i + 4) * 20, { flip: i % 2 === 0, k: 0.75 }); }
+      for (let i = 0; i < 14; i++) { const px = 640 + i * 40; x.fillStyle = '#6e5236'; x.fillRect(px, f(px) + 40 - 18, 4, 20); }   // fence
+      x.fillStyle = '#6e5236'; x.fillRect(640, f(640) + 28, 560, 3);
+    } },
+    { p: 0.53, fx(x, sc, t) {
+      for (const [sx, sy, s] of sc.data.smoke || []) smoke(x, sx, sy, t, s * 0.8, LOOK === 'shadow' ? [120, 110, 120] : [200, 196, 196], 0.35, sx);
+      for (const [wx, wy, s] of sc.data.win || []) addGlow(x, wx, wy, 22 * s, [255, 190, 90], 0.35 + 0.08 * Math.sin(t * 3 + wx));
+    } },
+    { p: 0.8, paint(x, sc) {
+      const f = (px) => 760 + Math.pow(px / 900, 1.6) * 210 - 40 * Math.sin(px * 0.004);
+      shadeRidge(x, f, [92, 104, 66], [58, 68, 46], 720, PH);
+      blades(x, f, [[70, 84, 52], [104, 118, 72], [122, 132, 82]], 41, { step: 2.2, hmin: 10, hmax: 30, x1: 1500 });
+      x.fillStyle = '#5c5a58'; x.beginPath(); x.ellipse(560, f(560) + 12, 46, 22, 0, 0, 6.283); x.fill();   // a stone the hero stands by
+      x.fillStyle = '#74706c'; x.beginPath(); x.ellipse(552, f(560) + 4, 34, 14, 0, 0, 6.283); x.fill();
+      sc.data.hero = place(x, sprite('knight', BLUE, 16, true), 16, 470, f(470) + 8, { k: 1 });   // the hero looks out at the fog
+    } },
+    { p: 0.95, fx(x, sc, t) { fogDrift(x, sc, t, { y: 820, h: 90, n: 10, r0: 160, r1: 280, a: 0.16, speed: 12, seed: 4 }); } },
+    { p: 1, blur: 5, paint(x) {
+      const f = (px) => 1040 - Math.max(0, (px - 1300) * 0.25);
+      blades(x, f, [[34, 42, 30], [46, 56, 36]], 51, { step: 4, hmin: 60, hmax: 150, lean: 0.35, x0: 1250, x1: PW + 40, w: 7 });
+      blades(x, () => 1050, [[34, 42, 30], [46, 56, 36]], 52, { step: 6, hmin: 40, hmax: 110, lean: 0.3, x0: -40, x1: 300, w: 7 });
+    } },
+  ] });
+
+// ---- 2. one night the fog opens its eyes ----
+SC.push({ name: 'Eyes', d: 7.5, cap: 'Then one night, the fog opened its eyes.', hor: [56, 62, 92], dark: [12, 14, 24], fog: [104, 108, 140],
+  cam: [[780, 640, 1.03], [650, 660, 1.15]], data: {},
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      skyGrad(x, [[0, [14, 18, 32]], [0.5, [34, 40, 64]], [1, [56, 62, 92]]]);
+      glow(x, 330, 190, 300, [170, 180, 220], 0.35); x.fillStyle = '#dfe2ea'; x.beginPath(); x.arc(330, 190, 46, 0, 6.283); x.fill();
+      streaks(x, [24, 28, 44], 0.9, 5, 16, 150, 300);
+    } },
+    { p: 0.15, paint(x) {
+      for (let i = 0; i < 80; i++) { const px = hash(i + 50) * PW, py = 330 + hash(i + 51) * 360, r = 120 + hash(i + 52) * 200;
+        x.globalAlpha = 0.6; x.drawImage(puffC(mixc([84, 90, 120], [130, 136, 166], 1 - (py - 330) / 360)), px - r * 1.4, py - r * 0.8, r * 2.8, r * 1.6); }
+      x.globalAlpha = 1;
+    } },
+    { p: 0.35, paint(x, sc) {
+      const r = rng(61); for (let i = 0; i < 90; i++) { const px = -60 + r() * 1300, base = 700 + r() * 40; pine(x, px, base, 140 + r() * 180, mixc([20, 24, 38], [34, 40, 58], r())); }
+      fogBank(x, 640, 120, [96, 100, 132], 0.75, 62, 40, 100, 200, -200, 1400);
+      { const g = x.createLinearGradient(0, 690, 0, 820); g.addColorStop(0, 'rgba(66,70,98,0)'); g.addColorStop(1, 'rgba(66,70,98,1)'); x.fillStyle = g; x.fillRect(-10, 690, PW + 20, PH); }
+      // eyes in the dark between the trees: they appear one by one over the scene
+      const e = []; const r2 = rng(63);
+      for (let i = 0; i < 28; i++) { const px = 60 + r2() * 1100, py = 560 + r2() * 160, s = 2.6 + (py - 560) / 160 * 3.5 + r2(); const t0 = 0.08 + r2() * 0.62;
+        e.push({ x: px - s * 0.7, y: py, r: s, t0 }, { x: px + s * 0.7, y: py, r: s, t0 }); }
+      sc.data.eyes = e;
+    } },
+    { p: 0.42, fx(x, sc, t, lt) {
+      const list = (sc.data.eyes || []).map((e) => ({ ...e, a: span(lt, e.t0, e.t0 + 0.1) }));
+      eyes(x, list, t, 1, 2);
+      fogDrift(x, sc, t, { y: 600, h: 120, n: 16, r0: 90, r1: 200, a: 0.38, speed: 10, seed: 6 });
+    } },
+    { p: 0.72, paint(x, sc) {
+      // the palisade on the right, the watch on the walkway
+      const r = rng(71); for (let px = 960; px < PW + 60; px += 34 + r() * 6) { const top = 480 + r() * 40 + (px - 960) * -0.03; stake(x, px, top, PH + 10, 30, mixc([48, 38, 32], [62, 50, 40], r()), [92, 98, 128]); }
+      x.fillStyle = '#2e2620'; x.fillRect(940, 640, PW, 18); x.fillStyle = '#3a3028'; x.fillRect(940, 636, PW, 6);
+      place(x, sprite('archer', BLUE, 13), 13, 1110, 640, { flip: true });
+      place(x, sprite('soldier', BLUE, 13), 13, 1260, 640, { flip: true });
+      darken(x, [14, 18, 44], 0.42);
+      x.fillStyle = '#4a3a2a'; x.fillRect(1376, 540, 8, 100); sc.data.torch = [1380, 530];
+    } },
+    { p: 0.74, fx(x, sc, t) { const [tx, ty] = sc.data.torch || [0, 0]; flames(x, tx, ty, 0.55, t); } },
+    { p: 1, blur: 6, paint(x) {
+      for (let i = 0; i < 4; i++) stake(x, 1500 + i * 70, 640 + i * 40, PH + 20, 60, [24, 20, 18]);
+      blades(x, () => 1040, [[18, 22, 26], [26, 30, 36]], 81, { step: 5, hmin: 30, hmax: 90, w: 6, x0: -40, x1: 900 });
+    } },
+    { p: 0.98, fx(x, sc, t) { fogDrift(x, sc, t, { y: 760, h: 140, n: 10, r0: 180, r1: 300, a: 0.2, speed: 14, seed: 8 }); } },
+  ] });
+
+// ---- 3. the siege: we held the wall until dawn ----
+SC.push({ name: 'Siege', d: 8, cap: 'We held the wall until dawn.', hor: [140, 64, 36], dark: [16, 10, 12], fog: [92, 70, 70],
+  cam: [[900, 690, 1.05], [860, 720, 1.17]], data: {},
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      skyGrad(x, [[0, [30, 20, 24]], [0.45, [76, 40, 32]], [0.7, [150, 70, 38]], [1, [120, 56, 34]]]);
+      fogBank(x, 120, 380, [44, 30, 32], 0.8, 91, 30, 120, 260);
+    } },
+    { p: 0.2, paint(x, sc) {
+      const f = ridgeFn(640, 40, 92); fillRidge(x, f, [52, 30, 26]);
+      sc.data.fires = [];
+      [[260, 1.1, 0], [470, 0.9, 1], [690, 1.2, 2], [1180, 1.0, 1], [1390, 1.15, 0]].forEach(([hx, s, pi], i) => {
+        const w = 150 * s, h = 136 * s, hy = f(hx) + 10; x.drawImage(house(housePal[pi]), hx - w / 2, hy - h * 0.9, w, h); if (i !== 3) sc.data.fires.push([hx - w * 0.16, hy - h * 0.36, s]); });
+      darken(x, [30, 14, 12], 0.72);
+    } },
+    { p: 0.24, fx(x, sc, t) { for (const [fx, fy, s] of sc.data.fires || []) { smoke(x, fx, fy - 30, t, s * 1.6, LOOK === 'shadow' ? [30, 20, 20] : [50, 40, 40], 0.5, fx); flames(x, fx, fy, s, t); } } },
+    { p: 0.46, paint(x, sc) {
+      const f = ridgeFn(740, 30, 93); shadeRidge(x, f, [66, 40, 30], [44, 28, 24], 680, 900);
+      const r = rng(94), e = [];
+      for (let i = 0; i < 16; i++) { const px = 980 + r() * 560, py = f(px) + 10 + r() * 40; place(x, sprite(i % 3 ? 'knight' : 'soldier', BLUE, 7), 7, px, py, { flip: true, k: 0.85 }); }
+      for (let i = 0; i < 18; i++) { const px = 180 + r() * 620, py = f(px) + 10 + r() * 40, fall = r() < 0.25; e.push(...place(x, sprite('barbarian', GREY, 7, false, true), 7, px, py, { k: 0.85, rot: fall ? -1.4 : 0 })); }
+      darken(x, [36, 16, 14], 0.45);
+      sc.data.eyesMid = e;
+      for (let i = 0; i < 14; i++) arrowAt(x, 520 + r() * 640, 170 + r() * 220, 0.35 + r() * 0.25, 46);   // arrows frozen in the air
+    } },
+    { p: 0.5, fx(x, sc, t) { eyes(x, sc.data.eyesMid || [], t, 0.8, 5); } },
+    { p: 0.78, paint(x, sc) {
+      const f = ridgeFn(890, 30, 95); shadeRidge(x, f, [52, 32, 26], [24, 16, 14], 840, PH);
+      // rim of fire light behind the two fighters
+      glow(x, 860, 640, 420, [255, 120, 40], 0.28);
+      sc.data.eyesBig = place(x, sprite('barbarian', GREY, 30, false, true), 30, 650, 905, { rot: 0.22 });   // the Fogbound lunges
+      place(x, sprite('knight', BLUE, 30, true), 30, 1080, 910, { flip: true, rot: -0.06 });                // the hero takes the blow
+      x.save(); x.globalCompositeOperation = 'source-atop'; const g = x.createLinearGradient(0, 600, 0, PH); g.addColorStop(0, 'rgba(255,140,60,0.18)'); g.addColorStop(1, 'rgba(20,10,10,0.55)'); x.fillStyle = g; x.fillRect(0, 0, PW, PH); x.restore();
+    } },
+    { p: 0.8, fx(x, sc, t) {
+      eyes(x, sc.data.eyesBig || [], t, 1, 9);
+      const k = 0.5 + 0.5 * Math.sin(t * 5); addGlow(x, 870, 770, 60 + 25 * k, [255, 230, 170], 0.45 + 0.3 * k);   // the clash
+    } },
+    { p: 1, fx(x, sc, t) { embers(x, t, { x: -100, y: 100, w: PW + 200, h: 900 }, 40, 3, 4); } },
+  ] });
+
+// ---- 4. dawn: the last Fogbound speaks ----
+SC.push({ name: 'Last one', d: 8.5, q: true, cap: '"You won one night, little foglet. The Fog has taken every land."', hor: [206, 190, 172], dark: [36, 36, 44], fog: [190, 188, 194],
+  cam: [[960, 700, 1.04], [830, 745, 1.2]], data: {}, balloon: { p: 0.7, x: 690, y: 690 },
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      skyGrad(x, [[0, [110, 112, 124]], [0.55, [170, 162, 160]], [0.7, [206, 190, 172]], [1, [214, 200, 182]]]);
+      glow(x, 1320, 560, 300, [255, 226, 190], 0.4); streaks(x, [190, 184, 186], 0.5, 7, 18, 120, 420);
+    } },
+    { p: 0.2, paint(x, sc) {
+      const f = ridgeFn(610, 30, 101); fillRidge(x, f, [132, 132, 140]);
+      sc.data.sm = [];
+      [[380, 0.8, 0], [520, 0.7, 1], [660, 0.9, 2], [800, 0.75, 0]].forEach(([hx, s, pi]) => { const w = 110 * s, h = 100 * s, hy = f(hx) + 8; x.drawImage(house(housePal[pi]), hx - w / 2, hy - h * 0.9, w, h); sc.data.sm.push([hx - w * 0.1, hy - h * 0.55, s]); });
+      darken(x, [120, 120, 134], 0.55);
+    } },
+    { p: 0.22, fx(x, sc, t) { for (const [sx, sy, s] of sc.data.sm || []) smoke(x, sx, sy, t, s * 1.4, LOOK === 'shadow' ? [150, 146, 150] : [96, 94, 100], 0.32, sx); } },
+    { p: 0.3, fx(x, sc, t) { fogDrift(x, sc, t, { y: 590, h: 60, n: 14, r0: 100, r1: 200, a: 0.35, speed: 5, seed: 10 }); } },
+    { p: 0.45, paint(x) {
+      const f = ridgeFn(700, 26, 103); shadeRidge(x, f, [134, 132, 110], [112, 108, 90], 640, 860);
+      const r = rng(104); for (let i = 0; i < 10; i++) { const px = r() * PW; x.save(); x.translate(px, f(px) + 6); x.rotate(-0.4 + r() * 0.8); x.fillStyle = '#5a4630'; x.fillRect(-3, -60, 6, 60); x.restore(); }   // broken stakes
+    } },
+    { p: 0.7, paint(x, sc) {
+      const f = ridgeFn(800, 20, 105); shadeRidge(x, f, [118, 106, 84], [86, 76, 60], 760, PH);
+      for (let i = 0; i < 8; i++) { const px = 400 + hash(i + 60) * 1000, py = 840 + hash(i + 61) * 100, r = 80 + hash(i + 62) * 120; glow(x, px, py, r, [74, 58, 40], 0.4); }   // trampled mud
+      const r = rng(106); for (let i = 0; i < 9; i++) arrowAt(x, 300 + r() * 1200, 830 + r() * 110, -0.3 + r() * 0.6 + (r() < 0.5 ? Math.PI : 0), 60);
+      x.fillStyle = 'rgba(20,20,24,0.25)'; x.beginPath(); x.ellipse(760, 880, 240, 40, 0, 0, 6.283); x.fill(); x.beginPath(); x.ellipse(1190, 906, 110, 22, 0, 0, 6.283); x.fill();
+      sc.data.eyes = place(x, sprite('barbarian', GREY, 26, false, true), 26, 830, 870, { rot: -Math.PI / 2 });    // the last Fogbound on its back
+      place(x, sprite('knight', BLUE, 30, true), 30, 1190, 905, { flip: true });                                     // the hero stands over it
+      x.save(); x.translate(380, 960); x.rotate(-0.12); x.fillStyle = '#4a3420'; x.fillRect(0, -6, 330, 12); x.fillStyle = '#9aa4ae'; x.beginPath(); x.moveTo(330, -12); x.lineTo(392, 0); x.lineTo(330, 12); x.fill(); x.restore();   // a dropped spear
+      sc.data.body = [700, 830];
+    } },
+    { p: 0.72, fx(x, sc, t, lt) {
+      const [bx, by] = sc.data.body || [0, 0], p = puffC(fogCol(sc));
+      for (let i = 0; i < 9; i++) { const ph = (t * 0.12 + i / 9) % 1, px = bx + hash(i + 90) * 220 - 40 + ph * 50, py = by - ph * 300, r = 30 + ph * 60;
+        x.globalAlpha = 0.5 * Math.sin(ph * Math.PI); x.drawImage(p, px - r, py - r * 0.7, r * 2, r * 1.4); }   // fog leaking out of the body
+      x.globalAlpha = 1;
+      const fl = 0.55 + 0.45 * Math.sin(t * 7) * Math.sin(t * 2.3); eyes(x, sc.data.eyes || [], t, fl * (1 - 0.4 * lt), 11);
+    } },
+    { p: 1, blur: 5, paint(x) {
+      blades(x, () => 1050, [[50, 52, 40], [64, 66, 50]], 111, { step: 5, hmin: 30, hmax: 90, w: 6, x0: 1300, x1: PW + 40 });
+    } },
+    { p: 0.96, fx(x, sc, t) { fogDrift(x, sc, t, { y: 860, h: 80, n: 10, r0: 160, r1: 260, a: 0.2, speed: 9, seed: 12 }); } },
+  ] });
+
+// ---- 5. the world: every land taken by the Fog but ours (the real game map) ----
+const mapImg = new Image(); mapImg.src = '../img/intro-map.jpg';
+const MAP = await (await fetch('../img/intro-map.json')).json();
+await mapImg.decode().catch(() => {});
+const tiles = MAP.tiles.map((tl) => {
+  const path = new Path2D(); let sx = 0, sy = 0, n = 0;
+  for (const l of tl.loops) { for (let i = 0; i < l.length; i += 2) { (i ? path.lineTo : path.moveTo).call(path, l[i], l[i + 1]); sx += l[i]; sy += l[i + 1]; n++; } path.closePath(); }
+  return { id: tl.id, owner: tl.owner, path, cx: sx / n, cy: sy / n };
+});
+const home = tiles.find((t) => t.owner === 0) || tiles[0];
+const MS = Math.min(1460 / MAP.w, 860 / MAP.h), MX = (PW - MAP.w * MS) / 2, MY = (PH - MAP.h * MS) / 2 + 10;
+const HX = MX + home.cx * MS, HY = MY + home.cy * MS;
+SC.push({ name: 'The Fog', d: 7.5, q: true, cap: '"In 33 years it takes yours. Then there is only Fog."', hor: [70, 66, 86], dark: [14, 14, 20], fog: [150, 146, 170],
+  cam: [[850, PH / 2 + 10, 0.98], [lerp(850, HX, 0.75), lerp(PH / 2 + 10, HY, 0.75), 1.32]], data: {}, balloon: { p: 0.5, x: 850, y: 1040 },
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      const g = x.createRadialGradient(PW / 2, PH / 2, 100, PW / 2, PH / 2, PW * 0.6); g.addColorStop(0, '#4c4a5c'); g.addColorStop(1, '#141419'); x.fillStyle = g; x.fillRect(0, 0, PW, PH);
+      fogBank(x, 0, PH, [90, 88, 108], 0.35, 121, 40, 120, 260);
+    } },
+    { p: 0.5, keep: true, paint(x, sc) {
+      // the capture with feathered tile edges, then every land but home greyed out and filled with fog
+      const m = mk(PW, PH), mx = m.getContext('2d'); mx.setTransform(MS, 0, 0, MS, MX, MY); mx.fillStyle = '#fff'; mx.strokeStyle = '#fff'; mx.lineWidth = 18; mx.lineJoin = 'round';
+      for (const tl of tiles) { mx.fill(tl.path); mx.stroke(tl.path); }
+      const mb = mk(PW, PH), bx = mb.getContext('2d'); bx.filter = 'blur(8px)'; bx.drawImage(m, 0, 0);
+      x.drawImage(mapImg, MX, MY, MAP.w * MS, MAP.h * MS); x.globalCompositeOperation = 'destination-in'; x.drawImage(mb, 0, 0); x.globalCompositeOperation = 'source-over';
+      x.save(); x.setTransform(MS, 0, 0, MS, MX, MY); const e = [];
+      for (const tl of tiles) {
+        if (tl === home) continue;
+        x.save(); x.clip(tl.path);
+        x.globalCompositeOperation = 'saturation'; x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, MAP.w, MAP.h);
+        x.globalCompositeOperation = 'source-over'; x.fillStyle = 'rgba(48,44,66,0.5)'; x.fillRect(0, 0, MAP.w, MAP.h);
+        for (let k = 0; k < 4; k++) { const r = 60 + hash(tl.id * 5 + k) * 50; x.globalAlpha = 0.7; x.drawImage(puffC([200, 198, 214]), tl.cx - r + (hash(tl.id + k * 3) - 0.5) * 80, tl.cy - r * 0.6 + (hash(tl.id + k * 5) - 0.5) * 50, r * 2, r * 1.2); }
+        x.restore();
+        if (tl.owner > 0) e.push({ x: MX + (tl.cx - 7) * MS, y: MY + (tl.cy - 22) * MS, r: 3.5 }, { x: MX + (tl.cx + 7) * MS, y: MY + (tl.cy - 22) * MS, r: 3.5 });
+      }
+      x.lineWidth = 3; x.strokeStyle = 'rgba(255,240,200,0.7)'; x.stroke(home.path);
+      x.restore(); sc.data.eyes = e;
+    } },
+    { p: 0.55, fx(x, sc, t, lt) {
+      eyes(x, sc.data.eyes || [], t, span(lt, 0.1, 0.4), 13);
+      addGlow(x, HX, HY - 10, 130, [255, 200, 100], 0.35 + 0.1 * Math.sin(t * 2));   // the last warm light: home
+      // fog creeping toward home
+      const p = puffC(fogCol(sc));
+      for (let i = 0; i < 22; i++) { const a = i / 22 * 6.283 + t * 0.03, r = lerp(520, 260, ease(lt)) + Math.sin(t * 0.5 + i) * 20, s = 140 + hash(i) * 80;
+        x.globalAlpha = 0.28; x.drawImage(p, HX + Math.cos(a) * r * 1.3 - s, HY + Math.sin(a) * r * 0.8 - s * 0.6, s * 2, s * 1.2); }
+      x.globalAlpha = 1;
+    } },
+    { p: 0.95, fx(x, sc, t) { fogDrift(x, sc, t, { y: -100, h: PH + 100, n: 14, r0: 220, r1: 360, a: 0.22, speed: 10, seed: 14 }); } },
+  ] });
+
+// ---- 6. the beacon: I will light the old obelisk ----
+SC.push({ name: 'Beacon', d: 8.5, cap: 'Then I will light the old obelisk, and take back every land I can.', hor: [250, 214, 150], dark: [40, 34, 40], fog: [236, 222, 200],
+  cam: [[850, 720, 1.12], [850, 560, 1.0]], data: {},
+  layers: [
+    { p: 0, sky: true, paint(x) {
+      skyGrad(x, [[0, [96, 100, 132]], [0.4, [200, 170, 150]], [0.62, [250, 214, 150]], [1, [252, 226, 170]]]);
+      streaks(x, [255, 226, 190], 0.5, 15, 20, 120, 380);
+    } },
+    { p: 0.06, fx(x, sc, t, lt) {   // god rays from the beacon
+      const k = ease(span(lt, 0.15, 0.6)); if (!k) return;
+      for (let i = 0; i < 14; i++) { const a = -Math.PI / 2 + (i - 6.5) * 0.17 + Math.sin(t * 0.2 + i) * 0.02, l = 1400;
+        x.fillStyle = css([255, 232, 170], (paper() ? 0.06 : 0.07) * k * (0.6 + 0.4 * hash(i)));
+        x.beginPath(); x.moveTo(850, 400); x.lineTo(850 + Math.cos(a - 0.03) * l, 430 + Math.sin(a - 0.03) * l); x.lineTo(850 + Math.cos(a + 0.03) * l, 430 + Math.sin(a + 0.03) * l); x.fill(); }
+    } },
+    { p: 0.15, paint(x) {
+      fogBank(x, 470, 120, [236, 220, 200], 0.85, 131, 60, 90, 200);
+      for (let i = 0; i < 30; i++) { const px = hash(i + 132) * PW, py = 470 + hash(i + 133) * 30, r = 80 + hash(i + 134) * 90; glow(x, px, py - r * 0.4, r, [255, 226, 150], 0.25); }   // gold rim where the light hits the fog
+    } },
+    { p: 0.3, paint(x) { const f = ridgeFn(640, 60, 141); shadeRidge(x, f, [150, 146, 128], [128, 126, 112], 560, 800); const r = rng(142); for (let i = 0; i < 40; i++) { const px = r() * PW; if (Math.abs(px - 850) < 260) continue; pine(x, px, f(px) + 10, 30 + r() * 40, [110, 114, 100]); } } },
+    { p: 0.5, paint(x, sc) {
+      const f = (px) => 700 - 110 * Math.exp(-(((px - 850) / 360) ** 2)); shadeRidge(x, f, [132, 140, 90], [100, 108, 72], 580, 880);
+      blades(x, f, [[120, 130, 82], [150, 158, 100]], 143, { step: 4, hmin: 5, hmax: 12 });
+      drawOb(x, 'lit', 30, 850, f(850) + 6); sc.data.gem = [850, f(850) + 6 - 5.3 * 30];
+      place(x, sprite('knight', BLUE, 11, true), 11, 960, f(960) + 10, { flip: true });   // the hero beside the stone
+    } },
+    { p: 0.53, fx(x, sc, t, lt) {
+      const [gx, gy] = sc.data.gem || [850, 430], k = ease(span(lt, 0.05, 0.35)), bw = 46 * (1 + 0.08 * Math.sin(t * 6));
+      const g = x.createLinearGradient(gx - bw, 0, gx + bw, 0); g.addColorStop(0, 'rgba(255,224,140,0)'); g.addColorStop(0.5, `rgba(255,244,200,${(paper() ? 0.55 : 0.85) * k})`); g.addColorStop(1, 'rgba(255,224,140,0)');
+      x.fillStyle = g; x.fillRect(gx - bw, -400, bw * 2, gy + 400);
+      addGlow(x, gx, gy, 240, [255, 214, 110], 0.38 * k);
+      for (let n = 0; n < 3; n++) { const ph = (t * 0.25 + n / 3) % 1; x.strokeStyle = css([255, 224, 140], 0.5 * (1 - ph) * k); x.lineWidth = 6; x.beginPath(); x.ellipse(850, 600, 60 + ph * 700, (60 + ph * 700) * 0.18, 0, 0, 6.283); x.stroke(); }
+      for (let i = 0; i < 30; i++) { const ph = (t * 0.07 + hash(i + 150)) % 1; addGlow(x, 300 + hash(i + 151) * 1100, 900 - ph * 700, 6, [255, 220, 140], 0.7 * Math.sin(ph * Math.PI) * k); }   // motes
+    } },
+    { p: 0.76, paint(x) {
+      const f = (px) => 860 + 30 * Math.sin(px * 0.004); shadeRidge(x, f, [96, 104, 64], [66, 72, 46], 820, PH);
+      blades(x, f, [[80, 90, 54], [110, 120, 70]], 151, { step: 2.5, hmin: 10, hmax: 24 });
+      const kits = ['soldier', 'viking', 'archer', 'knight', 'soldier', 'viking', 'archer'];
+      for (let i = 0; i < 16; i++) { const px = 240 + i * 82 + hash(i + 160) * 30; if (Math.abs(px - 850) < 70) continue; place(x, sprite(kits[i % 7], BLUE, 12), 12, px, f(px) + 22 + hash(i + 161) * 30, { flip: px > 850, k: 0.85 + hash(i + 162) * 0.3 }); }   // the village gathers, facing the light
+      darken(x, [60, 50, 50], 0.18);
+    } },
+    { p: 1, blur: 5, paint(x) { blades(x, () => 1050, [[60, 64, 40], [76, 82, 50]], 171, { step: 5, hmin: 50, hmax: 120, w: 7, x0: -40, x1: 360 }); blades(x, () => 1050, [[60, 64, 40], [76, 82, 50]], 172, { step: 5, hmin: 50, hmax: 120, w: 7, x0: 1400, x1: PW + 40 }); } },
+  ] });
+
+// ---- title: the beacon plate held while the name comes up ----
+SC.push({ ...SC[5], name: 'Title', d: 5, cap: '', title: true, cam: [[850, 560, 1.0], [850, 545, 0.98]], paintKey: 5 });
+{ let a = 0; for (const s of SC) { s.a = a; a += s.d; s.b = a; } }
+const END = SC[SC.length - 1].b;
+const sceneAt = (t) => { const i = SC.findIndex((s) => t < s.b); return i < 0 ? SC.length - 1 : i; };
+
+// =====================================================================================
+// LOOKS: each painted layer is processed once per look (pixel pass) and cached
+// =====================================================================================
+const lum = (r, g, b) => (0.3 * r + 0.59 * g + 0.11 * b) / 255;
+function processLayer(c, L, sc, look) {
+  const x = c.getContext('2d');
+  if (look === 'paint') {                       // atmospheric haze on far layers, depth blur
+    if (!L.sky && L.p < 0.45) darken(x, sc.hor, (0.45 - L.p) * 0.5);
+    return blurred(c, L.blur ?? (L.p < 0.2 && !L.sky ? 1.2 : 0));
+  }
+  if (look === 'shadow') {                      // silhouettes: flat colour by depth (far = sky colour, near = black)
+    if (L.sky) { darken(x, [255, 160, 90], 0.08); return c; }
+    if (L.keep) { darken(x, [20, 18, 34], 0.55); return c; }
+    const k = L.p >= 0.95 ? 1 : 0.25 + 0.75 * L.p, col = mixc(sc.hor, sc.dark, k);
+    x.save(); x.globalCompositeOperation = 'source-in'; x.fillStyle = css(col); x.fillRect(0, 0, PW, PH); x.restore();
+    return blurred(c, L.blur ? 3 : 0);
+  }
+  const img = x.getImageData(0, 0, PW, PH), d = img.data;
+  if (look === 'ink') {                         // sepia ink ramp on paper, stronger contrast, keep alpha
+    const P = [234, 224, 202], I = [44, 32, 24];
+    for (let i = 0; i < d.length; i += 4) { if (!d[i + 3]) continue; let v = clamp((lum(d[i], d[i + 1], d[i + 2]) - 0.48) * 1.7 + 0.55); if (L.sky) v = 0.62 + v * 0.38; v = Math.round(v * 6) / 6 * 0.75 + v * 0.25;   // a few wash tones
+      d[i] = lerp(I[0], P[0], v); d[i + 1] = lerp(I[1], P[1], v); d[i + 2] = lerp(I[2], P[2], v); }
+    x.putImageData(img, 0, 0); return blurred(c, L.blur ? 3 : 0);
+  }
+  if (look === 'engrave') {                     // grey + contrast here; hatching happens per frame on the screen image (hatchE)
+    for (let i = 0; i < d.length; i += 4) { if (!d[i + 3]) continue; const v = clamp((lum(d[i], d[i + 1], d[i + 2]) - 0.5) * 1.2 + 0.56) * 255; d[i] = d[i + 1] = d[i + 2] = v; }
+    x.putImageData(img, 0, 0); return blurred(c, L.blur ? 2 : 0);
+  }
+  if (look === 'comic') {                       // cel shading: 4 light bands, halftone dots in the darkest; ink outline around solid shapes
+    if (L.keep) return c;
+    const solid = new Uint8Array(PW * PH), soft = new Uint8Array(PW * PH);
+    for (let j = 0, o = 0; j < PH; j++) for (let i = 0; i < PW; i++, o += 4) {
+      if (d[o + 3] < 70) soft[j * PW + i] = 1; if (!d[o + 3]) continue; if (d[o + 3] > 235) solid[j * PW + i] = 1;
+      const l = lum(d[o], d[o + 1], d[o + 2]), band = l < 0.2 ? 0.14 : l < 0.42 ? 0.32 : l < 0.66 ? 0.56 : 0.84;
+      let f = clamp(band / Math.max(l, 0.03), 0, 2.4);
+      if (band === 0.14 && ((i % 6 - 3) ** 2 + (j % 6 - 3) ** 2) < 4) f *= 0.55;
+      d[o] = clamp(d[o] * f, 0, 255); d[o + 1] = clamp(d[o + 1] * f, 0, 255); d[o + 2] = clamp(d[o + 2] * f * 0.96, 0, 255);
+    }
+    if (!L.sky && !L.blur) {
+      const R2 = 2;
+      for (let j = R2; j < PH - R2; j++) for (let i = R2; i < PW - R2; i++) {
+        const k = j * PW + i; if (!soft[k]) continue;
+        if (solid[k - R2] || solid[k + R2] || solid[k - R2 * PW] || solid[k + R2 * PW] || solid[k - 1] || solid[k + 1] || solid[k - PW] || solid[k + PW]) { const o = k * 4; d[o] = 22; d[o + 1] = 18; d[o + 2] = 20; d[o + 3] = 255; }
+      }
+    }
+    x.putImageData(img, 0, 0); return blurred(c, L.blur ? 3 : 0);
+  }
+  return c;
+}
+function blurred(c, px) { if (!px) return c; const b = mk(PW, PH), x = b.getContext('2d'); x.filter = `blur(${px}px)`; x.drawImage(c, 0, 0); return b; }
+
+// layer cache: key look|scene -> array of canvases (null for fx layers). small LRU (plates are big)
+const plates = new Map();
+function getPlates(i, look) {
+  const sc = SC[i], pi = sc.paintKey ?? i, key = look + '|' + pi;
+  if (plates.has(key)) { const v = plates.get(key); plates.delete(key); plates.set(key, v); return v; }
+  const src = SC[pi];
+  const out = src.layers.map((L) => { if (!L.paint) return null; const c = mk(PW, PH); L.paint(c.getContext('2d'), src); return processLayer(c, L, src, look); });
+  plates.set(key, out);
+  while (plates.size > 4) plates.delete(plates.keys().next().value);
+  return out;
+}
+const ready = (i, look) => plates.has(look + '|' + (SC[i].paintKey ?? i));
+
+// =====================================================================================
+// DRAW ONE SCENE into a view of size vw x vh (current transform, caller clips). lt = 0..1 through the
+// scene, t = clock for live effects. layer camera: deeper layers move less (parallax), near layers
+// also grow a little over the shot (dolly feel)
+// =====================================================================================
+function layerTf(sc, L, lt, vw, vh) {
+  const k = ease(lt), c0 = sc.cam[0], c1 = sc.cam[1], cx = lerp(c0[0], c1[0], k), cy = lerp(c0[1], c1[1], k), z = lerp(c0[2], c1[2], k);
+  const fit = Math.max(vw / W, vh / H), par = 0.55 + L.p * 0.9;
+  const s = fit * z * (1 + (L.p - 0.5) * 0.05 * k);
+  const by = (c0[1] + c1[1]) / 2;
+  return { s, ox: PW / 2 + (cx - PW / 2) * par, oy: by + (cy - by) * par };
+}
+function drawScene(x, i, lt, t, vw, vh) {
+  const sc = SC[i], src = SC[sc.paintKey ?? i], pl = getPlates(i, LOOK), boil = LOOK === 'ink' ? Math.floor(t * 8) : -1;
+  src.layers.forEach((L, li) => {
+    x.save();
+    if (L.sky) {                                  // the sky covers the whole view, with very little motion
+      const s = Math.max(vw / PW, vh / PH) * 1.06, k = ease(lt);
+      x.translate(vw / 2 + lerp(10, -10, k) * s, vh / 2); x.scale(s, s); x.translate(-PW / 2, -PH / 2);
+    } else {
+      const tf = layerTf(sc, L, lt, vw, vh);
+      x.translate(vw / 2, vh / 2); x.scale(tf.s, tf.s); x.translate(-tf.ox, -tf.oy);
+      if (boil >= 0) x.translate((hash(boil + li * 7) - 0.5) * 2.4, (hash(boil + li * 7 + 3) - 0.5) * 2.4);   // ink line boil
+    }
+    if (pl[li]) x.drawImage(pl[li], 0, 0); else L.fx(x, src, t, lt);
+    x.restore();
+  });
+}
+// a point in a layer's plate space -> view coordinates (speech balloon tails)
+function toView(i, p, px, py, lt, vw, vh) { const tf = layerTf(SC[i], { p }, lt, vw, vh); return [vw / 2 + (px - tf.ox) * tf.s, vh / 2 + (py - tf.oy) * tf.s]; }
+
+// =====================================================================================
+// TEXTURES: painterly brush, film grain, paper, parchment
+// =====================================================================================
+function texture(w, h, fn) { const c = mk(w, h); fn(c.getContext('2d'), w, h); return c; }
+const brushTex = texture(W, H, (x) => { x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, W, H); x.lineCap = 'round';
+  for (let i = 0; i < 5000; i++) { const px = hash(i * 3) * W, py = hash(i * 3 + 1) * H, a = (hash(i * 3 + 2) - 0.5) * 0.8, l = 10 + hash(i + 11) * 30;
+    x.strokeStyle = hash(i + 13) < 0.5 ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'; x.lineWidth = 2 + hash(i + 17) * 4; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke(); } });
+const grain = texture(256, 256, (x) => { const im = x.createImageData(256, 256); for (let i = 0; i < im.data.length; i += 4) { const v = 128 + (Math.random() - 0.5) * 70; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; } x.putImageData(im, 0, 0); });
+function paperTex(base, spots, fibre) {
+  return texture(W, H, (x) => {
+    x.fillStyle = css(base); x.fillRect(0, 0, W, H);
+    for (let i = 0; i < 60; i++) glow(x, hash(i + 200) * W, hash(i + 201) * H, 60 + hash(i + 202) * 220, spots, 0.06 + hash(i + 203) * 0.08);
+    for (let i = 0; i < 2600; i++) { const px = hash(i + 300) * W, py = hash(i + 301) * H, a = hash(i + 302) * 6.283, l = 3 + hash(i + 303) * 10; x.strokeStyle = css(fibre, 0.12); x.lineWidth = 0.7; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke(); }
+    const g = x.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.72); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, css(spots, 0.35)); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  });
+}
+const inkPaper = paperTex([234, 224, 202], [150, 120, 80], [120, 100, 70]);
+const parchment = paperTex([232, 218, 186], [140, 100, 50], [110, 84, 50]);
+const comicPage = texture(W, H, (x) => { x.fillStyle = '#16171b'; x.fillRect(0, 0, W, H); for (let i = 0; i < 40; i++) glow(x, hash(i + 400) * W, hash(i + 401) * H, 200, [40, 40, 48], 0.4); });
+// ink-bleed masks for the ink wash cut (rough blobs that grow with k)
+const bleed = Array.from({ length: 12 }, (_, n) => texture(320, 180, (x) => {
+  const k = (n + 1) / 12; x.fillStyle = '#000';
+  for (let i = 0; i < 90; i++) { const th = hash(i + 500) * 0.9; if (th > k) continue; const r = (20 + hash(i + 501) * 70) * (0.4 + (k - th) * 2.4);
+    x.beginPath(); x.ellipse(hash(i + 502) * 320, hash(i + 503) * 180, r, r * (0.6 + hash(i + 504) * 0.5), hash(i) * 3, 0, 6.283); x.fill(); }
+  if (k > 0.92) { x.fillRect(0, 0, 320, 180); }
+}));
+// rough-edged frame mask for the ink wash image
+const inkFrame = texture(1160, 520, (x) => {
+  x.fillStyle = '#000'; x.filter = 'blur(6px)'; x.fillRect(26, 22, 1108, 476);
+  x.filter = 'none'; x.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 260; i++) { const side = i % 4, u = hash(i + 600), r = 6 + hash(i + 601) * 22; let px, py;
+    if (side === 0) { px = u * 1160; py = 20 + hash(i + 602) * 14; } else if (side === 1) { px = u * 1160; py = 500 - hash(i + 602) * 14; } else if (side === 2) { px = 24 + hash(i + 602) * 14; py = u * 520; } else { px = 1136 - hash(i + 602) * 14; py = u * 520; }
+    x.beginPath(); x.arc(px, py, r, 0, 6.283); x.fill(); }
+});
+
+// =====================================================================================
+// PRESENTATIONS (one per option): how a scene sits on screen, the cut between scenes, captions, title
+// =====================================================================================
+const bufA = mk(W, H), bufB = mk(W, H);
+const TR = 1.1;                                                  // cut length (s), at the start of each scene
+function capAlpha(i, t) { const s = SC[i]; return clamp(Math.min((t - s.a - 0.9) / 0.6, (s.b - 0.5 - t) / 0.5)); }
+function setFont(x, q, size, base = 'Josefin Sans') { x.font = q ? `italic ${size}px Georgia, serif` : `${size}px "${base}", system-ui, sans-serif`; }
+function wrap(x, text, maxW) { const words = text.split(' '), lines = []; let cur = ''; for (const w of words) { const n = cur ? cur + ' ' + w : w; if (x.measureText(n).width > maxW && cur) { lines.push(cur); cur = w; } else cur = n; } if (cur) lines.push(cur); return lines; }
+function spaced(x, on) { if ('letterSpacing' in x) x.letterSpacing = on; }
+// draws scene i at time t into buffer (full 1280x720 or a given view size)
+function sceneBuf(buf, i, t, vw = W, vh = H) {
+  const x = buf.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, W, H);
+  const lt = clamp((t - SC[i].a) / SC[i].d); drawScene(x, i, lt, t, vw, vh); return buf;
+}
+function titleText(x, cx, cy, a, col, sub, glowCol) {
+  if (a <= 0) return;
+  x.save(); x.globalAlpha = a; x.textAlign = 'center'; x.textBaseline = 'middle';
+  if (glowCol) { x.shadowColor = glowCol; x.shadowBlur = 30; }
+  x.fillStyle = col; x.font = '600 104px "Josefin Sans"'; spaced(x, '22px'); x.fillText('FOGTIDE', cx + 11, cy);
+  x.font = '20px "Josefin Sans"'; spaced(x, '5px'); x.fillStyle = sub; x.fillText('33 YEARS UNTIL THE FOG TIDE', cx + 2, cy + 78);
+  spaced(x, '0px'); x.restore();
+}
+
+// ---------- A painted plates: full colour, letterbox, fog cut ----------
+function frameA(t) {
+  const i = sceneAt(t), s = SC[i], tau = t - s.a;
+  // gentle handheld drift over the whole picture
+  const dx = Math.sin(t * 0.37) * 3, dy = Math.cos(t * 0.29) * 2;
+  ctx.drawImage(sceneBuf(bufA, i, t), dx - 6, dy - 4, W + 12, H + 8);
+  if (i > 0 && tau < TR) {                                       // fog cut: the old shot dissolves through a breath of fog
+    const k = tau / TR; ctx.globalAlpha = 1 - ease(k); ctx.drawImage(sceneBuf(bufB, i - 1, SC[i - 1].b - 0.001 + tau * 0.3), 0, 0); ctx.globalAlpha = 1;
+    const p = puffC([214, 212, 220]); for (let n = 0; n < 12; n++) { const r = 300 + hash(n) * 300; ctx.globalAlpha = 0.5 * Math.sin(k * Math.PI); ctx.drawImage(p, hash(n + 1) * W - r + k * 260 * (hash(n + 2) - 0.3), hash(n + 3) * H - r * 0.6, r * 2, r * 1.2); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.4; ctx.drawImage(brushTex, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  grainOver(0.07, t);
+  vignette(0.5);
+  if (s.title) { ctx.fillStyle = `rgba(0,0,0,${0.5 * ease(span(tau, 0, 1.5))})`; ctx.fillRect(0, 0, W, H); titleText(ctx, W / 2, H / 2 - 30, ease(span(tau, 0.6, 2)), '#f0ece0', '#d8d0bc', 'rgba(0,0,0,0.8)'); }
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, 62); ctx.fillRect(0, H - 92, W, 92);   // letterbox
+  const a = capAlpha(i, t);
+  if (a > 0 && s.cap) { ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; setFont(ctx, s.q, s.q ? 26 : 25); ctx.fillStyle = s.q ? '#cfc6e4' : '#efe9da'; spaced(ctx, s.q ? '0px' : '1px'); ctx.fillText(s.cap, W / 2, H - 46 + (1 - a) * 6); spaced(ctx, '0px'); ctx.restore(); }
+}
+function vignette(a, col = '0,0,0') { const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, W * 0.66); g.addColorStop(0, `rgba(${col},0)`); g.addColorStop(1, `rgba(${col},${a})`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+function grainOver(a, t) { ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = a; const f = Math.floor(t * 24); ctx.translate(-(hash(f) * 256) | 0, -(hash(f + 1) * 256) | 0); ctx.fillStyle = ctx.createPattern(grain, 'repeat'); ctx.fillRect(0, 0, W + 256, H + 256); ctx.restore(); }
+
+// ---------- B graphic novel: panels on 2 pages, the camera glides from panel to panel ----------
+const PAGES = [
+  [{ s: 0, poly: [[16, 16], [1584, 16], [1584, 430], [16, 470]] }, { s: 1, poly: [[16, 488], [846, 467], [786, 884], [16, 884]] }, { s: 2, poly: [[864, 463], [1584, 448], [1584, 884], [804, 884]] }],
+  [{ s: 3, poly: [[16, 16], [1010, 16], [960, 440], [16, 440]] }, { s: 4, poly: [[1028, 16], [1584, 16], [1584, 440], [978, 440]] }, { s: 5, poly: [[16, 458], [1584, 458], [1584, 884], [16, 884]] }],
+];
+for (const pg of PAGES) for (const pn of pg) { const xs = pn.poly.map((p) => p[0]), ys = pn.poly.map((p) => p[1]); pn.r = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }; }
+const panelOf = (si) => { for (let p = 0; p < PAGES.length; p++) { const n = PAGES[p].find((q) => q.s === si); if (n) return { page: p, pn: n }; } return { page: 1, pn: PAGES[1][2] }; };
+function camFor(pn, full = 0) {     // page camera that frames a panel (full = 1: the panel fills the screen)
+  const r = pn.r, m = lerp(28, 0, full), s = lerp(Math.min(W / (r.w + m * 2), H / (r.h + m * 2)), Math.max(W / r.w, H / r.h), full);
+  return { s, x: r.x + r.w / 2, y: r.y + r.h / 2 };
+}
+const stills = new Map();           // snapshot of a panel that isn't playing (start or end frame)
+function panelStill(pn, which) {
+  const key = LOOK + '|' + pn.s + '|' + which;
+  if (!stills.has(key) && ready(pn.s, LOOK)) { const c = mk(pn.r.w, pn.r.h), x = c.getContext('2d'); const sc = SC[pn.s]; drawScene(x, pn.s, which === 'end' ? 1 : 0, sc.a + (which === 'end' ? sc.d : 0), pn.r.w, pn.r.h); stills.set(key, c); }
+  return stills.get(key);
+}
+function framePanel(x, pn) { x.beginPath(); pn.poly.forEach(([a, b], k) => (k ? x.lineTo : x.moveTo).call(x, a, b)); x.closePath(); }
+function frameB(t) {
+  const i = sceneAt(t), s = SC[i], tau = t - s.a, cur = panelOf(i), prev = i > 0 ? panelOf(i - 1) : cur;
+  let cam = camFor(cur.pn, s.title ? ease(span(tau, 0, 1.6)) : 0), pageX = 0;
+  if (i > 0 && tau < TR && !s.title) {
+    const k = ease(tau / TR), c0 = camFor(prev.pn);
+    if (prev.page === cur.page) cam = { s: lerp(c0.s, cam.s, k), x: lerp(c0.x, cam.x, k), y: lerp(c0.y, cam.y, k) };
+    else pageX = (1 - k);                                         // page turn: the new page slides in from the right
+  }
+  ctx.drawImage(comicPage, 0, 0);
+  const drawPage = (p, shift, cm = cam) => {
+    ctx.save(); ctx.translate(W / 2 + shift * W, H / 2); ctx.scale(cm.s, cm.s); ctx.translate(-cm.x, -cm.y);
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 40; ctx.fillStyle = '#f1ead8'; ctx.fillRect(0, 0, 1600, 900); ctx.shadowBlur = 0;
+    for (const pn of PAGES[p]) {
+      ctx.save(); framePanel(ctx, pn); ctx.clip(); ctx.translate(pn.r.x, pn.r.y);
+      const st = SC[pn.s];
+      if (pn.s === i || (s.title && pn.s === 5)) drawScene(ctx, pn.s, clamp((t - st.a) / st.d), t, pn.r.w, pn.r.h);
+      else { const im = panelStill(pn, pn.s < i ? 'end' : 'start'); if (im) ctx.drawImage(im, 0, 0); else { ctx.fillStyle = '#2a2a30'; ctx.fillRect(0, 0, pn.r.w, pn.r.h); } if (pn.s > i) { ctx.fillStyle = 'rgba(241,234,216,0.82)'; ctx.fillRect(0, 0, pn.r.w, pn.r.h); } }
+      if (pn.s === i || (s.title && pn.s === 5)) captionB(pn, t, s.title ? 5 : i);
+      ctx.restore();
+      ctx.lineWidth = 5; ctx.strokeStyle = '#141216'; framePanel(ctx, pn); ctx.stroke();
+    }
+    ctx.restore();
+  };
+  if (pageX > 0) { drawPage(prev.page, -(1 - pageX) * 1.05, camFor(prev.pn)); drawPage(cur.page, pageX * 1.05); } else drawPage(cur.page, 0);
+  if (s.title) { const a = ease(span(tau, 0.8, 2.2)); ctx.fillStyle = `rgba(10,8,12,${0.45 * a})`; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '700 118px "Josefin Sans"'; spaced(ctx, '16px'); ctx.lineWidth = 12; ctx.strokeStyle = '#141216'; ctx.strokeText('FOGTIDE', W / 2 + 8, H / 2 - 30); ctx.fillStyle = '#f4d58a'; ctx.fillText('FOGTIDE', W / 2 + 8, H / 2 - 30); spaced(ctx, '0px'); ctx.restore();
+    boxText(ctx, '33 years until the Fog Tide', W / 2, H / 2 + 62, a, true); }
+}
+function boxText(x, text, cx, cy, a, centre) {
+  x.save(); x.globalAlpha = a; x.font = '600 22px "Josefin Sans"'; spaced(x, '1px'); const w = x.measureText(text.toUpperCase()).width + 36;
+  const bx = centre ? cx - w / 2 : cx, by = cy - 22; x.fillStyle = '#efe0b8'; x.fillRect(bx, by, w, 44); x.lineWidth = 3; x.strokeStyle = '#141216'; x.strokeRect(bx, by, w, 44);
+  x.fillStyle = '#1c1814'; x.textBaseline = 'middle'; x.textAlign = 'left'; x.fillText(text.toUpperCase(), bx + 18, cy + 2); spaced(x, '0px'); x.restore();
+}
+function captionB(pn, t, i) {     // narration in a caption box (top left), the Fogbound's words in a balloon
+  const s = SC[i], a = capAlpha(i, t); if (a <= 0 || !s.cap) return;
+  if (!s.q) {
+    ctx.save(); ctx.globalAlpha = a; ctx.font = '600 21px "Josefin Sans"'; spaced(ctx, '1px');
+    const lines = wrap(ctx, s.cap.toUpperCase(), Math.min(560, pn.r.w - 80)), w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 34, h = lines.length * 28 + 22;
+    const bx = 30, by = pn.s === 2 ? pn.r.h - h - 26 : 26;
+    ctx.fillStyle = '#efe0b8'; ctx.fillRect(bx, by, w, h); ctx.lineWidth = 3; ctx.strokeStyle = '#141216'; ctx.strokeRect(bx, by, w, h);
+    ctx.fillStyle = '#1c1814'; ctx.textBaseline = 'top'; lines.forEach((l, k) => ctx.fillText(l, bx + 17, by + 14 + k * 28)); spaced(ctx, '0px'); ctx.restore();
+    return;
+  }
+  // speech balloon: wobbly outline, tail toward the speaker
+  const lt = clamp((t - s.a) / s.d), [tx, ty] = toView(i, s.balloon.p, s.balloon.x, s.balloon.y, lt, pn.r.w, pn.r.h);
+  ctx.save(); ctx.globalAlpha = a; ctx.font = 'italic 23px Georgia, serif';
+  const lines = wrap(ctx, s.cap.replace(/"/g, ''), 400), w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 60, h = lines.length * 30 + 34;
+  const cx = clamp(tx - 40, w / 2 + 20, pn.r.w - w / 2 - 20), cy = clamp(Math.min(ty - h - 40, pn.r.h * 0.36), h / 2 + 18, pn.r.h - h / 2 - 18);
+  ctx.beginPath(); for (let k = 0; k <= 48; k++) { const an = k / 48 * 6.283, wob = 1 + 0.03 * Math.sin(an * 9 + t * 2); ctx.lineTo(cx + Math.cos(an) * w / 2 * wob, cy + Math.sin(an) * h / 2 * wob); } ctx.closePath();
+  ctx.fillStyle = '#e4dfee'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#3a2f58'; ctx.stroke();
+  const ex = clamp(tx, 10, pn.r.w - 10), ey = clamp(ty, 10, pn.r.h + 40);
+  ctx.beginPath(); ctx.moveTo(cx - 18, cy + h / 2 - 6); ctx.quadraticCurveTo(cx, cy + h / 2 + 20, ex, ey); ctx.quadraticCurveTo(cx + 10, cy + h / 2 + 6, cx + 18, cy + h / 2 - 6); ctx.fillStyle = '#e4dfee'; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#e4dfee'; ctx.fillRect(cx - 17, cy + h / 2 - 12, 34, 8);
+  ctx.fillStyle = '#2a2140'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; lines.forEach((l, k) => ctx.fillText(l, cx, cy - (lines.length - 1) * 15 + k * 30)); ctx.restore();
+}
+
+// ---------- C ink wash: picture on paper with rough edges, ink-bleed cuts, handwritten line below ----------
+const IR = { x: 60, y: 36, w: 1160, h: 520 };
+const bufC = mk(IR.w, IR.h), bufC2 = mk(IR.w, IR.h);
+function inkImage(buf, i, t) {
+  const x = buf.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; x.clearRect(0, 0, IR.w, IR.h);
+  drawScene(x, i, clamp((t - SC[i].a) / SC[i].d), t, IR.w, IR.h);
+  x.globalCompositeOperation = 'destination-in'; x.drawImage(inkFrame, 0, 0); x.globalCompositeOperation = 'source-over'; return buf;
+}
+function frameC(t) {
+  const i = sceneAt(t), s = SC[i], tau = t - s.a;
+  ctx.drawImage(inkPaper, 0, 0);
+  const img = inkImage(bufC, i, t);
+  if (i > 0 && tau < TR) {                                       // the new picture bleeds in over the old one
+    const k = tau / TR, old = inkImage(bufC2, i - 1, SC[i - 1].b - 0.001);
+    ctx.drawImage(old, IR.x, IR.y);
+    const x = old.getContext('2d'); x.clearRect(0, 0, IR.w, IR.h); x.drawImage(img, 0, 0); x.globalCompositeOperation = 'destination-in'; x.imageSmoothingEnabled = true; x.drawImage(bleed[Math.min(11, Math.floor(k * 12))], 0, 0, IR.w, IR.h); x.globalCompositeOperation = 'source-over';
+    ctx.drawImage(old, IR.x, IR.y);
+  } else ctx.drawImage(img, IR.x, IR.y);
+  ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.55; ctx.drawImage(inkPaper, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  if (s.title) { const a = ease(span(tau, 0.6, 2)); glow(ctx, W / 2, IR.y + IR.h / 2, 520, [236, 226, 204], 0.85 * a); titleText(ctx, W / 2, IR.y + IR.h / 2 - 20, a, '#2c2018', '#5a4632'); }
+  const a = capAlpha(i, t);
+  if (a > 0 && s.cap) { ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic ${s.q ? 29 : 28}px Georgia, serif`; ctx.fillStyle = s.q ? '#4a2c5e' : '#2c2018';
+    const lines = wrap(ctx, s.cap, 1000); lines.forEach((l, k) => ctx.fillText(l, W / 2, 620 + (k - (lines.length - 1) / 2) * 38 + (1 - a) * 4)); ctx.restore(); }
+  ctx.save(); ctx.fillStyle = 'rgba(60,40,24,0.55)'; ctx.font = '14px "Josefin Sans"'; spaced(ctx, '3px'); ctx.textAlign = 'right'; ctx.fillText(['I', 'II', 'III', 'IV', 'V', 'VI', ''][i], IR.x + IR.w - 10, 700); spaced(ctx, '0px'); ctx.restore();
+}
+
+// ---------- D shadow play: silhouettes on glowing skies, dip-to-black cuts, spaced caps ----------
+function frameD(t) {
+  const i = sceneAt(t), s = SC[i], tau = t - s.a;
+  if (i > 0 && tau < TR) {
+    const k = tau / TR;
+    if (k < 0.5) { ctx.drawImage(sceneBuf(bufA, i - 1, SC[i - 1].b - 0.001 + tau * 0.3), 0, 0); ctx.fillStyle = `rgba(0,0,0,${ease(k * 2)})`; ctx.fillRect(0, 0, W, H); }
+    else { ctx.drawImage(sceneBuf(bufA, i, t), 0, 0); ctx.fillStyle = `rgba(0,0,0,${1 - ease((k - 0.5) * 2)})`; ctx.fillRect(0, 0, W, H); }
+  } else ctx.drawImage(sceneBuf(bufA, i, t), 0, 0);
+  grainOver(0.06, t); vignette(0.7);
+  if (s.title) { ctx.fillStyle = `rgba(0,0,0,${0.35 * ease(span(tau, 0, 1.5))})`; ctx.fillRect(0, 0, W, H); titleText(ctx, W / 2, H / 2 - 40, ease(span(tau, 0.6, 2)), '#fff4dc', '#ffe2a8', 'rgba(255,190,90,0.7)'); }
+  const a = capAlpha(i, t);
+  if (a > 0 && s.cap) { ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 18;
+    if (s.q) { ctx.font = 'italic 27px Georgia, serif'; ctx.fillStyle = '#d6c8f4'; } else { ctx.font = '22px "Josefin Sans"'; spaced(ctx, '4px'); ctx.fillStyle = '#f6efe0'; }
+    ctx.fillText(s.q ? s.cap : s.cap.toUpperCase(), W / 2, H - 70); spaced(ctx, '0px'); ctx.restore(); }
+}
+
+// ---------- E engraved chronicle: a hatched plate in a book, page-turn cuts, book text under it ----------
+const ER = { x: 200, y: 70, w: 880, h: 470 };
+const gpuE = mk(ER.w, ER.h), engr = new Map();
+function engraved(i, t) {
+  const f = Math.floor(t * 24), key = LOOK + '|' + i;
+  let e = engr.get(key);
+  if (!e) { if (engr.size > 2) engr.delete(engr.keys().next().value); e = { f: -1, c: mk(ER.w, ER.h) }; e.c.getContext('2d', { willReadFrequently: true }); engr.set(key, e); }
+  if (e.f !== f) {
+    const g = gpuE.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, ER.w, ER.h); drawScene(g, i, clamp((t - SC[i].a) / SC[i].d), t, ER.w, ER.h);
+    const b = e.c.getContext('2d'); b.clearRect(0, 0, ER.w, ER.h); b.drawImage(gpuE, 0, 0); hatchE(b); e.f = f;
+  }
+  return e.c;
+}
+function pageE(x, i, t, ca = 1) {   // one whole book page for scene i (ca = caption alpha)
+  x.drawImage(parchment, 0, 0);
+  x.drawImage(engraved(i, t), ER.x, ER.y);
+  x.strokeStyle = '#2a2220'; x.lineWidth = 3; x.strokeRect(ER.x - 8, ER.y - 8, ER.w + 16, ER.h + 16); x.lineWidth = 1; x.strokeRect(ER.x - 15, ER.y - 15, ER.w + 30, ER.h + 30);
+  for (const [cx, cy] of [[ER.x - 15, ER.y - 15], [ER.x + ER.w + 15, ER.y - 15], [ER.x - 15, ER.y + ER.h + 15], [ER.x + ER.w + 15, ER.y + ER.h + 15]]) {   // corner ornaments
+    x.fillStyle = '#2a2220'; x.save(); x.translate(cx, cy); x.rotate(Math.PI / 4); x.fillRect(-7, -7, 14, 14); x.fillStyle = '#9c2a1c'; x.fillRect(-3, -3, 6, 6); x.restore(); }
+  const s = SC[i];
+  x.save(); x.textAlign = 'center'; x.fillStyle = '#9c2a1c'; x.font = '15px "Josefin Sans"'; spaced(x, '6px'); x.fillText(s.title ? '' : ['I', 'II', 'III', 'IV', 'V', 'VI'][i] + '  ·  ' + s.name.toUpperCase(), W / 2 + 3, 44); spaced(x, '0px'); x.restore();
+  if (s.title) { const a = ease(span(t - s.a, 0.6, 2)); x.fillStyle = `rgba(232,218,186,${0.7 * a})`; x.fillRect(ER.x, ER.y, ER.w, ER.h); titleText(x, W / 2, ER.y + ER.h / 2 - 20, a, '#241c18', '#9c2a1c'); return; }
+  // the line as book text with a red drop cap
+  if (ca <= 0) return;
+  x.save(); x.globalAlpha = ca; x.textBaseline = 'alphabetic'; const y0 = 612;
+  if (s.q) { x.font = 'italic 27px Georgia, serif'; x.fillStyle = '#4a2c3a'; x.textAlign = 'center'; const txt = '“' + s.cap.replace(/"/g, '') + '”';
+    wrap(x, txt, ER.w).forEach((l, k) => x.fillText(l, W / 2, y0 + 8 + k * 36)); }
+  else { x.font = '44px Georgia, serif'; const cap = s.cap[0], cw = x.measureText(cap).width + 1; x.fillStyle = '#9c2a1c'; x.fillText(cap, ER.x, y0 + 6);
+    x.font = '26px Georgia, serif'; x.fillStyle = '#2a2220'; wrap(x, s.cap.slice(1), ER.w - cw).forEach((l, k) => x.fillText(l, ER.x + (k ? 0 : cw), y0 + 6 + k * 36)); }
+  x.restore();
+}
+const pageBuf = mk(W, H);
+// engraving: diagonal lines that thicken with darkness, cross-hatch in the shadows, dots in the darkest;
+// strongly coloured pixels (fire, eyes, the beam) stay as a flat accent colour
+function hatchE(b) {
+  const im = b.getImageData(0, 0, ER.w, ER.h), d = im.data, P = [238, 228, 206], I = [36, 30, 26];
+  for (let j = 0; j < ER.h; j++) for (let i = 0; i < ER.w; i++) {
+    const o = (j * ER.w + i) * 4, r = d[o], g = d[o + 1], bl = d[o + 2], mx = Math.max(r, g, bl), mn = Math.min(r, g, bl);
+    if (mx - mn > 46) { if (r > bl + 30 && g < r - 40) { d[o] = 168; d[o + 1] = 44; d[o + 2] = 30; } else if (bl > r) { d[o] = 112; d[o + 1] = 70; d[o + 2] = 180; } else { d[o] = 206; d[o + 1] = 150; d[o + 2] = 54; } continue; }
+    // anti-aliased line coverage: continuous tone instead of a few hard steps
+    const v = (0.3 * r + 0.59 * g + 0.11 * bl) / 255, Pd = 6;
+    const d1 = Math.abs(((i + j) % Pd) / Pd - 0.5) * 2, d2 = Math.abs(((((i - j) % Pd) + Pd) % Pd) / Pd - 0.5) * 2;
+    const ink = Math.max(clamp(((1 - v) * 1.05 - d1) * Pd * 0.5 + 0.5), clamp(((0.5 - v) * 2 - d2) * Pd * 0.5 + 0.5));
+    d[o] = lerp(P[0], I[0], ink); d[o + 1] = lerp(P[1], I[1], ink); d[o + 2] = lerp(P[2], I[2], ink);
+  }
+  b.putImageData(im, 0, 0);
+}
+function frameE(t) {
+  const i = sceneAt(t), s = SC[i], tau = t - s.a;
+  const inCut = i > 0 && tau < TR;
+  pageE(ctx, i, t, inCut ? 1 : capAlpha(i, t));
+  if (i > 0 && tau < TR) {                                       // page turn: the old page folds away from right to left
+    const k = ease(tau / TR), px = pageBuf.getContext('2d'); pageE(px, i - 1, SC[i - 1].b - 0.001, 1);
+    const edge = W * (1 - k), leaf = Math.min(160, W - edge) * (1 - k * 0.6);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, edge, H); ctx.clip(); ctx.drawImage(pageBuf, 0, 0); ctx.restore();
+    const g = ctx.createLinearGradient(edge, 0, edge + 60, 0); g.addColorStop(0, 'rgba(40,24,10,0.35)'); g.addColorStop(1, 'rgba(40,24,10,0)'); ctx.fillStyle = g; ctx.fillRect(edge, 0, 60, H);
+    const g2 = ctx.createLinearGradient(edge - leaf, 0, edge, 0); g2.addColorStop(0, 'rgba(240,228,200,1)'); g2.addColorStop(0.8, 'rgba(214,196,160,1)'); g2.addColorStop(1, 'rgba(160,136,100,1)'); ctx.fillStyle = g2; ctx.fillRect(edge - leaf, 0, leaf, H);
+  }
+}
+
+// =====================================================================================
+// PLAYER: options, play / pause, scene jump, skip, progress; ?v=b&t=12 opens paused at a time
+// =====================================================================================
+const OPT = { a: ['paint', frameA], b: ['comic', frameB], c: ['ink', frameC], d: ['shadow', frameD], e: ['engrave', frameE] };
+const qs = new URLSearchParams(location.search);
+let V = qs.get('v') || 'a', T = parseFloat(qs.get('t') || '0'), playing = false, last = 0, skipped = false;
+const bar = document.getElementById('bar'), stage = document.getElementById('stage'), frame = document.getElementById('frame');
+function fit() { document.documentElement.style.setProperty('--bar', bar.offsetHeight + 'px'); const s = Math.min(stage.clientWidth / W, stage.clientHeight / H); frame.style.transform = `scale(${s}) translate(-50%, -50%)`; }
+addEventListener('resize', fit);
+const scenesEl = document.getElementById('scenes');
+SC.slice(0, 6).forEach((s, k) => { const b = document.createElement('button'); b.className = 'sc'; b.textContent = k + 1; b.title = s.name; b.onclick = () => { seek(s.a + 0.01); }; scenesEl.appendChild(b); });
+function setV(v) {
+  V = v; LOOK = OPT[v][0]; document.querySelectorAll('.top button[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  stills.clear(); prepare(sceneAt(T)); fit();
+}
+bar.addEventListener('click', (e) => { if (e.target.dataset.v) setV(e.target.dataset.v); });
+function prepare(i) { getPlates(i, LOOK); if (i > 0) getPlates(i - 1, LOOK); }
+function seek(t) { T = clamp(t, 0, END); skipped = false; prepare(sceneAt(T)); if (playing) Audio_.start(T); }
+const playBtn = document.getElementById('play'), startEl = document.getElementById('start');
+function setPlaying(p) { playing = p; playBtn.textContent = p ? '❚❚ Pause' : '▶ Play'; startEl.classList.toggle('hide', p || T > 0); if (p) { if (T >= END - 0.05) T = 0; skipped = false; Audio_.start(T); } else Audio_.stop(); last = performance.now(); }
+playBtn.onclick = () => setPlaying(!playing);
+startEl.onclick = () => setPlaying(true);
+const skip = () => { T = END; skipped = true; setPlaying(false); };
+document.getElementById('skip').onclick = skip;
+addEventListener('keydown', (e) => { if (e.key === 'Escape') skip(); else if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); } });
+const sndBtn = document.getElementById('snd');
+sndBtn.onclick = () => { Audio_.on = !Audio_.on; sndBtn.textContent = 'Sound: ' + (Audio_.on ? 'on' : 'off'); if (playing) Audio_.start(T); else Audio_.stop(); };
+
+// draw one frame; plates for the next scene are painted in a quiet moment after the current one starts
+let prepTimer = 0;
+function render() {
+  const i = sceneAt(T);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  if (skipped) { ctx.fillStyle = '#0c0e10'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#9aa6ab'; ctx.font = '20px "Josefin Sans"'; ctx.textAlign = 'center'; ctx.fillText('Skipped: the game menu would open here. Press Play to watch again.', W / 2, H / 2); return; }
+  OPT[V][1](T);
+  ctx.fillStyle = 'rgba(128,128,128,0.35)'; ctx.fillRect(26, 28, 200, 2); ctx.fillStyle = 'rgba(232,228,216,0.8)'; ctx.fillRect(26, 28, 200 * T / END, 2);   // progress line
+  document.querySelectorAll('.sc').forEach((b, k) => b.classList.toggle('on', k === Math.min(i, 5)));
+  if (i + 1 < SC.length && !ready(i + 1, LOOK) && T - SC[i].a > 1.4 && !prepTimer) prepTimer = setTimeout(() => { getPlates(i + 1, LOOK); prepTimer = 0; }, 0);
+}
+function loop(now) {
+  if (playing) { T += Math.min(0.1, (now - last) / 1000); if (T >= END) { T = END; setPlaying(false); } }
+  last = now; render(); requestAnimationFrame(loop);
+}
+
+// =====================================================================================
+// SOUND (placeholder, synthesized): wind, a slow pad per scene, a low boom on every cut, war drums in
+// the siege, an eerie tone with the eyes, a bright chord for the title
+// =====================================================================================
+const Audio_ = {
+  on: true, ac: null, nodes: [],
+  stop() { for (const n of this.nodes) try { n.stop(); } catch (e) {} this.nodes = []; if (this.bus) { this.bus.disconnect(); this.bus = null; } },
+  start(from) {
+    this.stop(); if (!this.on) return;
+    const ac = this.ac || (this.ac = new AudioContext()); ac.resume();
+    const T0 = ac.currentTime + 0.05 - from, bus = ac.createGain(); bus.gain.value = 0.7; this.bus = bus;
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; bus.connect(comp); comp.connect(ac.destination);
+    const noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const at = (t) => Math.max(ac.currentTime, T0 + t);
+    const env = (t0, a, peak, dur, rel = 1.5) => { const g = ac.createGain(); const s = at(t0); g.gain.setValueAtTime(0.0001, s); g.gain.linearRampToValueAtTime(peak, s + a); g.gain.setValueAtTime(peak, Math.max(s + a, T0 + t0 + dur)); g.gain.exponentialRampToValueAtTime(0.0001, Math.max(s + a, T0 + t0 + dur) + rel); g.connect(bus); return g; };
+    const osc = (type, f, t0, t1, out) => { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.connect(out); o.start(at(t0)); o.stop(Math.max(at(t0), T0 + t1) + 0.1); this.nodes.push(o); return o; };
+    const nsrc = (t0, t1, out) => { const s = ac.createBufferSource(); s.buffer = noise; s.loop = true; s.connect(out); s.start(at(t0)); s.stop(Math.max(at(t0), T0 + t1) + 0.1); this.nodes.push(s); return s; };
+    // wind through the whole intro
+    { const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 500; f.Q.value = 0.6; const g = env(Math.max(0, from), 2, 0.07, END - from - 1, 2); f.connect(g); nsrc(Math.max(0, from), END + 2, f); }
+    const chords = [[146.8, 220, 349.2], [146.8, 311.1, 207.7], [73.4, 110, 146.8], [146.8, 174.6, 207.7], [73.4, 103.8, 146.8], [146.8, 185, 220, 293.7], [73.4, 110, 146.8, 370, 440]];
+    SC.forEach((s, k) => {
+      if (s.b < from) return;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = k === 5 || k === 6 ? 1600 : 900; const g = env(s.a, 1.8, k === 6 ? 0.1 : 0.06, s.d - 1.2, 1.8); lp.connect(g);
+      for (const f of chords[k]) { osc('triangle', f, s.a, s.b + 0.6, lp); osc('sine', f * 1.003, s.a, s.b + 0.6, lp); }
+      if (k > 0 && s.a >= from) { const o = ac.createOscillator(); o.type = 'sine'; const st = at(s.a); o.frequency.setValueAtTime(70, st); o.frequency.exponentialRampToValueAtTime(32, st + 1.4); const bg = env(s.a, 0.01, 0.45, 0.05, 1.6); o.connect(bg); o.start(st); o.stop(st + 2); this.nodes.push(o);
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900; const wg = env(s.a - 0.7, 0.65, 0.12, 0.05, 0.5); f.connect(wg); nsrc(s.a - 0.7, s.a + 0.4, f); }
+    });
+    // eyes: thin eerie tone; siege: drums
+    { const s = SC[1]; if (s.b > from) { const g = env(s.a + 1, 2.5, 0.025, s.d - 2, 1); const o = osc('sine', 1318, s.a + 1, s.b + 1, g); const l = ac.createOscillator(); l.frequency.value = 5; const lg = ac.createGain(); lg.gain.value = 12; l.connect(lg); lg.connect(o.frequency); l.start(at(s.a)); l.stop(T0 + s.b + 1); this.nodes.push(l); } }
+    { const s = SC[2]; for (let tt = s.a + 0.2; tt < s.b; tt += 0.48) { if (tt < from) continue; const o = ac.createOscillator(); o.type = 'sine'; const st = at(tt); o.frequency.setValueAtTime(110, st); o.frequency.exponentialRampToValueAtTime(48, st + 0.25); const g = ac.createGain(); g.gain.setValueAtTime(0.0001, st); g.gain.linearRampToValueAtTime(0.32, st + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, st + 0.4); o.connect(g); g.connect(bus); o.start(st); o.stop(st + 0.5); this.nodes.push(o); } }
+  },
+};
+
+// boot: fonts + first plates, then run
+await document.fonts.load('22px "Josefin Sans"').catch(() => {});
+setV(V); fit();
+if (T > 0) { document.getElementById('start').classList.add('hide'); }
+if (qs.has('play')) setPlaying(true);
+requestAnimationFrame((n) => { last = n; loop(n); });
+window.__mc = { seek, get t() { return T; }, END, setV, ready: () => true };
+</script>
+</body>
+</html>
